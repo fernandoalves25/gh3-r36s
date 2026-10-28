@@ -140,6 +140,7 @@ static double num(const secmap *m, const char *name, double def) { return qb_num
 static void cpystr(char *dst, size_t cap, const char *s) { size_t n = strlen(s); if (n >= cap) n = cap - 1; memcpy(dst, s, n); dst[n] = 0; }
 static void lower(char *s) { for (; *s; s++) *s = (char)tolower((unsigned char)*s); }
 
+const char *gh3_library_text(const gh3_library *lib, uint32_t key) { for (int i = 0; i < lib->ntexts; i++) if (lib->texts[i].id == key) return lib->texts[i].s; return ""; }
 void gh3_default_tuning(gh3_tuning *t) {
     static const gh3_diff D[4] = { { 2.33, 0.029, -0.053, 0.058 }, { 1.5, 0.0145, -0.0267, 0.058 }, { 1.29, 0.0135, -0.0374, 0.058 }, { 1.11, 0.012, -0.048, 0.058 } };
     t->hmScale = 2.95; t->early = 116; t->late = 100; t->hamEarly = 83; t->hamLate = 83; t->strumBefore = 34; t->formBefore = 25; t->susShorten = 0.25; t->split = 0.5; t->spDrain = 12.5;
@@ -158,6 +159,11 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
         keep[i] = secs; keepn[i] = ns;
         for (int k = 0; k < ns; k++) if (secs[k].kind != 0x07 && !secmap_get(&m, secs[k].id)) secmap_add(&m, secs[k].id, secs[k].v);
     }
+    /* every string section, kept for look-ups by key (section names of the charts live here) */
+    { int cap2 = 1024; lib->texts = malloc(cap2 * sizeof *lib->texts);
+      for (int i = 0; i < m.n; i++) { const qbv *v = m.a[i].v; if (!v || v->kind != QB_STR || !v->s || !v->s[0]) continue;
+          if (lib->ntexts == cap2) { cap2 *= 2; lib->texts = realloc(lib->texts, cap2 * sizeof *lib->texts); }
+          lib->texts[lib->ntexts].id = m.a[i].id; lib->texts[lib->ntexts].s = strdup(v->s); lib->ntexts++; } }
     /* songs */
     int cap = 128; lib->songs = malloc(cap * sizeof *lib->songs);
     const char *lists[2] = { "permanent_songlist_props", "download_songlist_props" };
@@ -246,7 +252,7 @@ int gh3_songpak_read(const uint8_t *pak, size_t len, const char *name, gh3_songd
     if ((a = arrsec(best, bestn, sd->name, "_fretbars"))) { sd->fretbars = malloc(a->narr * sizeof(int32_t)); for (int i = 0; i < a->narr; i++) sd->fretbars[i] = arr_int(a, i); sd->nfret = a->narr; }
     if ((a = arrsec(best, bestn, sd->name, "_timesig"))) { sd->timesig = calloc(a->narr, sizeof *sd->timesig); for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; if (e && e->kind == QB_ARRAY) for (int k = 0; k < 3 && k < e->narr; k++) sd->timesig[i][k] = arr_int(e, k); } sd->nsig = a->narr; }
     if ((a = arrsec(best, bestn, sd->name, "_markers"))) { sd->markers = calloc(a->narr, sizeof *sd->markers);
-        for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; const qbv *t = qb_get(e, "time"); if (!t) continue; gh3_marker *mk = &sd->markers[sd->nmarkers++]; mk->t = (int)qb_num(t, 0); cpystr(mk->text, sizeof mk->text, qb_str(qb_get(e, "marker"))); } }
+        for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; const qbv *t = qb_get(e, "time"); if (!t) continue; gh3_marker *mk = &sd->markers[sd->nmarkers++]; mk->t = (int)qb_num(t, 0); const qbv *k = qb_get(e, "marker"); cpystr(mk->text, sizeof mk->text, qb_str(k)); qb_keyof(k, &mk->key); } }
     for (int p = 0; p < 4; p++) for (int d = 0; d < 4; d++) {
         char suf[96]; snprintf(suf, sizeof suf, "_song%s_%s", GH3_PART_INFIX[p], GH3_DIFF_NAME[d]);
         a = arrsec(best, bestn, sd->name, suf); if (!a || a->narr < 3) continue;

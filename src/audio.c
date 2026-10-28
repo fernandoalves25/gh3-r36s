@@ -19,7 +19,7 @@ static int running = 0, paused = 0;
 static int64_t mixed = 0;          /* frames mixed since play (negative start = lead-in) */
 static double fromMs = 0, leadMs = 0;
 static Uint64 cbTicks = 0; static int64_t cbMixed = 0; static SDL_SpinLock lock = 0;
-static double est = 0, estAt = 0; static int estOn = 0;
+static double est = 0, estAt = 0; static int estOn = 0; static Uint32 playTicks = 0;
 
 static int pull(stream_t *s) { /* refill s->pcm; returns 0 at end */
     while (s->pcmPos >= s->pcmLen) {
@@ -71,8 +71,16 @@ void audio_play(double from, double lead) {
     if (dev) SDL_LockAudioDevice(dev);
     fromMs = from; leadMs = lead; mixed = -(int64_t)(lead / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0;
     for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue; mp3dec_init(&s->dec); s->pos = 0; s->pcmLen = s->pcmPos = 0; s->ended = 0; s->produced = 0; s->gain = s->target = 1; if (from > 0) skip_to(s, from); }
-    estOn = 0; running = 1; cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed;
+    estOn = 0; running = 1; cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed; playTicks = SDL_GetTicks();
     if (dev) SDL_UnlockAudioDevice(dev);
+}
+void audio_selftest(void) { /* decodes every loaded stream to the end and reports what came out (no device needed) */
+    for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) { printf("bus %d: empty\n", b); continue; }
+        mp3dec_init(&s->dec); s->pos = 0; s->pcmLen = s->pcmPos = 0; s->ended = 0; long frames = 0; int peak = 0; Uint32 t0 = SDL_GetTicks();
+        while (pull(s)) { for (int i = s->pcmPos; i < s->pcmLen; i++) { int v = s->pcm[i] < 0 ? -s->pcm[i] : s->pcm[i]; if (v > peak) peak = v; } frames += (s->pcmLen - s->pcmPos) / (s->channels >= 2 ? 2 : 1); s->pcmPos = s->pcmLen; }
+        Uint32 ms = SDL_GetTicks() - t0;
+        printf("bus %d: %ld frames (%.1f s at %d Hz, %d ch), peak %d/32767, level %.2f, decoded in %u ms (%.0fx realtime)\n", b, frames, frames / (double)(s->hz ? s->hz : 44100), s->hz, s->channels, peak, s->level, ms, ms ? frames / (double)(s->hz ? s->hz : 44100) * 1000 / ms : 0);
+        mp3dec_init(&s->dec); s->pos = 0; s->pcmLen = s->pcmPos = 0; s->ended = 0; }
 }
 void audio_stop(void) { if (dev) SDL_LockAudioDevice(dev); running = 0; if (dev) SDL_UnlockAudioDevice(dev); }
 void audio_pause(int p) { if (dev) SDL_LockAudioDevice(dev); paused = p; estOn = 0; if (dev) SDL_UnlockAudioDevice(dev); }
@@ -83,6 +91,7 @@ void audio_fade_out(double sec) { if (sec <= 0) sec = 0.01; fadeStep = (float)(1
 double audio_duration_ms(void) { double d = 0; for (int b = 0; b < BUS_N; b++) if (S[b].on) { /* MP3 CBR guess: 128 kbps */ double est = S[b].size / 16000.0 * 1000; if (est > d) d = est; } return d; }
 double audio_song_ms(void) {
     if (!running) return fromMs - leadMs;
+    if (!dev) return fromMs - leadMs + (paused ? 0 : (double)(SDL_GetTicks() - playTicks)); /* no sound card: the wall clock keeps the game going */
     SDL_AtomicLock(&lock); Uint64 ct = cbTicks; int64_t cm = cbMixed; SDL_AtomicUnlock(&lock);
     double now = (double)SDL_GetPerformanceCounter() / SDL_GetPerformanceFrequency() * 1000;
     double cbAt = (double)ct / SDL_GetPerformanceFrequency() * 1000;

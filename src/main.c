@@ -46,7 +46,7 @@ static uint8_t *read_data(const char *dir, const char *name, size_t *len) { cons
 /* ------------------------------------------------------------------ config */
 typedef struct {
     char data[520]; int W, H, fullscreen, vsync, soft; int tap, lefty; double volume;
-    int frames, every; char song[64]; int diff, part, autoPlay, dump; char outdir[520];
+    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, screens; char outdir[520];
 } cfg_t;
 static cfg_t cfg;
 static void cfg_defaults(void) {
@@ -66,6 +66,8 @@ static void cfg_args(int argc, char **argv) {
     for (int i = 1; i < argc; i++) { const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : "";
         if (!strcmp(a, "--data")) { snprintf(cfg.data, sizeof cfg.data, "%s", v); i++; }
         else if (!strcmp(a, "--dump")) cfg.dump = 1;
+        else if (!strcmp(a, "--audiotest")) cfg.audiotest = 1;
+        else if (!strcmp(a, "--screens")) { cfg.screens = 1; snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
         else if (!strcmp(a, "--song")) { snprintf(cfg.song, sizeof cfg.song, "%s", v); i++; }
         else if (!strcmp(a, "--diff")) { cfg.diff = diff_index(v); i++; }
         else if (!strcmp(a, "--part")) { cfg.part = !strcmp(v, "rhythm") || !strcmp(v, "bass") ? 1 : atoi(v); i++; }
@@ -99,7 +101,11 @@ static session_t S;
 
 static void build_rows(void) {
     nrows = 0; rows = realloc(rows, (lib.nsongs + lib.ntiers + 1) * sizeof *rows);
-    for (int t = 0; t < lib.ntiers; t++) { rows[nrows].kind = 0; rows[nrows].idx = t; nrows++; for (int k = 0; k < lib.tiers[t].nsongs; k++) { rows[nrows].kind = 1; rows[nrows].idx = lib.tiers[t].songIdx[k]; nrows++; } }
+    for (int t = 0; t < lib.ntiers; t++) { int head = nrows; rows[nrows].kind = 0; rows[nrows].idx = t; nrows++;
+        for (int k = 0; k < lib.tiers[t].nsongs; k++) { const gh3_song *s = &lib.songs[lib.tiers[t].songIdx[k]];
+            if (!strncmp(s->name, "tutorial", 8) || !strncmp(s->name, "boss", 4)) continue; /* the tutorial pieces and the boss battle stems are not songs to pick */
+            rows[nrows].kind = 1; rows[nrows].idx = lib.tiers[t].songIdx[k]; nrows++; }
+        if (nrows == head + 1) nrows = head; }
     cursor = 0; while (cursor < nrows && rows[cursor].kind == 0) cursor++;
 }
 static void move_cursor(int d) { int c = cursor; do { c += d; if (c < 0 || c >= nrows) return; } while (rows[c].kind == 0); cursor = c; }
@@ -141,7 +147,8 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
     S.loaded = 1; return 0;
 }
 static const char *section_at(double t) {
-    const char *s = ""; for (int i = 0; i < S.sd.nmarkers; i++) if (S.sd.markers[i].t <= t) s = S.sd.markers[i].text; else break; return s;
+    const gh3_marker *m = NULL; for (int i = 0; i < S.sd.nmarkers; i++) if (S.sd.markers[i].t <= t) m = &S.sd.markers[i]; else break;
+    if (!m) return ""; return m->text[0] ? m->text : gh3_library_text(&lib, m->key);
 }
 
 /* ------------------------------------------------------------------ the screens */
@@ -262,14 +269,27 @@ static void dump(void) {
     int hopo = 0, sus = 0, chords = 0; for (int i = 0; i < S.chart.nnotes; i++) { hopo += S.chart.notes[i].hopo; sus += S.chart.notes[i].sus > 0; chords += S.chart.notes[i].n > 1; }
     printf("chart %s/%s: %d notes, %d hopos, %d sustains, %d chords, %d phrases, base %.0f, end %d ms\n", GH3_PART_NAME[cfg.part], GH3_DIFF_NAME[cfg.diff], S.chart.nnotes, hopo, sus, chords, S.chart.nphrases, S.chart.base, S.chart.end);
     for (int i = 0; i < 8 && i < S.chart.nnotes; i++) printf("  note %d: t %d len %d mask %02x hopo %d sus %d star %d\n", i, S.chart.notes[i].t, S.chart.notes[i].len, S.chart.notes[i].mask, S.chart.notes[i].hopo, S.chart.notes[i].sus, S.chart.notes[i].star);
-    for (int i = 0; i < S.sd.nmarkers && i < 6; i++) printf("  marker %d ms: %s\n", S.sd.markers[i].t, S.sd.markers[i].text);
+    for (int i = 0; i < S.sd.nmarkers && i < 6; i++) printf("  marker %d ms: %s\n", S.sd.markers[i].t, section_at(S.sd.markers[i].t));
     printf("audio: %d streams, duration %.1f s\n", S.fsb.nstreams, S.durationMs / 1000);
     for (int i = 0; i < S.fsb.nstreams; i++) { const gh3_fsbstream *st = &S.fsb.streams[i]; printf("  stream %d: %-28s role %d samples %u freq %u ch %u size %u\n", i, st->name, st->role, st->samples, st->freq, st->channels, st->size); }
 }
-static void save_frame(int n) {
+static void save_named(const char *name) {
     fb_t *fb = gfx_soft_fb();
     SDL_Surface *s = SDL_CreateRGBSurfaceFrom(fb->px, fb->w, fb->h, 32, fb->w * 4, 0x00FF0000, 0x0000FF00, 0x000000FF, 0);
-    char p[600]; snprintf(p, sizeof p, "%s/frame_%04d.bmp", *cfg.outdir ? cfg.outdir : ".", n); SDL_SaveBMP(s, p); SDL_FreeSurface(s);
+    char p[700]; snprintf(p, sizeof p, "%s/%s.bmp", *cfg.outdir ? cfg.outdir : ".", name); SDL_SaveBMP(s, p); SDL_FreeSurface(s);
+}
+static void save_frame(int n) { char nm[32]; snprintf(nm, sizeof nm, "frame_%04d", n); save_named(nm); }
+static void screens_mode(void) { /* the menus, drawn headlessly for a look */
+    gfx_init(NULL, cfg.W, cfg.H); render_init(cfg.W, cfg.H); build_rows();
+    cursor = 0; move_cursor(1); move_cursor(1); move_cursor(1); selSong = rows[cursor].idx;
+    gfx_begin(); draw_setlist(0); gfx_end(); save_named("setlist");
+    char e[300]; if (load_song(&lib.songs[selSong], 0, 3, 1, 0, e, sizeof e)) { fprintf(stderr, "load: %s\n", e); return; }
+    setupRow = 0; gfx_begin(); draw_setup(0); gfx_end(); save_named("setup");
+    double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&S.run, t, perf);
+    snprintf(S.section, sizeof S.section, "%s", section_at(t)); gfx_begin(); draw_pause(perf); gfx_end(); save_named("pause");
+    for (; !S.run.finished; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&S.run, t, perf);
+    gfx_begin(); draw_results(perf); gfx_end(); save_named("results");
+    printf("screens written to %s\n", cfg.outdir);
 }
 static void frames_mode(void) {
     int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i;
@@ -297,6 +317,9 @@ int main(int argc, char **argv) {
       free(pak); free(pab); }
     if (cfg.dump) { if (!libOk) { puts(libErr); return 1; } dump(); return 0; }
     if (cfg.frames > 0) { if (!libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
+    if (cfg.screens) { if (!libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
+    if (cfg.audiotest) { if (!libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
+        char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) < 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_Window *win = SDL_CreateWindow("Guitar Hero III", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, cfg.W, cfg.H, cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0);

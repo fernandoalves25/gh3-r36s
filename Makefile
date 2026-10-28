@@ -14,7 +14,10 @@ build/gh3: $(SRC) $(HDR)
 arm64:
 	bash scripts/build_arm64.sh
 
+port: arm64
+	bash scripts/make_port.sh
+
 clean:
 	rm -rf build
 
-.PHONY: arm64 clean
+.PHONY: arm64 port clean

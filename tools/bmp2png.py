@@ -7,15 +7,16 @@ def bmp_to_png(src, dst):
     off = struct.unpack_from('<I', b, 10)[0]
     w, h = struct.unpack_from('<ii', b, 18)
     bpp = struct.unpack_from('<H', b, 28)[0]
-    if bpp != 32: raise SystemExit(f'{src}: {bpp} bpp not supported')
-    flip = h > 0; h = abs(h); stride = w * 4
+    if bpp not in (24, 32): raise SystemExit(f'{src}: {bpp} bpp not supported')
+    bpx = bpp // 8
+    flip = h > 0; h = abs(h); stride = (w * bpx + 3) & ~3
     rows = []
     for y in range(h):
         sy = h - 1 - y if flip else y
         row = b[off + sy * stride: off + sy * stride + stride]
         out = bytearray(b'\x00')
         for x in range(w):
-            bb, g, r = row[x * 4], row[x * 4 + 1], row[x * 4 + 2]
+            bb, g, r = row[x * bpx], row[x * bpx + 1], row[x * bpx + 2]
             out += bytes((r, g, bb))
         rows.append(bytes(out))
     raw = b''.join(rows)

@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "name": "gh3-r36s.zip",
+  "items": ["GH3.sh", "gh3"],
+  "items_opt": [],
+  "attr": {
+    "title": "Guitar Hero III (native)",
+    "porter": ["Fernando Alves"],
+    "desc": "A native player for Guitar Hero III's own PC data files: the full set list, lead guitar or bass/rhythm, four difficulties, hammer-ons, sustains and star power, with the game's note-judging rules. Bring your own copy of the game's DATA folder.",
+    "inst": "Copy the game's DATA folder (at least PAK/, SONGS/ and MUSIC/) to ports/gh3/DATA/. See README.md.",
+    "genres": ["music", "rhythm"],
+    "image": null,
+    "rtr": false,
+    "exp": true,
+    "runtime": null,
+    "reqs": [],
+    "arch": ["aarch64"]
+  }
+}

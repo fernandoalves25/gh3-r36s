@@ -18,4 +18,5 @@ void audio_mute(int bus, int mute);
 void audio_set_master(double gain);
 double audio_duration_ms(void);                   /* best estimate from the stream headers */
 void audio_fade_out(double sec);
+void audio_selftest(void);
 #endif

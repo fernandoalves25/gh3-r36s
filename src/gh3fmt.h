@@ -36,8 +36,10 @@ typedef struct { uint32_t key; char name[64], title[128], artist[128], year[16];
 typedef struct { char title[96]; int *songIdx; int nsongs; int tab; } gh3_tier;
 typedef struct { double lookahead, good, bad, star; } gh3_diff;
 typedef struct { double hmScale, early, late, hamEarly, hamLate, strumBefore, formBefore, susShorten, split, spDrain; gh3_diff diffs[4]; } gh3_tuning;
-typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; } gh3_library;
+typedef struct { uint32_t id; char *s; } gh3_text;
+typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; } gh3_library;
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib);
+const char *gh3_library_text(const gh3_library *lib, uint32_t key);   /* a string section of the main script pak (section names and the like) */
 void gh3_default_tuning(gh3_tuning *t);
 
 /* ---- chart data (<name>_song.pak) ---- */
@@ -45,7 +47,7 @@ extern const char *GH3_PART_INFIX[4];  /* "", "_rhythm", "_guitarcoop", "_rhythm
 extern const char *GH3_PART_NAME[4];
 extern const char *GH3_DIFF_NAME[4];   /* easy, medium, hard, expert */
 typedef struct { int32_t *raw; int nraw; int (*star)[2]; int nstar; } gh3_partdiff;
-typedef struct { int t; char text[64]; } gh3_marker;
+typedef struct { int t; uint32_t key; char text[64]; } gh3_marker;   /* text when the chart names the section itself, else key into the main pak's strings */
 typedef struct {
     char name[64];
     int32_t *fretbars; int nfret;
