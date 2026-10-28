@@ -1,0 +1,6 @@
+build/
+*.o
+*.bmp
+*.png
+DATA/
+frames/
