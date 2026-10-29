@@ -54,8 +54,8 @@ O perfil padrão é o do Guitar Hero III de PS2 com o controle comum (DualShock)
 Cada ação aceita até três botões. Há quatro perfis prontos (PS2, em linha, invertido e gatilhos) e a tela de controles
 tem um teste ao vivo. Para cancelar a troca de um botão é só esperar 5 segundos sem apertar nada.
 
-A alavanca funciona como no PS2: segurando uma nota longa, ela abaixa o tom da guitarra (até um tom e meio
-no fundo), a cauda da nota ondula, e numa frase de star power mexer a alavanca enche o medidor. O star power pode
+A alavanca funciona como no PS2: segurando uma nota longa, ela abaixa o tom da guitarra (até três quartos de
+tom no fundo), a cauda da nota ondula, e numa frase de star power mexer a alavanca enche o medidor. O star power pode
 ser usado com o medidor na metade (a marca no meio da barra); o botão aparece na tela quando está pronto.
 
 ## Atraso do som (importante)
