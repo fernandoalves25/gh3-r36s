@@ -189,21 +189,35 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
     /* tiers */
     int *placed = calloc(lib->nsongs ? lib->nsongs : 1, sizeof *placed);
     int tcap = 32; lib->tiers = malloc(tcap * sizeof *lib->tiers);
-    const char *tl[3] = { "gh3_general_songs", "gh3_bonus_songs", "gh3_download_songs" };
-    for (int L = 0; L < 3; L++) {
+    /* the career (gh3_career_songs: 8 tiers of 4 songs, a boss battle in some, an encore last), then the bonus and
+     * downloaded lists; gh3_general_songs only adds the co-op encores, which go in a last set */
+    const char *tl[4] = { "gh3_career_songs", "gh3_bonus_songs", "gh3_download_songs", "gh3_general_songs" };
+    uint32_t K_ENCORE_FLAG = 0xbd963c89u; /* the anonymous flag every career tier but the last carries (the last has no encore) */
+    for (int L = 0; L < 4; L++) {
         const qbv *st = sec(&m, tl[L]); if (!st || st->kind != QB_STRUCT) continue;
         for (int i = 0; i < st->nitems; i++) {
             const qbitem *it = &st->items[i]; if (it->kind != 0x0A || !it->v) continue;
             const qbv *arr = qb_get(it->v, "songs"); if (!arr || arr->kind != QB_ARRAY) continue;
-            gh3_tier t; memset(&t, 0, sizeof t); t.tab = L; t.songIdx = malloc((arr->narr + 1) * sizeof(int));
+            gh3_tier t; memset(&t, 0, sizeof t); t.tab = L; t.career = L == 0; t.encoreIdx = t.bossIdx = -1; t.songIdx = malloc((arr->narr + 1) * sizeof(int));
             for (int k = 0; k < arr->narr; k++) { uint32_t key; if (!qb_keyof(arr->arr[k], &key)) continue; int si = song_index(lib, key); if (si >= 0 && !placed[si]) { placed[si] = 1; t.songIdx[t.nsongs++] = si; } }
             if (!t.nsongs) { free(t.songIdx); continue; }
             const char *title = qb_str(qb_get(it->v, "title")); cpystr(t.title, sizeof t.title, *title ? title : tl[L]);
+            if (t.career) {
+                t.defaultUnlocked = (int)qb_num(qb_get(it->v, "defaultunlocked"), 0);
+                for (int k = 0; k < it->v->nitems; k++) { uint32_t fk; if (it->v->items[k].id == 0 && qb_keyof(it->v->items[k].v, &fk) && fk == K_ENCORE_FLAG) t.hasEncore = 1; }
+                for (int k = 0; k < t.nsongs; k++) if (lib->songs[t.songIdx[k]].isBoss) t.bossIdx = t.songIdx[k];
+                if (t.hasEncore) for (int k = t.nsongs - 1; k >= 0; k--) if (!lib->songs[t.songIdx[k]].isBoss) { t.encoreIdx = t.songIdx[k]; break; }
+            }
             if (lib->ntiers == tcap) { tcap *= 2; lib->tiers = realloc(lib->tiers, tcap * sizeof *lib->tiers); }
             lib->tiers[lib->ntiers++] = t;
         }
     }
-    { gh3_tier t; memset(&t, 0, sizeof t); t.songIdx = malloc((lib->nsongs + 1) * sizeof(int)); for (int i = 0; i < lib->nsongs; i++) if (!placed[i]) t.songIdx[t.nsongs++] = i;
+    /* the general list's own tiers were only mined for their extra songs: merge them into one set */
+    { int first = -1; for (int i = 0; i < lib->ntiers; i++) if (lib->tiers[i].tab == 3) { first = i; break; }
+      if (first >= 0) { gh3_tier *g = &lib->tiers[first]; g->songIdx = realloc(g->songIdx, (lib->nsongs + 1) * sizeof(int));
+          for (int i = first + 1; i < lib->ntiers; i++) { for (int k = 0; k < lib->tiers[i].nsongs; k++) g->songIdx[g->nsongs++] = lib->tiers[i].songIdx[k]; free(lib->tiers[i].songIdx); }
+          lib->ntiers = first + 1; cpystr(g->title, sizeof g->title, "Co-op encores"); } }
+    { gh3_tier t; memset(&t, 0, sizeof t); t.tab = 3; t.encoreIdx = t.bossIdx = -1; t.songIdx = malloc((lib->nsongs + 1) * sizeof(int)); for (int i = 0; i < lib->nsongs; i++) if (!placed[i]) t.songIdx[t.nsongs++] = i;
       if (t.nsongs) { cpystr(t.title, sizeof t.title, "Everything else"); if (lib->ntiers == tcap) { tcap *= 2; lib->tiers = realloc(lib->tiers, tcap * sizeof *lib->tiers); } lib->tiers[lib->ntiers++] = t; } else free(t.songIdx); }
     free(placed);
     /* tuning */

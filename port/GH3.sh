@@ -1,10 +1,12 @@
 #!/bin/bash
 # PortMaster launcher for Guitar Hero III (native) on the R36S and other RK3326 handhelds.
 # Layout under ports/gh3/:
-#   gh3.aarch64   the player (this repo: scripts/build_arm64.sh)
-#   DATA/         YOUR copy of the game's data folder (PAK/, SONGS/, MUSIC/ are what is read)
-#   port.cfg      options (tap mode, volume, lefty, clocks)
-#   log.txt       written on every run
+#   gh3.aarch64        the player (this repo: scripts/build_arm64.sh)
+#   DATA/              YOUR copy of the game's data folder (PAK/, SONGS/, MUSIC/ are what is read)
+#   gh3.cfg            options and controls, written by the game's own menus (Opções / Controles)
+#   gh3-recordes.cfg   records and career progress
+#   port.cfg           launcher options (vsync, clocks, software rendering)
+#   log.txt            written on every run
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 if [ -d "/opt/system/Tools/PortMaster/" ]; then controlfolder="/opt/system/Tools/PortMaster"
 elif [ -d "/opt/tools/PortMaster/" ]; then controlfolder="/opt/tools/PortMaster"
@@ -20,15 +22,16 @@ cd "$GAMEDIR" || exit 1
 [ -f "$GAMEDIR/port.cfg" ] && source "$GAMEDIR/port.cfg"
 
 if [ -z "$(find "$GAMEDIR/DATA" -maxdepth 2 -iname 'qb.pak.xen' 2>/dev/null | head -n 1)" ]; then
-    pm_message "Game files not found. Copy the game's DATA folder to ports/gh3/DATA (see README.md)."
+    pm_message "Arquivos do jogo não encontrados. Copie a pasta DATA do Guitar Hero III para ports/gh3/DATA (veja README.md)."
     sleep 6; exit 1
 fi
 
 export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
 export GH3_DATA="$GAMEDIR/DATA"
+export GH3_HOME="$GAMEDIR"
 export GH3_SCREEN="${DISPLAY_WIDTH:-640}x${DISPLAY_HEIGHT:-480}"
 export GH3_FULLSCREEN=1
-export GH3_TAP="${TAP_MODE:-0}" GH3_VOLUME="${VOLUME:-100}" GH3_LEFTY="${LEFTY:-0}" GH3_VSYNC="${VSYNC:-1}"
+export GH3_VSYNC="${VSYNC:-1}"
 [ "${SOFT_RENDER:-0}" = 1 ] && export GH3_RENDER=soft
 
 # full clocks while playing: CPU, GPU and memory governors to "performance", the previous ones back on exit (PERF_GOV=0 leaves them alone)

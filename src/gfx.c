@@ -17,17 +17,23 @@ gfx_sprite *gfx_bake(const fb_t *src, int linear) {
     if (R) {
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, linear ? "1" : "0");
         s->tex = SDL_CreateTexture(R, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, src->w, src->h);
-        /* straight alpha in, blended by the renderer */
-        SDL_UpdateTexture(s->tex, NULL, src->px, src->w * 4);
+        SDL_UpdateTexture(s->tex, NULL, src->px, src->w * 4);   /* straight alpha in, blended by the renderer */
         SDL_SetTextureBlendMode(s->tex, SDL_BLENDMODE_BLEND);
     } else { fb_init(&s->img, src->w, src->h); memcpy(s->img.px, src->px, (size_t)src->w * src->h * 4); }
     return s;
 }
-/* the 5x7 font as one atlas: 64 glyphs, 6 px apart, white on transparent */
-extern void fb_text(fb_t *f, int x, int y, int scale, const char *s, uint32_t c);
+gfx_sprite *gfx_bake_up(const fb_t *src, int up, int linear) {
+    if (up <= 1) return gfx_bake(src, linear);
+    fb_t big; fb_init(&big, src->w * up, src->h * up);
+    for (int y = 0; y < big.h; y++) for (int x = 0; x < big.w; x++) big.px[(size_t)y * big.w + x] = src->px[(size_t)(y / up) * src->w + x / up];
+    gfx_sprite *s = gfx_bake(&big, linear); fb_free(&big); return s;
+}
+void gfx_free_sprite(gfx_sprite *s) { if (!s) return; if (s->tex) SDL_DestroyTexture(s->tex); if (s->img.px) fb_free(&s->img); free(s); }
+/* the font as one atlas: every glyph FONT_ADV px apart, white on transparent */
 static void bake_font(void) {
-    fb_t a; fb_init(&a, 64 * 6, 7); for (int i = 0; i < a.w * a.h; i++) a.px[i] = 0;
-    for (int g = 0; g < 64; g++) { char s[2] = { (char)(32 + g), 0 }; fb_text(&a, g * 6, 0, 1, s, RGB(255, 255, 255)); }
+    int n = font_count(); fb_t a; fb_init(&a, n * FONT_ADV, FONT_H);
+    for (int g = 0; g < n; g++) { const uint16_t *gl = font_glyph(g);
+        for (int col = 0; col < FONT_W; col++) for (int row = 0; row < FONT_H; row++) if (gl[col] & (1 << row)) a.px[(size_t)row * a.w + g * FONT_ADV + col] = RGB(255, 255, 255); }
     font = gfx_bake(&a, 0); fb_free(&a);
 }
 int gfx_init(SDL_Renderer *ren, int w, int h) {
@@ -44,9 +50,16 @@ void gfx_rect(float x, float y, float w, float h, uint32_t c) {
         SDL_SetRenderDrawColor(R, (c >> 16) & 255, (c >> 8) & 255, c & 255, c >> 24); SDL_RenderFillRect(R, &r); }
     else fb_rect(&soft, (int)floorf(x + 0.5f), (int)floorf(y + 0.5f), (int)(w + 0.5f) > 0 ? (int)(w + 0.5f) : 1, (int)(h + 0.5f) > 0 ? (int)(h + 0.5f) : 1, c);
 }
+void gfx_frame(float x, float y, float w, float h, float t, uint32_t c) {
+    gfx_rect(x, y, w, t, c); gfx_rect(x, y + h - t, w, t, c); gfx_rect(x, y + t, t, h - 2 * t, c); gfx_rect(x + w - t, y + t, t, h - 2 * t, c);
+}
+void gfx_line(float x0, float y0, float x1, float y1, float t, uint32_t c) {
+    float dx = x1 - x0, dy = y1 - y0, L = sqrtf(dx * dx + dy * dy); int steps = (int)(L / (t * 0.5f)) + 1; if (t < 1) t = 1;
+    for (int i = 0; i <= steps; i++) { float k = (float)i / steps; gfx_rect(x0 + dx * k - t / 2, y0 + dy * k - t / 2, t, t, c); }
+}
 static inline uint32_t mulc(uint32_t a, uint32_t b) { return (a * b + 127) / 255; }
 void gfx_blit(gfx_sprite *s, int sx, int sy, int sw, int sh, float dx, float dy, float dw, float dh, uint32_t tint, float alpha) {
-    if (alpha <= 0.002f || dw < 0.5f || dh < 0.5f) return; if (alpha > 1) alpha = 1;
+    if (!s || alpha <= 0.002f || dw < 0.5f || dh < 0.5f) return; if (alpha > 1) alpha = 1;
     if (R) {
         SDL_Rect src = { sx, sy, sw, sh }, dst = { (int)floorf(dx + 0.5f), (int)floorf(dy + 0.5f), (int)(dw + 0.5f), (int)(dh + 0.5f) }; if (dst.w < 1) dst.w = 1; if (dst.h < 1) dst.h = 1;
         SDL_SetTextureColorMod(s->tex, (tint >> 16) & 255, (tint >> 8) & 255, tint & 255); SDL_SetTextureAlphaMod(s->tex, (Uint8)(alpha * 255 + 0.5f));
@@ -66,11 +79,34 @@ void gfx_blit(gfx_sprite *s, int sx, int sy, int sw, int sh, float dx, float dy,
 void gfx_sprite_draw(gfx_sprite *s, float cx, float cy, float scale, uint32_t tint, float alpha) {
     float w = s->w * scale, h = s->h * scale; gfx_blit(s, 0, 0, s->w, s->h, cx - w / 2, cy - h / 2, w, h, tint, alpha);
 }
-static int glyph_of(unsigned char ch) { if (ch >= 'a' && ch <= 'z') ch = (unsigned char)(ch - 32); if (ch >= 128) return '?' - 32; if (ch < 32 || ch > 95) return 0; return ch - 32; }
-int gfx_text_w(const char *s, int scale) { int n = (int)strlen(s); return n ? (n * 6 - 1) * scale : 0; }
+void gfx_sprite_at(gfx_sprite *s, float x, float y, float scale, uint32_t tint, float alpha) { gfx_blit(s, 0, 0, s->w, s->h, x, y, s->w * scale, s->h * scale, tint, alpha); }
+
+/* ---- text ---- */
+int gfx_text_w(const char *s, int scale) { int n = font_strlen(s); return n ? (n * FONT_ADV - 1) * scale : 0; }
 void gfx_text(int x, int y, int scale, const char *s, uint32_t c) {
     float a = (c >> 24) / 255.0f; uint32_t tint = c & 0xFFFFFF;
-    for (; *s; s++, x += 6 * scale) { int g = glyph_of((unsigned char)*s); if (!g) continue; gfx_blit(font, g * 6, 0, 5, 7, (float)x, (float)y, 5.0f * scale, 7.0f * scale, tint, a); }
+    while (*s) { int g = font_next(&s); if (g) gfx_blit(font, g * FONT_ADV, 0, FONT_W, FONT_H, (float)x, (float)y, (float)(FONT_W * scale), (float)(FONT_H * scale), tint, a); x += FONT_ADV * scale; }
 }
 void gfx_text_center(int cx, int y, int scale, const char *s, uint32_t c) { gfx_text(cx - gfx_text_w(s, scale) / 2, y, scale, s, c); }
 void gfx_text_right(int rx, int y, int scale, const char *s, uint32_t c) { gfx_text(rx - gfx_text_w(s, scale), y, scale, s, c); }
+void gfx_text_sh(int x, int y, int scale, const char *s, uint32_t c, uint32_t shadow) { int d = scale > 1 ? scale / 2 + 1 : 1; gfx_text(x + d, y + d, scale, s, shadow); gfx_text(x, y, scale, s, c); }
+void gfx_text_sh_center(int cx, int y, int scale, const char *s, uint32_t c, uint32_t shadow) { gfx_text_sh(cx - gfx_text_w(s, scale) / 2, y, scale, s, c, shadow); }
+void gfx_text_sh_right(int rx, int y, int scale, const char *s, uint32_t c, uint32_t shadow) { gfx_text_sh(rx - gfx_text_w(s, scale), y, scale, s, c, shadow); }
+void gfx_text_title(int x, int y, int scale, const char *s, uint32_t c, uint32_t edge, int depth) {
+    for (int d = depth; d >= 1; d--) gfx_text(x + d, y + d, scale, s, edge);
+    int o = scale > 2 ? 2 : 1; gfx_text(x - o, y, scale, s, edge); gfx_text(x + o, y, scale, s, edge); gfx_text(x, y - o, scale, s, edge); gfx_text(x, y + o, scale, s, edge);
+    gfx_text(x, y, scale, s, c);
+}
+int gfx_text_box(int x, int y, int w, int scale, const char *s, uint32_t c) {
+    char line[256] = ""; int used = 0, y0 = y;
+    while (*s) {
+        const char *p = s; while (*p == ' ') p++; const char *e = p; while (*e && *e != ' ' && *e != '\n') e++;
+        char word[128]; int wl = (int)(e - p); if (wl > 127) wl = 127; memcpy(word, p, wl); word[wl] = 0;
+        char trial[256]; snprintf(trial, sizeof trial, "%s%s%s", line, used ? " " : "", word);
+        if (used && gfx_text_w(trial, scale) > w) { gfx_text(x, y, scale, line, c); y += FONT_LINE * scale; snprintf(line, sizeof line, "%s", word); used = wl > 0; }
+        else { snprintf(line, sizeof line, "%s", trial); used = 1; }
+        s = e; if (*s == '\n') { gfx_text(x, y, scale, line, c); y += FONT_LINE * scale; line[0] = 0; used = 0; s++; }
+    }
+    if (used) { gfx_text(x, y, scale, line, c); y += FONT_LINE * scale; }
+    return y - y0;
+}

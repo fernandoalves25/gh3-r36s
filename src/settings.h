@@ -1,0 +1,37 @@
+/* Player settings (kept in gh3.cfg next to the port) and the records table (gh3-recordes.cfg). */
+#ifndef SETTINGS_H
+#define SETTINGS_H
+#include <stddef.h>
+enum { ACT_FRET0, ACT_FRET1, ACT_FRET2, ACT_FRET3, ACT_FRET4, ACT_STRUM_UP, ACT_STRUM_DOWN, ACT_STAR, ACT_WHAMMY, ACT_PAUSE, ACT_N };
+enum { BIND_NONE = 0, BIND_BUTTON = 1, BIND_AXIS = 2 };
+typedef struct { int type, id, dir; } bind_t;      /* axis: dir -1 / +1 is the side that counts; 0 = either way (whammy) */
+#define BIND_SLOTS 2
+#define THEME_N 2
+typedef struct {
+    int tap;            /* 1 = notes play when their frets are held (no strumming) */
+    int lefty;          /* mirror the highway */
+    int hyper;          /* highway speed 0..5 */
+    int noFail;         /* the rock meter cannot end the song */
+    int stageFx;        /* crowd, lights and beams */
+    int showFps;
+    int preview;        /* song previews on the set list */
+    int volMusic, volSfx;   /* 0..100 */
+    int offsetMs;       /* added to the song clock when judging (+ = your presses are late) */
+    int bgDim;          /* 0..100: how dark the stage behind the highway is */
+    int unlockAll;      /* every song open whatever the career says */
+    int theme;          /* 0 pixel art, 1 HD (smooth) */
+    bind_t binds[ACT_N][BIND_SLOTS];
+} settings_t;
+extern settings_t SET;
+void settings_defaults(void);
+const char *settings_home(void);                     /* GH3_HOME or "." */
+int settings_load(void);
+int settings_save(void);
+
+typedef struct { char key[96]; long score; int pct, streak, stars; int plays; } record_t;
+const record_t *records_get(const char *song, int diff, int part);
+int records_put(const char *song, int diff, int part, long score, int pct, int streak, int stars);   /* 1 when it is a new best score */
+int records_load(void);
+int records_save(void);
+int records_count_stars(void);                       /* all stars earned, for the set list header */
+#endif
