@@ -193,11 +193,24 @@ if [ -n "$WAYLAND_SOCKET" ] && [ -z "${SDL_VIDEO_EGL_DRIVER:-}" ] && [ -z "${SDL
   fi
 fi
 
+# ArkOS on the R36S: the run that worked used the firmware's own 32-bit libEGL.so and the game resolved GLES1
+# from libmali.so.1 by itself (no shim, no explicit blob). The blob scan below has nothing usable to find on
+# this firmware and ends up at the stray libmali-bifrost-g31-rxp0-gbm blob under /usr/local/lib (also reachable
+# as libmali.so there), whose user-space 10.6 the kernel's 11.7 Mali driver refuses: glGetString returns NULL
+# and cocos2d aborts with "basic_string::_S_construct NULL not valid". POP_GL_MODE=scan in port.cfg restores
+# the scan; POP_GL_BLOB=/path forces one library.
+POP_GL_MODE="${POP_GL_MODE:-firmware}"
+if [ -n "${POP_GL_BLOB:-}" ]; then POP_GL_MODE=scan; fi
+if [ "$POP_GL_MODE" = firmware ] && [ -z "${SDL_VIDEO_EGL_DRIVER:-}" ] && [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+  export SDL_VIDEO_EGL_DRIVER=libEGL.so
+  echo "Graphics: firmware mode (POP_GL_MODE=firmware): EGL=libEGL.so, GLES1 resolved by the game"
+fi
+
 if [ -z "${SDL_VIDEO_EGL_DRIVER:-}" ] && [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
   for gl_dir in $GL_DIRS; do
     for gl_blob in ${POP_GL_BLOB:-} "$gl_dir"/libmali.so.1 "$gl_dir"/libmali.so "$gl_dir"/libmali-*.so "$gl_dir"/libmali.so* "$gl_dir"/libMali.so*; do
       [ -e "$gl_blob" ] || continue
-      case "$gl_blob" in *rxp0*) continue ;; esac  # old blob (user 10.6) the kernel's Mali driver (11.7) refuses
+      case "$gl_blob:$(readlink -f "$gl_blob" 2>/dev/null)" in *rxp0*) continue ;; esac  # old blob (user 10.6) the kernel's Mali driver (11.7) refuses, by any name
       [ "$(od -An -tu1 -j4 -N1 "$gl_blob" 2>/dev/null | tr -d ' ')" = 1 ] || continue
       GL_SHIM=$(mktemp -d /tmp/popclassic-gl.XXXXXX) || break 2
       for soname in libEGL.so libEGL.so.1 libGLESv1_CM.so libGLESv1_CM.so.1 libGLESv2.so libGLESv2.so.2; do
