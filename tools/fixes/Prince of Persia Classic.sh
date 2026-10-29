@@ -206,6 +206,46 @@ if [ "$POP_GL_MODE" = firmware ] && [ -z "${SDL_VIDEO_EGL_DRIVER:-}" ] && [ -z "
   echo "Graphics: firmware mode (POP_GL_MODE=firmware): EGL=libEGL.so, GLES1 resolved by the game"
 fi
 
+# The game takes GLES1 from libGL.so.1 when a 32-bit one exists (GL4ES/Mesa), and that library never sees the
+# Mali EGL context: glGetString returns NULL and cocos2d aborts on the first texture ("_S_construct NULL not
+# valid"). The run that worked took GLES1 from libmali.so.1, so libGL.so.1 points there in a shim directory.
+# POP_GL_PROVIDER=system keeps the system libGL.so.1; POP_GL_PROVIDER=/path forces a library.
+if [ "$DEBUG_LOGGING" = "1" ]; then
+  echo "Graphics: 32-bit GL libraries on this system:"
+  for gl_dir in $GL_DIRS; do
+    for gl_lib in "$gl_dir"/libGL.so* "$gl_dir"/libEGL.so* "$gl_dir"/libGLESv1_CM.so* "$gl_dir"/libmali*; do
+      is_armhf_elf "$gl_lib" && echo "  $gl_lib -> $(readlink -f "$gl_lib")"
+    done
+  done
+  { /sbin/ldconfig -p 2>/dev/null || ldconfig -p 2>/dev/null; } | grep -E 'lib(GL|EGL|GLESv1_CM|mali)\.so' | sed 's/^/  cache: /'
+fi
+POP_GL_PROVIDER="${POP_GL_PROVIDER:-mali}"
+if [ "$POP_GL_MODE" = firmware ] && [ "${SDL_VIDEO_EGL_DRIVER:-}" = libEGL.so ] && [ "$POP_GL_PROVIDER" != system ]; then
+  gl_provider=""
+  case "$POP_GL_PROVIDER" in
+    /*) gl_provider="$POP_GL_PROVIDER" ;;
+    *)
+      for gl_lib in $({ /sbin/ldconfig -p 2>/dev/null || ldconfig -p 2>/dev/null; } | sed -n 's/^[[:space:]]*libmali\.so\.1 (.*) => //p') \
+                    /lib/arm-linux-gnueabihf/libmali.so.1 /usr/lib/arm-linux-gnueabihf/libmali.so.1; do
+        is_armhf_elf "$gl_lib" && { gl_provider="$gl_lib"; break; }
+      done
+      if [ -z "$gl_provider" ]; then
+        for gl_dir in $GL_DIRS; do
+          is_armhf_elf "$gl_dir/libmali.so.1" && { gl_provider="$gl_dir/libmali.so.1"; break; }
+        done
+      fi
+      ;;
+  esac
+  if is_armhf_elf "$gl_provider"; then
+    GL_SHIM=$(mktemp -d /tmp/popclassic-gl.XXXXXX) || exit 1
+    ln -s "$gl_provider" "$GL_SHIM/libGL.so.1"
+    export LD_LIBRARY_PATH="$GL_SHIM:$LD_LIBRARY_PATH"
+    echo "Graphics: GLES1 provider libGL.so.1 -> $gl_provider ($(readlink -f "$gl_provider"))"
+  else
+    echo "Graphics: no 32-bit libmali.so.1 found; the game picks its own GLES1 library"
+  fi
+fi
+
 if [ -z "${SDL_VIDEO_EGL_DRIVER:-}" ] && [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
   for gl_dir in $GL_DIRS; do
     for gl_blob in ${POP_GL_BLOB:-} "$gl_dir"/libmali.so.1 "$gl_dir"/libmali.so "$gl_dir"/libmali-*.so "$gl_dir"/libmali.so* "$gl_dir"/libMali.so*; do
@@ -213,7 +253,7 @@ if [ -z "${SDL_VIDEO_EGL_DRIVER:-}" ] && [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}"
       case "$gl_blob:$(readlink -f "$gl_blob" 2>/dev/null)" in *rxp0*) continue ;; esac  # old blob (user 10.6) the kernel's Mali driver (11.7) refuses, by any name
       [ "$(od -An -tu1 -j4 -N1 "$gl_blob" 2>/dev/null | tr -d ' ')" = 1 ] || continue
       GL_SHIM=$(mktemp -d /tmp/popclassic-gl.XXXXXX) || break 2
-      for soname in libEGL.so libEGL.so.1 libGLESv1_CM.so libGLESv1_CM.so.1 libGLESv2.so libGLESv2.so.2; do
+      for soname in libEGL.so libEGL.so.1 libGLESv1_CM.so libGLESv1_CM.so.1 libGLESv2.so libGLESv2.so.2 libGL.so.1; do
         ln -s "$gl_blob" "$GL_SHIM/$soname"
       done
       export SDL_VIDEO_EGL_DRIVER="$gl_blob" SDL_VIDEO_GL_DRIVER="$gl_blob"
