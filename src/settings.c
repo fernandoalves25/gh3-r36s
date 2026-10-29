@@ -38,7 +38,7 @@ int settings_load(void) {
     char line[200]; int version = 1;
     while (fgets(line, sizeof line, f)) { char *eq = strchr(line, '='); if (!eq || line[0] == '#') continue; *eq = 0; char *k = line, *v = eq + 1; v[strcspn(v, "\r\n")] = 0; int n = atoi(v);
         if (!strcmp(k, "versao")) { version = n; continue; }
-        if (version < SETTINGS_VERSION && (!strncmp(k, "controle_", 9) || !strcmp(k, "atraso_ms"))) continue; /* an older layout: the new defaults stay */
+        if ((version < 3 && !strncmp(k, "controle_", 9)) || (version < 2 && !strcmp(k, "atraso_ms"))) continue; /* an older layout: the new defaults stay */
         if (!strcmp(k, "palhetada")) SET.tap = n ? 0 : 1; else if (!strcmp(k, "canhoto")) SET.lefty = !!n; else if (!strcmp(k, "velocidade")) SET.hyper = n < 0 ? 0 : n > 5 ? 5 : n;
         else if (!strcmp(k, "sem_falhar")) SET.noFail = !!n; else if (!strcmp(k, "palco")) SET.stageFx = !!n; else if (!strcmp(k, "fps")) SET.showFps = !!n; else if (!strcmp(k, "previa")) SET.preview = !!n;
         else if (!strcmp(k, "volume_musica")) SET.volMusic = n < 0 ? 0 : n > 100 ? 100 : n; else if (!strcmp(k, "volume_efeitos")) SET.volSfx = n < 0 ? 0 : n > 100 ? 100 : n;

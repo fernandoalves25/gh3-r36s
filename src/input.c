@@ -6,33 +6,36 @@
 static const char *ACTNAME[ACT_N] = { "Traste verde", "Traste vermelho", "Traste amarelo", "Traste azul", "Traste laranja", "Palhetada para cima", "Palhetada para baixo", "Star Power", "Alavanca (whammy)", "Pausa" };
 const char *input_action_name(int a) { return a >= 0 && a < ACT_N ? ACTNAME[a] : "?"; }
 /* The R36S buttons are named by their labels (A right, B bottom, X top, Y left), as PortMaster maps them.
- * Profile 0 is the PS2 game's DualShock layout moved to those positions: green R2, red Circle (right = A),
- * yellow Triangle (top = X), blue Cross (bottom = B), orange Square (left = Y); strum on the D-pad, star power
- * on Select and on L2 (the PS2 "tilt" button), whammy on the analog sticks. */
-static const char *PRESET[PRESET_N] = { "PS2 (R2 A X B Y)", "Em linha (X Y B A R1)", "Invertido (R1 A B Y X)", "Gatilhos (L1 X Y A R1)" };
+ * Profile 0 is the GH3 PS2 manual's DualShock layout: green L2, red L1, yellow R1, blue R2, orange Cross
+ * (bottom = B); strum on the D-pad, star power on Select (and on X, the Triangle spot), whammy on the analog
+ * sticks. Profile 1 is the first Guitar Hero's face-button layout: green R2, red Circle, yellow Triangle,
+ * blue Cross, orange Square. */
+static const char *PRESET[PRESET_N] = { "PS2 (L2 L1 R1 R2 B)", "GH1 PS2 (R2 A X B Y)", "Em linha (X Y B A R1)", "Invertido (R1 A B Y X)", "Gatilhos (L1 X Y A R1)" };
 const char *input_preset_name(int p) { return p >= 0 && p < PRESET_N ? PRESET[p] : "?"; }
 
 static bind_t B(int id) { bind_t b = { BIND_BUTTON, id, 0 }; return b; }
 static bind_t AX(int id, int dir) { bind_t b = { BIND_AXIS, id, dir }; return b; }
 static bind_t ST(int id) { bind_t b = { BIND_STICK, id, 0 }; return b; }
 void input_apply_preset(int p) {
-    enum { R2 = 100 };   /* a fret on the right trigger axis */
+    enum { L2 = 100, R2 };   /* frets on the trigger axes */
     static const int frets[PRESET_N][5] = {
+        { L2, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, R2, SDL_CONTROLLER_BUTTON_B },
         { R2, SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_Y },
         { SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
         { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_Y, SDL_CONTROLLER_BUTTON_X },
         { SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y, SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER } };
     if (p < 0 || p >= PRESET_N) p = 0;
     memset(SET.binds, 0, sizeof SET.binds);
-    for (int f = 0; f < 5; f++) SET.binds[ACT_FRET0 + f][0] = frets[p][f] == R2 ? AX(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1) : B(frets[p][f]);
-    if (p == 0) SET.binds[ACT_FRET0][1] = B(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);   /* R1 next to R2 also plays green */
+    for (int f = 0; f < 5; f++) { int k = frets[p][f]; SET.binds[ACT_FRET0 + f][0] = k == L2 ? AX(SDL_CONTROLLER_AXIS_TRIGGERLEFT, 1) : k == R2 ? AX(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1) : B(k); }
+    if (p == 1) SET.binds[ACT_FRET0][1] = B(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);   /* R1 next to R2 also plays green */
     SET.binds[ACT_STRUM_UP][0] = B(SDL_CONTROLLER_BUTTON_DPAD_UP);
     SET.binds[ACT_STRUM_DOWN][0] = B(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
     SET.binds[ACT_STAR][0] = B(SDL_CONTROLLER_BUTTON_BACK);
-    if (p == 3) SET.binds[ACT_STAR][1] = AX(SDL_CONTROLLER_AXIS_TRIGGERLEFT, 1);
+    if (p == 0) SET.binds[ACT_STAR][1] = B(SDL_CONTROLLER_BUTTON_X);
+    else if (p == 4) SET.binds[ACT_STAR][1] = AX(SDL_CONTROLLER_AXIS_TRIGGERLEFT, 1);
     else { SET.binds[ACT_STAR][1] = AX(SDL_CONTROLLER_AXIS_TRIGGERLEFT, 1); SET.binds[ACT_STAR][2] = B(SDL_CONTROLLER_BUTTON_LEFTSHOULDER); }
     SET.binds[ACT_WHAMMY][0] = ST(0); SET.binds[ACT_WHAMMY][1] = ST(1);
-    if (p != 0) SET.binds[ACT_WHAMMY][2] = AX(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1);
+    if (p > 1) SET.binds[ACT_WHAMMY][2] = AX(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1);
     SET.binds[ACT_PAUSE][0] = B(SDL_CONTROLLER_BUTTON_START);
 }
 void input_bind_name(const bind_t *b, char *out, size_t n) {

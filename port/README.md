@@ -36,22 +36,23 @@ Uma música só conta como completada se não falhar; no modo "sem falhar" nada 
 
 ## Controles (padrão igual ao PS2, todos configuráveis em Controles)
 
-O perfil padrão é o do Guitar Hero III de PS2 com o controle comum (DualShock), nos botões equivalentes do R36S:
+O perfil padrão é o do manual do Guitar Hero III de PS2 para o controle comum (DualShock 2): os trastes ficam nos
+botões de ombro e no X, que no R36S é o botão de baixo (B):
 
-| Ação | PS2 (DualShock) | R36S |
+| Ação | PS2 (DualShock 2) | R36S |
 | --- | --- | --- |
-| Traste verde | R2 | R2 (ou R1) |
-| Traste vermelho | Bola | A |
-| Traste amarelo | Triângulo | X |
-| Traste azul | X | B |
-| Traste laranja | Quadrado | Y |
+| Traste verde | L2 | L2 |
+| Traste vermelho | L1 | L1 |
+| Traste amarelo | R1 | R1 |
+| Traste azul | R2 | R2 |
+| Traste laranja | X | B (botão de baixo) |
 | Palhetada | direcional cima/baixo | direcional cima/baixo |
-| Star power | Select (L2 = inclinar a guitarra) | Select, L2 ou L1 |
+| Star power | Select | Select ou X (botão de cima) |
 | Alavanca (whammy) | analógico esquerdo | qualquer um dos dois analógicos |
 | Pausa | Start | Start |
 | Sair do jogo | | Select + Start juntos, em qualquer tela |
 
-Cada ação aceita até três botões. Há quatro perfis prontos (PS2, em linha, invertido e gatilhos) e a tela de controles
+Cada ação aceita até três botões. Há cinco perfis prontos (PS2, o do primeiro Guitar Hero com os botões de face, em linha, invertido e gatilhos) e a tela de controles
 tem um teste ao vivo. Para cancelar a troca de um botão é só esperar 5 segundos sem apertar nada.
 
 A alavanca funciona como no PS2: segurando uma nota longa, ela abaixa o tom da guitarra (até três quartos de

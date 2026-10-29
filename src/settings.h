@@ -7,7 +7,7 @@ enum { BIND_NONE = 0, BIND_BUTTON = 1, BIND_AXIS = 2, BIND_STICK = 3 };
 /* axis: dir -1 / +1 is the side that counts, 0 = either way; stick: id 0 left / 1 right, the deflection in any direction */
 typedef struct { int type, id, dir; } bind_t;
 #define BIND_SLOTS 3
-#define SETTINGS_VERSION 2   /* 2: PS2 controls by default, whammy on both sticks, offset = lag compensation */
+#define SETTINGS_VERSION 3   /* 2: whammy on both sticks, offset = lag compensation; 3: frets on the shoulders as in the GH3 PS2 manual */
 #define THEME_N 2
 typedef struct {
     int tap;            /* 1 = notes play when their frets are held (no strumming) */
