@@ -89,15 +89,16 @@ static void draw_setup(double now) {
     static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Tocar", "Voltar", "Mudar" }; ui_hints(H - 24, W, bt, tx, 3);
 }
 /* ------------------------------------------------------------------ options */
-enum { OPT_THEME, OPT_STRUM, OPT_LEFTY, OPT_HYPER, OPT_NOFAIL, OPT_STAGE, OPT_DIM, OPT_PREVIEW, OPT_VOLM, OPT_VOLS, OPT_OFFSET, OPT_FPS, OPT_UNLOCK, OPT_CONTROLS, OPT_RESET, OPT_N };
-static const char *OPT_LABEL[OPT_N] = { "Tema visual", "Palhetada", "Canhoto", "Velocidade da pista", "Sem falhar", "Efeitos de palco", "Escurecer o fundo", "Prévia das músicas", "Volume da música", "Volume dos efeitos", "Atraso do áudio", "Mostrar FPS", "Liberar todas as músicas", "Controles…", "Restaurar padrões" };
+enum { OPT_THEME, OPT_STRUM, OPT_LEFTY, OPT_HYPER, OPT_NOFAIL, OPT_STAGE, OPT_DIM, OPT_PREVIEW, OPT_VOLM, OPT_VOLS, OPT_OFFSET, OPT_CALIB, OPT_FPS, OPT_UNLOCK, OPT_CONTROLS, OPT_RESET, OPT_N };
+static const char *OPT_LABEL[OPT_N] = { "Tema visual", "Palhetada", "Canhoto", "Velocidade da pista", "Sem falhar", "Efeitos de palco", "Escurecer o fundo", "Prévia das músicas", "Volume da música", "Volume dos efeitos", "Atraso do áudio", "Calibrar atraso…", "Mostrar FPS", "Liberar todas as músicas", "Controles…", "Restaurar padrões" };
 static const char *OPT_HELP[OPT_N] = {
     "Pixel art: o visual retrô desenhado pixel a pixel. HD suave: formas lisas com antialiasing. Outros temas virão.",
     "Normal: palhete com o direcional como no jogo. Toque livre: a nota toca assim que os trastes certos estão apertados.",
     "Espelha a pista para destros canhotos: o verde fica à direita.", "Notas mais espaçadas na pista (hyperspeed). Não muda a dificuldade.",
     "O medidor de rock nunca encerra a música. A pontuação continua valendo, mas não entra na carreira.", "Plateia, luzes e feixes atrás da pista. Desligue se o aparelho engasgar.",
     "Quanto mais escuro o palco atrás da pista, mais fácil enxergar as notas.", "Toca um trecho da música selecionada na lista.", "Volume das faixas da música.", "Volume dos sons do menu, erros e star power.",
-    "Se você acerta sempre atrasado, aumente; se acerta adiantado, diminua. Em milissegundos.", "Quadros por segundo no alto da tela.", "Abre todos os sets sem passar pela carreira. Os recordes continuam valendo.",
+    "Compensa o atraso do som do aparelho, em milissegundos. Se as notas passam pela linha antes de você ouvir, aumente. O melhor é medir em Calibrar atraso.",
+    "Toca um clique e você palheta no ritmo: o jogo mede o atraso do som e ajusta as notas e o julgamento. Faça antes de jogar.", "Quadros por segundo no alto da tela.", "Abre todos os sets sem passar pela carreira. Os recordes continuam valendo.",
     "Troque os botões de cada traste, da palhetada, do star power e da alavanca.", "Volta todas as opções e controles ao padrão." };
 static void opt_value(int i, char *out, size_t n) {
     switch (i) { case OPT_THEME: snprintf(out, n, "%s", render_theme_name(SET.theme)); break; case OPT_STRUM: snprintf(out, n, "%s", SET.tap ? "Toque livre" : "Normal"); break; case OPT_LEFTY: snprintf(out, n, "%s", SET.lefty ? "Sim" : "Não"); break;
@@ -122,7 +123,7 @@ static void draw_options(double now) {
         if (sel) { ui_panel(14, y - 5, W - 28, rowH, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), 20, y - 2, 0.5f, RGB(255, 255, 255), 1); }
         gfx_text_sh(36, y, 1, OPT_LABEL[i], sel ? C_INK : C_MUTED, C_SHADOW);
         gfx_text_sh(36, y, 1, "", C_INK, C_SHADOW);
-        if (v[0]) { char b[60]; if (sel && i != OPT_CONTROLS && i != OPT_RESET) snprintf(b, sizeof b, "← %s →", v); else snprintf(b, sizeof b, "%s", v); gfx_text_sh_right(W - 30, y, 1, b, sel ? C_AMP : C_INK, C_SHADOW); }
+        if (v[0]) { char b[60]; if (sel && i != OPT_CONTROLS && i != OPT_RESET && i != OPT_CALIB) snprintf(b, sizeof b, "← %s →", v); else snprintf(b, sizeof b, "%s", v); gfx_text_sh_right(W - 30, y, 1, b, sel ? C_AMP : C_INK, C_SHADOW); }
         if (i == OPT_VOLM || i == OPT_VOLS || i == OPT_DIM) ui_bar(W - 30 - 150 - 70, y + 2, 60, 8, (i == OPT_VOLM ? SET.volMusic : i == OPT_VOLS ? SET.volSfx : SET.bgDim) / 100.0f, sel ? C_AMP : C_MUTED); }
     ui_panel(14, H - 96, W - 28, 60, UI_PANEL_FLAT); gfx_text_box(26, H - 88, W - 52, 1, OPT_HELP[A.optRow], C_MUTED);
     static const char *bt[3] = { "← →", "A", "B" }, *tx[3] = { "Mudar", "Abrir", "Voltar" }; ui_hints(H - 24, W, bt, tx, 3);
@@ -132,15 +133,16 @@ static void draw_options(double now) {
 static void draw_controls(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; char b[80];
     ui_header(W, "CONTROLES", "A: trocar   X: apagar   ← →: coluna");
-    int top = 68, rowH = 20;
+    gfx_text(200, 62, 1, "1º", C_LINE); gfx_text(345, 62, 1, "2º", C_LINE); gfx_text(490, 62, 1, "3º", C_LINE);
+    int top = 74, rowH = 20;
     for (int r = 0; r < CTL_ROWS; r++) { int y = top + r * rowH; int sel = r == A.ctlRow;
         if (sel) ui_panel(12, y - 4, W - 24, rowH, UI_PANEL_AMBER);
         if (r == 0) { gfx_text_sh(24, y, 1, "Perfil", sel ? C_INK : C_MUTED, C_SHADOW); snprintf(b, sizeof b, sel ? "← %s →" : "%s", input_preset_name(A.preset)); gfx_text_sh_right(W - 24, y, 1, b, sel ? C_AMP : C_INK, C_SHADOW); continue; }
         if (r == CTL_ROWS - 1) { gfx_text_sh_center(W / 2, y, 1, "Restaurar o perfil escolhido", sel ? C_INK : C_MUTED, C_SHADOW); continue; }
         int a = r - 1; gfx_text_sh(24, y, 1, input_action_name(a), sel ? C_INK : C_MUTED, C_SHADOW);
         if (a < 5) gfx_rect(14, y + 2, 6, 7, FRET_COLORS[a]);
-        for (int s = 0; s < BIND_SLOTS; s++) { input_bind_name(&SET.binds[a][s], b, sizeof b); int x = W / 2 + 10 + s * 150; int hot = sel && A.ctlSlot == s;
-            if (hot) gfx_rect(x - 6, y - 3, 140, rowH - 2, RGBA(255, 255, 255, 30)); gfx_text_sh(x, y, 1, b, hot ? C_AMP : SET.binds[a][s].type ? C_INK : C_LINE, C_SHADOW); } }
+        for (int s = 0; s < BIND_SLOTS; s++) { input_bind_name(&SET.binds[a][s], b, sizeof b); int x = 200 + s * 145; int hot = sel && A.ctlSlot == s;
+            if (hot) gfx_rect(x - 6, y - 3, 138, rowH - 2, RGBA(255, 255, 255, 30)); gfx_text_sh(x, y, 1, b, hot ? C_AMP : SET.binds[a][s].type ? C_INK : C_LINE, C_SHADOW); } }
     /* the live test: the five targets, the strum, star power and the whammy */
     int ty = H - 86; ui_panel(12, ty - 10, W - 24, 60, UI_PANEL_FLAT); gfx_text(24, ty - 2, 1, "Teste: aperte os botões", C_MUTED);
     gfx_sprite *tu = art_get(ART_TGT_UP), *td = art_get(ART_TGT_DOWN); int tw = gfx_sprite_w(tu), th = gfx_sprite_h(tu);
@@ -149,7 +151,8 @@ static void draw_controls(double now) {
     gfx_sprite_at(art_get(ART_BOLT), 370, ty + 12, 0.7f, A.testStar ? C_SP : C_LINE, 1); gfx_text(386, ty + 20, 1, "star power", A.testStar ? C_SP : C_LINE);
     gfx_text(470, ty + 8, 1, "alavanca", C_MUTED); ui_bar(470, ty + 22, 140, 10, A.testWhammy, C_AMP);
     if (A.capturing) { ui_dim(W, H, 170); ui_panel(W / 2 - 200, H / 2 - 50, 400, 100, UI_PANEL_SP); snprintf(b, sizeof b, "%s", input_action_name(A.ctlRow - 1)); gfx_text_sh_center(W / 2, H / 2 - 36, 2, b, C_INK, C_SHADOW);
-        gfx_text_center(W / 2, H / 2 - 6, 1, "Aperte um botão ou mova um analógico", C_SP); gfx_text_center(W / 2, H / 2 + 14, 1, "(B cancela)", C_MUTED); }
+        gfx_text_center(W / 2, H / 2 - 6, 1, "Aperte um botão ou mova um analógico", C_SP); char cb[60]; snprintf(cb, sizeof cb, "(sem apertar nada, cancela em %d s)", (int)ceil((A.capAt + 5000 - now) / 1000)); gfx_text_center(W / 2, H / 2 + 14, 1, cb, C_MUTED);
+        if (now - A.capAt > 5000) A.capturing = 0; }
     static const char *bt[3] = { "A", "X", "B" }, *tx[3] = { "Trocar", "Apagar", "Voltar" }; ui_hints(H - 22, W, bt, tx, 3);
 }
 /* ------------------------------------------------------------------ pause / results / error */
@@ -179,11 +182,23 @@ static void draw_results(double now) {
     for (int i = 0; i < 2; i++) { int x = W / 2 - 236 + i * 244; if (i == A.resRow) ui_panel(x, by - 7, 228, 30, UI_PANEL_AMBER); gfx_text_sh_center(x + 114, by, 2, it[i], i == A.resRow ? C_INK : C_MUTED, C_SHADOW); }
     static const char *bt[2] = { "A", "← →" }, *tx[2] = { "Confirmar", "Escolher" }; ui_hints(H - 22, W, bt, tx, 2);
 }
+static void draw_calib(double now) {
+    int W = A.W, H = A.H; char b[120]; double raw = audio_song_ms(); int med = A.calN >= 4 ? app_calib_result() : SET.offsetMs;
+    render_calib(raw - med, 500, now, A.calN, A.calLastDiff, A.calLastTapAt);
+    ui_header(W, "CALIBRAR ATRASO", NULL);
+    ui_panel(14, 66, W - 28, 64, UI_PANEL_FLAT);
+    gfx_text_box(26, 74, W - 52, 1, "Palhete (direcional ↑ ou ↓) junto com cada clique, de preferência ouvindo e sem olhar a pista. Depois de uns 10 toques o atraso medido fica estável.", C_INK);
+    snprintf(b, sizeof b, "Atual: %+d ms", SET.offsetMs); gfx_text_sh(26, 142, 1, b, C_MUTED, C_SHADOW);
+    if (A.calN >= 4) { snprintf(b, sizeof b, "Medido: %+d ms", med); int bw = gfx_text_w(b, 2) + 24; ui_panel(W / 2 - bw / 2, 134, bw, 30, UI_PANEL_AMBER); gfx_text_sh_center(W / 2, 140, 2, b, C_INK, C_SHADOW); }
+    snprintf(b, sizeof b, "%d toques", A.calN); gfx_text_sh_right(W - 26, 142, 1, b, C_MUTED, C_SHADOW);
+    if (A.calN > 0 && now - A.calLastTapAt < 600) { snprintf(b, sizeof b, "%+d ms", (int)A.calLastDiff); gfx_text_sh_center(W / 2, H - 70, 2, b, fabs(A.calLastDiff) < 35 ? C_GOOD : C_AMP, C_SHADOW); }
+    static const char *bt[3] = { "↑↓", "A", "B" }, *tx[3] = { "Palhetar no clique", "Salvar", "Cancelar" }; ui_hints(H - 24, W, bt, tx, 3);
+}
 static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; ui_header(W, "OPA…", NULL); ui_panel(30, 120, W - 60, 160, UI_PANEL_DARK); gfx_text_sh(46, 134, 2, "Algo deu errado", C_BAD, C_SHADOW); gfx_text_box(46, 170, W - 92, 1, A.errMsg, C_INK); static const char *bt[1] = { "A" }, *tx[1] = { "Continuar" }; ui_hints(H - 24, W, bt, tx, 1); }
 
 void screens_draw(double now) {
     switch (A.screen) { case SC_SETLIST: draw_setlist(now); break; case SC_SETUP: draw_setup(now); break; case SC_OPTIONS: draw_options(now); break; case SC_CONTROLS: draw_controls(now); break;
-        case SC_PAUSE: draw_pause(now); break; case SC_RESULTS: draw_results(now); break; default: draw_error(now); }
+        case SC_PAUSE: draw_pause(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; default: draw_error(now); }
 }
 
 /* ------------------------------------------------------------------ input */
@@ -209,13 +224,13 @@ void screens_event(int in, double now) {
     } else if (A.screen == SC_OPTIONS) {
         if (in == IN_UP) { A.optRow = (A.optRow + OPT_N - 1) % OPT_N; audio_sfx(SFX_MOVE); } else if (in == IN_DOWN) { A.optRow = (A.optRow + 1) % OPT_N; audio_sfx(SFX_MOVE); }
         else if (in == IN_LEFT || in == IN_RIGHT) { if (A.optRow < OPT_CONTROLS) { opt_change(A.optRow, in == IN_RIGHT ? 1 : -1); audio_sfx(SFX_MOVE); } }
-        else if (in == IN_OK) { if (A.optRow == OPT_CONTROLS) { A.screen = SC_CONTROLS; A.ctlRow = 1; A.ctlSlot = 0; audio_sfx(SFX_OK); } else if (A.optRow == OPT_RESET) { settings_defaults(); A.preset = 0; app_apply_volumes(); app_refresh_career(0); audio_sfx(SFX_OK); } else if (A.optRow < OPT_CONTROLS) { opt_change(A.optRow, 1); audio_sfx(SFX_MOVE); } }
+        else if (in == IN_OK) { if (A.optRow == OPT_CALIB) { if (A.optionsFrom == SC_PAUSE) audio_sfx(SFX_BACK); else { audio_sfx(SFX_OK); app_calib_start(SC_OPTIONS); } } else if (A.optRow == OPT_CONTROLS) { A.screen = SC_CONTROLS; A.ctlRow = 1; A.ctlSlot = 0; audio_sfx(SFX_OK); } else if (A.optRow == OPT_RESET) { settings_defaults(); A.preset = 0; app_apply_volumes(); app_refresh_career(0); audio_sfx(SFX_OK); } else if (A.optRow < OPT_CONTROLS) { opt_change(A.optRow, 1); audio_sfx(SFX_MOVE); } }
         else if (in == IN_BACK) { leave_options(); audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_CONTROLS) {
-        if (A.capturing) { if (in == IN_BACK) { A.capturing = 0; audio_sfx(SFX_BACK); } return; }
+        if (A.capturing) return;
         if (in == IN_UP) { A.ctlRow = (A.ctlRow + CTL_ROWS - 1) % CTL_ROWS; audio_sfx(SFX_MOVE); } else if (in == IN_DOWN) { A.ctlRow = (A.ctlRow + 1) % CTL_ROWS; audio_sfx(SFX_MOVE); }
-        else if (in == IN_LEFT || in == IN_RIGHT) { if (A.ctlRow == 0) { A.preset = (A.preset + PRESET_N + (in == IN_RIGHT ? 1 : -1)) % PRESET_N; input_apply_preset(A.preset); } else A.ctlSlot = !A.ctlSlot; audio_sfx(SFX_MOVE); }
-        else if (in == IN_OK) { if (A.ctlRow == 0) { input_apply_preset(A.preset); audio_sfx(SFX_OK); } else if (A.ctlRow == CTL_ROWS - 1) { input_apply_preset(A.preset); audio_sfx(SFX_OK); } else { A.capturing = 1; audio_sfx(SFX_OK); } }
+        else if (in == IN_LEFT || in == IN_RIGHT) { if (A.ctlRow == 0) { A.preset = (A.preset + PRESET_N + (in == IN_RIGHT ? 1 : -1)) % PRESET_N; input_apply_preset(A.preset); } else A.ctlSlot = (A.ctlSlot + BIND_SLOTS + (in == IN_RIGHT ? 1 : -1)) % BIND_SLOTS; audio_sfx(SFX_MOVE); }
+        else if (in == IN_OK) { if (A.ctlRow == 0) { input_apply_preset(A.preset); audio_sfx(SFX_OK); } else if (A.ctlRow == CTL_ROWS - 1) { input_apply_preset(A.preset); audio_sfx(SFX_OK); } else { A.capturing = 1; A.capAt = now; input_reset_axes(); audio_sfx(SFX_OK); } }
         else if (in == IN_X) { if (A.ctlRow >= 1 && A.ctlRow < CTL_ROWS - 1) { memset(&SET.binds[A.ctlRow - 1][A.ctlSlot], 0, sizeof(bind_t)); audio_sfx(SFX_BACK); } }
         else if (in == IN_BACK) { settings_save(); A.screen = A.optionsFrom == SC_PAUSE ? SC_OPTIONS : (A.optionsFrom == SC_SETLIST ? SC_OPTIONS : SC_SETLIST); if (A.screen == SC_SETLIST) app_preview(A.rows[A.cursor].idx); audio_sfx(SFX_BACK); A.testHeld = 0; }
     } else if (A.screen == SC_PAUSE) {
@@ -226,11 +241,19 @@ void screens_event(int in, double now) {
         if (in == IN_LEFT || in == IN_RIGHT) { A.resRow = !A.resRow; audio_sfx(SFX_MOVE); }
         else if (in == IN_OK) { audio_sfx(SFX_OK); if (A.resRow == 0) { if (career_song_lock(A.lib, A.tiers, A.selTier, A.selSong)) { app_session_free(); to_setlist(now); } else app_begin_song(); } else { app_session_free(); to_setlist(now); } }
         else if (in == IN_BACK) { app_session_free(); audio_sfx(SFX_BACK); to_setlist(now); }
+    } else if (A.screen == SC_CALIB) {
+        if (in == IN_OK) { if (A.calN >= 6) { SET.offsetMs = app_calib_result(); settings_save(); audio_sfx(SFX_FANFARE); } else audio_sfx(SFX_BACK); app_calib_stop(); A.screen = SC_OPTIONS; }
+        else if (in == IN_BACK) { app_calib_stop(); A.screen = SC_OPTIONS; audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_ERROR) { if (in == IN_OK || in == IN_BACK) { app_session_free(); if (A.libOk) A.screen = SC_SETLIST; else app_quit(); } }
 }
 int screens_raw_event(const SDL_Event *ev, double now) {
+    if (A.screen == SC_CALIB) { inev_t evs[4]; int n = input_translate(ev, evs, 4);
+        for (int i = 0; i < n; i++) if ((evs[i].action == ACT_STRUM_UP || evs[i].action == ACT_STRUM_DOWN) && evs[i].pressed) {
+            double te = audio_song_ms() - (SDL_GetTicks() - ev->common.timestamp); long k = lround(te / 500); if (k < 0) continue; double d = te - k * 500.0; if (fabs(d) > 240) continue;
+            if (A.calN == 24) { memmove(A.calDiff, A.calDiff + 1, 23 * sizeof(double)); A.calN = 23; } A.calDiff[A.calN++] = d; A.calLastDiff = d; A.calLastTapAt = now; }
+        return n > 0 && (evs[0].action == ACT_STRUM_UP || evs[0].action == ACT_STRUM_DOWN); }
     if (A.screen != SC_CONTROLS) return 0;
-    if (A.capturing) { bind_t b; if (input_capture(ev, &b)) { int a = A.ctlRow - 1; if (a >= 0 && a < ACT_N) { if (b.type == BIND_BUTTON && b.id == SDL_CONTROLLER_BUTTON_B) return 0; /* B cancels, through the menu path */
+    if (A.capturing) { bind_t b; if (now - A.capAt < 250) return 1; /* the A press that opened the capture is not the answer */ if (input_capture(ev, A.ctlRow - 1, &b)) { int a = A.ctlRow - 1; if (a >= 0 && a < ACT_N) {
             for (int x = 0; x < ACT_N; x++) for (int s = 0; s < BIND_SLOTS; s++) if (SET.binds[x][s].type == b.type && SET.binds[x][s].id == b.id && SET.binds[x][s].dir == b.dir) memset(&SET.binds[x][s], 0, sizeof b); /* one button, one job */
             SET.binds[a][A.ctlSlot] = b; } A.capturing = 0; audio_sfx(SFX_OK); return 1; } return 1; }
     inev_t evs[4]; int n = input_translate(ev, evs, 4);

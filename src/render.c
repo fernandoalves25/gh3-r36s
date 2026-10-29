@@ -229,13 +229,14 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             double end = nt->t + nt->sus; if (end < t + Z_NEAR * L) continue;
             int active = r->sus == nt; if (nt->hit && !active && !nt->dropped) continue;
             float z0 = (float)fmax(Z_NEAR, ((active ? fmax(t, nt->t) : nt->t) - t) / L), z1 = (float)fmin(1, (end - t) / L); if (z1 <= z0) continue;
-            int dead = nt->missed || nt->dropped; float w = active ? 0.07f * (1 + (float)r->whammy * 0.9f) : 0.045f;
+            int dead = nt->missed || nt->dropped; float w = active ? 0.065f : 0.045f;
+            float wob = active ? (float)r->whammy : 0;   /* the tail waves while the whammy bends it, as in the PS2 game */
             for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float x = laneX(f, lefty);
                 uint32_t c = dead ? RGBA(120, 114, 134, 128) : fb_alpha(sp ? C_SP : FRET_COLORS[f], (active ? 1 : 0.85f) * fade(z0 * 0.6f));
-                float y0, y1, xx, ss; proj(x, z0, &xx, &y0, &ss); proj(x, z1, &xx, &y1, &ss); int slices = (int)((y0 - y1) / 4) + 1; if (slices > 48) slices = 48;
+                float y0, y1, xx, ss; proj(x, z0, &xx, &y0, &ss); proj(x, z1, &xx, &y1, &ss); int slices = (int)((y0 - y1) / 6) + 1; if (slices > 40) slices = 40;
                 for (int k = 0; k < slices; k++) { float za = z0 + (z1 - z0) * k / slices, zb = z0 + (z1 - z0) * (k + 1) / slices, cxp, ya, yb, sa;
                     proj(x, za, &cxp, &ya, &sa); proj(x, zb, &cxp, &yb, &ss); float hw = w * V.hw * sa;
-                    gfx_rect(cxp - hw - 1, yb, hw * 2 + 2, ya - yb + 1, fb_alpha(C_SHADOW, 0.6f * fade(za)));
+                    if (wob > 0.02f) cxp += sinf(za * 38.0f - (float)perf / 45.0f) * wob * V.hw * 0.05f * sa;
                     gfx_rect(cxp - hw, yb, hw * 2, ya - yb + 1, c);
                     if (active) gfx_rect(cxp - hw * 0.35f, yb, hw * 0.7f, ya - yb + 1, RGBA(255, 255, 255, 150 + (int)(60 * pulse))); } } }
         /* gems, far to near */
@@ -246,8 +247,10 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             if (nt->n > 1) { float ax, bx, yy, ps; int lo = -1, hi2 = -1; for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { if (lo < 0) lo = f; hi2 = f; }
                 proj(laneX(lefty ? hi2 : lo, lefty), z, &ax, &yy, &ps); proj(laneX(lefty ? lo : hi2, lefty), z, &bx, &yy, &ps); gfx_rect(ax, yy - 2 * ps, bx - ax, 4 * ps + 1, fb_alpha(RGB(0xd0, 0xc8, 0xe0), alpha * 0.8f)); }
             for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float px, py, ps; proj(laneX(f, lefty), z, &px, &py, &ps); gem(px, py, ps, nt->missed ? RGB(0x6d, 0x66, 0x7c) : (sp ? C_SP : FRET_COLORS[f]), kind, alpha); } }
-        /* flames on hit */
-        for (int f = 0; f < 5; f++) { float age = (float)((perf - r->flash[f]) / 260); if (age < 0 || age >= 1) continue;
+        /* flames on hit; a held sustain keeps its frets burning */
+        for (int f = 0; f < 5; f++) { float age = (float)((perf - r->flash[f]) / 260);
+            if (r->sus && (r->sus->mask & (1 << f)) && (age < 0 || age >= 1)) age = 0.15f + 0.25f * (float)fmod(perf / 260.0, 1.0);
+            if (age < 0 || age >= 1) continue;
             float px, py; proj(laneX(f, lefty), 0, &px, &py, &s); int fr = age < 0.3f ? 0 : age < 0.65f ? 1 : 2;
             gfx_sprite *fl = sp ? th->spflame[fr] : th->flame[fr]; float fw = tgtW * (theme() == 1 ? 1.3f : 0.75f), fh = fw * gfx_sprite_h(fl) / gfx_sprite_w(fl);
             uint32_t tint = theme() == 1 ? (sp ? C_SP : RGB(255, 214, 140)) : RGB(255, 255, 255);
@@ -277,7 +280,9 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             gfx_sprite_at(meter, mx, my, 1, RGB(255, 255, 255), 1);
             double h = r->health > 1 ? 1 : r->health < 0 ? 0 : r->health; float ang = (float)M_PI * (float)(1 - h); float ncx = mx + mw / 2.0f, ncy = my + mh - 2 * PXS;
             gfx_line(ncx, ncy, ncx + cosf(ang) * (mw * 0.42f), ncy - sinf(ang) * (mw * 0.42f), 2.0f * PXS, C_INK); gfx_rect(ncx - 2 * PXS, ncy - 2 * PXS, 4 * PXS, 4 * PXS, C_AMP);
-            if (hi->noFail) gfx_text_right(W - 22, my - 30, 1, "SEM FALHAR", C_MUTED); else gfx_text_right(W - 22, my - 30, 1, "ROCK", C_MUTED);
+            if (hi->noFail) gfx_text_right(W - 22, my - 30, 1, "SEM FALHAR", C_MUTED); else gfx_text_right(W - 22, my - 30, 1, "ROCK", h < 0.33 ? C_BAD : C_MUTED);
+            if (h < 0.33 && !hi->noFail) { float k = 0.5f + 0.5f * sinf((float)perf / 90); gfx_rect(mx - 8, my - 34, mw + 16, mh + 48, fb_alpha(C_BAD, 0.12f + 0.18f * k));
+                gfx_rect(0, 0, 6, V.H, fb_alpha(C_BAD, 0.35f * k)); gfx_rect(V.W - 6, 0, 6, V.H, fb_alpha(C_BAD, 0.35f * k)); }
             /* star power cells */
             gfx_sprite *bolt = art_get(ART_BOLT); gfx_sprite_at(bolt, mx - 2, my - 20, 0.75f, sp ? C_SP : RGB(255, 255, 255), 1);
             int cells = 8; float cw = (mw - 14) / (float)cells; float spv = (float)(r->sp < 0 ? 0 : r->sp > 1 ? 1 : r->sp);
@@ -285,11 +290,28 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
                 gfx_rect(mx + 12 + i * cw, my - 18, cw - 2, 10, C_PANEL2);
                 if (on || sp) gfx_rect(mx + 12 + i * cw, my - 18, cw - 2, 10, sp ? fb_alpha(C_SP, 0.6f + 0.4f * pulse) : (r->sp >= 0.5 ? fb_alpha(C_SP, 0.8f + 0.2f * sinf((float)perf / 120)) : C_SP));
                 else if (part > 0) gfx_rect(mx + 12 + i * cw, my - 18, (cw - 2) * part, 10, fb_alpha(C_SP, 0.7f)); }
-            if (!sp && r->sp >= 0.5 && ((int)(perf / 400) & 1)) gfx_text_sh_right(W - 22, my - 32 - 14, 1, "STAR POWER PRONTO!", C_SP, C_SHADOW);
+            gfx_rect(mx + 12 + 4 * cw - 2, my - 21, 2, 16, r->sp >= 0.5 ? C_INK : C_MUTED);   /* half: from here star power can be used */
+            if (!sp && r->sp >= 0.5) { char sk[80]; snprintf(sk, sizeof sk, "STAR POWER: %s", hi->starKeys && *hi->starKeys ? hi->starKeys : "Select"); float k = 0.6f + 0.4f * sinf((float)perf / 110);
+                int tw2 = gfx_text_w(sk, 1) + 16; ui_panel(W - 14 - tw2, my - 58, tw2, 20, UI_PANEL_SP); gfx_text_sh_right(W - 22, my - 53, 1, sk, fb_alpha(C_INK, k), C_SHADOW); }
             /* messages in the middle */
             if (r->streakAt > -1e8 && perf - r->streakAt < 1500) { snprintf(b, sizeof b, "%d NOTAS SEGUIDAS!", r->streakN); gfx_text_title(W / 2 - gfx_text_w(b, 3) / 2, (int)(H * 0.24f), 3, b, C_AMP, C_SHADOW, 2); }
             else if (bump >= 0 && bump < 1 && mult > 1) { snprintf(b, sizeof b, "%d×!", mult); gfx_text_title(W / 2 - gfx_text_w(b, 4) / 2, (int)(H * 0.24f) - (int)(10 * bump), 4, b, mc, C_SHADOW, 2); }
             if (hi->fps > 0) { snprintf(b, sizeof b, "%d fps", hi->fps); gfx_text(W / 2 - 20, 6, 1, b, C_MUTED); }
         }
     }
+}
+
+/* calibration: the highway with a yellow gem on every metronome click; a tap flashes the strike line and shows how far off it was */
+void render_calib(double t, double period, double perf, int taps, double lastDiff, double lastTapPerf) {
+    const theme_t *th = &TH[theme()]; double L = 1500; float s;
+    stage(perf, 0.3f, 0, 2, SET.stageFx, 0.3f);
+    gfx_rect(0, 0, V.W, V.H, RGBA(8, 6, 12, 120));
+    gfx_blit(backSp[theme()][0], 0, 0, (int)V.W, (int)V.H, 0, 0, V.W, V.H, RGB(255, 255, 255), 1);
+    gfx_sprite *tu = th->tgt[0]; int tw = gfx_sprite_w(tu), tgh = gfx_sprite_h(tu); float tgtW = V.hw * (theme() == 1 ? 0.4f : 0.36f), tscale = tgtW / tw;
+    { float px, py; proj(laneX(2, 0), 0, &px, &py, &s); gfx_blit(tu, 0, 0, tw, tgh, px - tgtW / 2, py - tgh * tscale * th->tgtAnchor, tgtW, tgh * tscale, FRET_COLORS[2], 1); }
+    for (long k = (long)floor((t + Z_NEAR * L) / period); k * period <= t + L; k++) { if (k < 0) continue; float z = (float)((k * period - t) / L); if (z < Z_NEAR) continue;
+        float px, py, ps; proj(laneX(2, 0), z, &px, &py, &ps); gem(px, py, ps, k % 4 == 0 ? FRET_COLORS[4] : FRET_COLORS[2], 0, fade(z)); }
+    float age = (float)((perf - lastTapPerf) / 300);
+    if (taps > 0 && age >= 0 && age < 1) { float sx, sy2, ex, ey; proj(-1, 0, &sx, &sy2, &s); proj(1, 0, &ex, &ey, &s); uint32_t c = fabs(lastDiff) < 35 ? C_GOOD : fabs(lastDiff) < 80 ? C_AMP : C_BAD;
+        gfx_rect(sx, sy2 - 3, ex - sx, 6, fb_alpha(c, 0.8f * (1 - age))); }
 }

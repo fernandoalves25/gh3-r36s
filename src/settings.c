@@ -16,16 +16,18 @@ void settings_defaults(void) {
 }
 static const char *ACTKEY[ACT_N] = { "verde", "vermelho", "amarelo", "azul", "laranja", "palhetada_cima", "palhetada_baixo", "star_power", "whammy", "pausa" };
 static void bind_to_str(const bind_t *b, char *out, size_t n) {
-    if (b->type == BIND_BUTTON) snprintf(out, n, "botao:%d", b->id); else if (b->type == BIND_AXIS) snprintf(out, n, "eixo:%d:%d", b->id, b->dir); else snprintf(out, n, "nada");
+    if (b->type == BIND_STICK) snprintf(out, n, "analogico:%d", b->id);
+    else if (b->type == BIND_BUTTON) snprintf(out, n, "botao:%d", b->id); else if (b->type == BIND_AXIS) snprintf(out, n, "eixo:%d:%d", b->id, b->dir); else snprintf(out, n, "nada");
 }
 static void str_to_bind(const char *s, bind_t *b) {
     memset(b, 0, sizeof *b); int a, c;
-    if (sscanf(s, "botao:%d", &a) == 1) { b->type = BIND_BUTTON; b->id = a; }
+    if (sscanf(s, "analogico:%d", &a) == 1) { b->type = BIND_STICK; b->id = a; }
+    else if (sscanf(s, "botao:%d", &a) == 1) { b->type = BIND_BUTTON; b->id = a; }
     else if (sscanf(s, "eixo:%d:%d", &a, &c) == 2) { b->type = BIND_AXIS; b->id = a; b->dir = c; }
 }
 int settings_save(void) {
     char p[560]; path_of(p, sizeof p, "gh3.cfg"); FILE *f = fopen(p, "w"); if (!f) return -1;
-    fprintf(f, "# Guitar Hero III (R36S) - opcoes salvas pelo jogo; apague o arquivo para voltar ao padrao\n");
+    fprintf(f, "# Guitar Hero III (R36S) - opcoes salvas pelo jogo; apague o arquivo para voltar ao padrao\nversao=%d\n", SETTINGS_VERSION);
     fprintf(f, "palhetada=%d\ncanhoto=%d\nvelocidade=%d\nsem_falhar=%d\npalco=%d\nfps=%d\nprevia=%d\nvolume_musica=%d\nvolume_efeitos=%d\natraso_ms=%d\nescurecer_fundo=%d\nliberar_tudo=%d\ntema=%d\n",
             SET.tap ? 0 : 1, SET.lefty, SET.hyper, SET.noFail, SET.stageFx, SET.showFps, SET.preview, SET.volMusic, SET.volSfx, SET.offsetMs, SET.bgDim, SET.unlockAll, SET.theme);
     for (int a = 0; a < ACT_N; a++) for (int s = 0; s < BIND_SLOTS; s++) { char b[40]; bind_to_str(&SET.binds[a][s], b, sizeof b); fprintf(f, "controle_%s_%d=%s\n", ACTKEY[a], s + 1, b); }
@@ -33,8 +35,10 @@ int settings_save(void) {
 }
 int settings_load(void) {
     char p[560]; path_of(p, sizeof p, "gh3.cfg"); FILE *f = fopen(p, "r"); if (!f) return -1;
-    char line[200];
+    char line[200]; int version = 1;
     while (fgets(line, sizeof line, f)) { char *eq = strchr(line, '='); if (!eq || line[0] == '#') continue; *eq = 0; char *k = line, *v = eq + 1; v[strcspn(v, "\r\n")] = 0; int n = atoi(v);
+        if (!strcmp(k, "versao")) { version = n; continue; }
+        if (version < SETTINGS_VERSION && (!strncmp(k, "controle_", 9) || !strcmp(k, "atraso_ms"))) continue; /* an older layout: the new defaults stay */
         if (!strcmp(k, "palhetada")) SET.tap = n ? 0 : 1; else if (!strcmp(k, "canhoto")) SET.lefty = !!n; else if (!strcmp(k, "velocidade")) SET.hyper = n < 0 ? 0 : n > 5 ? 5 : n;
         else if (!strcmp(k, "sem_falhar")) SET.noFail = !!n; else if (!strcmp(k, "palco")) SET.stageFx = !!n; else if (!strcmp(k, "fps")) SET.showFps = !!n; else if (!strcmp(k, "previa")) SET.preview = !!n;
         else if (!strcmp(k, "volume_musica")) SET.volMusic = n < 0 ? 0 : n > 100 ? 100 : n; else if (!strcmp(k, "volume_efeitos")) SET.volSfx = n < 0 ? 0 : n > 100 ? 100 : n;

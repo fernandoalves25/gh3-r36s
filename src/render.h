@@ -3,7 +3,8 @@
 #include "gfx.h"
 #include "art.h"
 #include "game.h"
-typedef struct { const char *title, *artist, *section; int showCountdown; int lefty; int stageFx; int bgDim; int fps; int noFail; } hud_info;
+typedef struct { const char *title, *artist, *section; int showCountdown; int lefty; int stageFx; int bgDim; int fps; int noFail; const char *starKeys; } hud_info;
+void render_calib(double t, double period, double perf, int taps, double lastDiff, double lastTapPerf); /* the calibration lane: a gem on every click */
 void render_init(int W, int H);                 /* bakes the sprites and the highway backgrounds (after gfx_init and art_init) */
 const char *render_theme_name(int theme);       /* themes: 0 pixel art, 1 HD (smooth); which one draws is SET.theme */
 void render_game(gh3_run *r, double perf, const hud_info *hi);

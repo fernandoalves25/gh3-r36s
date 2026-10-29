@@ -34,24 +34,41 @@ A lista de músicas é a carreira do jogo, liberada como no original:
 Recordes (pontos, porcentagem, maior sequência e estrelas) ficam em `gh3-recordes.cfg`, por música, parte e dificuldade.
 Uma música só conta como completada se não falhar; no modo "sem falhar" nada é gravado.
 
-## Controles (padrão, todos configuráveis em Controles)
+## Controles (padrão igual ao PS2, todos configuráveis em Controles)
 
-| Ação | Botão |
-| --- | --- |
-| Trastes verde, vermelho, amarelo, azul, laranja | X, Y, B, A, R1 |
-| Palhetada | D-pad cima/baixo ou analógico esquerdo |
-| Star power | L1 ou Select |
-| Alavanca (whammy) | analógico direito ou R2 |
-| Pausa | Start |
-| Menus | D-pad, A confirma, B volta, X Opções, Y Controles |
+O perfil padrão é o do Guitar Hero III de PS2 com o controle comum (DualShock), nos botões equivalentes do R36S:
 
-Cada ação aceita dois botões (ou direções de analógico). Há três perfis prontos e a tela de controles tem um teste ao vivo.
+| Ação | PS2 (DualShock) | R36S |
+| --- | --- | --- |
+| Traste verde | R2 | R2 (ou R1) |
+| Traste vermelho | Bola | A |
+| Traste amarelo | Triângulo | X |
+| Traste azul | X | B |
+| Traste laranja | Quadrado | Y |
+| Palhetada | direcional cima/baixo | direcional cima/baixo |
+| Star power | Select (L2 = inclinar a guitarra) | Select, L2 ou L1 |
+| Alavanca (whammy) | analógico esquerdo | qualquer um dos dois analógicos |
+| Pausa | Start | Start |
+| Sair do jogo | | Select + Start juntos, em qualquer tela |
+
+Cada ação aceita até três botões. Há quatro perfis prontos (PS2, em linha, invertido e gatilhos) e a tela de controles
+tem um teste ao vivo. Para cancelar a troca de um botão é só esperar 5 segundos sem apertar nada.
+
+A alavanca funciona como no PS2: segurando uma nota longa, ela abaixa o tom da guitarra (até um tom e meio
+no fundo), a cauda da nota ondula, e numa frase de star power mexer a alavanca enche o medidor. O star power pode
+ser usado com o medidor na metade (a marca no meio da barra); o botão aparece na tela quando está pronto.
+
+## Atraso do som (importante)
+
+O áudio do R36S chega aos ouvidos um pouco depois do que o jogo calcula. Antes de jogar, entre em
+**Opções > Calibrar atraso**: toca um clique e você palheta no ritmo; o jogo mede o atraso e ajusta as notas e o
+julgamento. Sem isso, as notas parecem certas na tela e mesmo assim saem atrasadas.
 
 ## Opções (menu Opções, salvas em `gh3.cfg`)
 
 Palhetada normal ou toque livre (a nota toca ao segurar os trastes), canhoto, velocidade da pista (hyperspeed),
 sem falhar, efeitos de palco, escurecer o fundo, prévia das músicas na lista, volumes da música e dos efeitos,
-atraso do áudio (calibração) e FPS. `port.cfg` só tem as opções do launcher (vsync, clocks, renderização por software).
+atraso do áudio, calibração do atraso, tema visual e FPS. `port.cfg` só tem as opções do launcher (vsync, clocks, renderização por software).
 
 ## O que ainda não tem
 

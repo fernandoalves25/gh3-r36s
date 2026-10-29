@@ -6,7 +6,7 @@
 #include "game.h"
 #include "settings.h"
 #include "career.h"
-enum { SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR };
+enum { SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR };
 enum { IN_NONE = 0, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_OK, IN_BACK, IN_X, IN_Y, IN_L, IN_R, IN_SELECT };
 typedef struct { int kind, idx, tier; } row_t;            /* kind 0 = set header, 1 = song */
 typedef struct {
@@ -26,6 +26,8 @@ typedef struct {
     char unlockMsg[120]; double unlockAt; int unlockPending;   /* a message waiting to be shown on the set list */
     int fps, autoPlay;
     int testHeld, testStrum; double testStrumAt; float testWhammy; int testStar;
+    double calDiff[24]; int calN; double calLastDiff, calLastTapAt; int calFrom;   /* calibration taps (ms after the click) */
+    char starKeys[80]; double capAt;
 } app_t;
 extern app_t A;
 /* services of main.c */
@@ -36,6 +38,9 @@ void app_quit(void);
 void app_preview(int songIdx);         /* the preview of a song is wanted (-1: none) */
 void app_resume_play(void);            /* leaves the pause with the countdown */
 void app_apply_volumes(void);
+void app_calib_start(int from);
+void app_calib_stop(void);
+int app_calib_result(void);          /* the median of the taps, ms */
 void app_refresh_career(int announce);
 const char *app_section_at(double t);
 /* screens.c */

@@ -3,9 +3,11 @@
 #define SETTINGS_H
 #include <stddef.h>
 enum { ACT_FRET0, ACT_FRET1, ACT_FRET2, ACT_FRET3, ACT_FRET4, ACT_STRUM_UP, ACT_STRUM_DOWN, ACT_STAR, ACT_WHAMMY, ACT_PAUSE, ACT_N };
-enum { BIND_NONE = 0, BIND_BUTTON = 1, BIND_AXIS = 2 };
-typedef struct { int type, id, dir; } bind_t;      /* axis: dir -1 / +1 is the side that counts; 0 = either way (whammy) */
-#define BIND_SLOTS 2
+enum { BIND_NONE = 0, BIND_BUTTON = 1, BIND_AXIS = 2, BIND_STICK = 3 };
+/* axis: dir -1 / +1 is the side that counts, 0 = either way; stick: id 0 left / 1 right, the deflection in any direction */
+typedef struct { int type, id, dir; } bind_t;
+#define BIND_SLOTS 3
+#define SETTINGS_VERSION 2   /* 2: PS2 controls by default, whammy on both sticks, offset = lag compensation */
 #define THEME_N 2
 typedef struct {
     int tap;            /* 1 = notes play when their frets are held (no strumming) */
@@ -16,7 +18,7 @@ typedef struct {
     int showFps;
     int preview;        /* song previews on the set list */
     int volMusic, volSfx;   /* 0..100 */
-    int offsetMs;       /* added to the song clock when judging (+ = your presses are late) */
+    int offsetMs;       /* audio lag compensation: the song clock used for notes and judging is the heard clock minus this */
     int bgDim;          /* 0..100: how dark the stage behind the highway is */
     int unlockAll;      /* every song open whatever the career says */
     int theme;          /* 0 pixel art, 1 HD (smooth) */

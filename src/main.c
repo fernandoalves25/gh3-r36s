@@ -137,6 +137,10 @@ const char *app_section_at(double t) {
 }
 int app_prepare_song(int songIdx) { char e[300]; if (load_song(&lib.songs[songIdx], A.selPart, A.selDiff, 1, 0, e, sizeof e)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", e); A.screen = SC_ERROR; return -1; } return 0; }
 void app_apply_volumes(void) { audio_set_master(SET.volMusic / 100.0); audio_set_sfx_gain(SET.volSfx / 100.0 * 0.9); }
+void app_calib_start(int from) { app_preview(-1); if (audio_preview_on()) audio_preview_stop(0); app_apply_volumes(); audio_metronome(500, 1200); input_reset_axes(); A.calN = 0; A.calLastTapAt = -1e9; A.calFrom = from; A.screen = SC_CALIB; }
+void app_calib_stop(void) { audio_stop(); }
+static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+int app_calib_result(void) { if (!A.calN) return SET.offsetMs; double t[24]; memcpy(t, A.calDiff, A.calN * sizeof *t); qsort(t, A.calN, sizeof *t, cmp_d); double m = A.calN & 1 ? t[A.calN / 2] : (t[A.calN / 2 - 1] + t[A.calN / 2]) / 2; int v = (int)lround(m); return v < -300 ? -300 : v > 300 ? 300 : v; }
 void app_quit(void) { running = 0; }
 
 /* ---- career ---- */
@@ -184,11 +188,12 @@ static void preview_shutdown(void) { if (prevThread) { SDL_WaitThread(prevThread
 void app_begin_song(void) {
     char err[300]; app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
     if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return; }
-    app_apply_volumes(); audio_play(0, 2600); input_reset_axes();
+    app_apply_volumes(); audio_play(0, 2600); input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
     A.screen = SC_PLAY; A.S.section[0] = 0; A.resumeAt = 0; A.S.run.held = 0;
 }
 void app_resume_play(void) { A.screen = SC_PLAY; A.resumeAt = SDL_GetTicks() + 1600; audio_sfx(SFX_TICK); }
-static double song_time(void) { return audio_song_ms() + SET.offsetMs; }
+/* the clock notes are drawn and judged on: what is heard, less the lag the player measured (Calibrar atraso) */
+static double song_time(void) { return audio_song_ms() - SET.offsetMs; }
 static int heldMask = 0;
 static void play_event(SDL_Event *ev, double now, double songT) {
     double te = songT - (now - ev->common.timestamp); /* the song's clock when the press happened */
@@ -259,6 +264,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     A.screen = SC_OPTIONS; A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
+    A.screen = SC_CALIB; A.calN = 9; for (int i = 0; i < 9; i++) A.calDiff[i] = 40 + (i % 3) * 6; A.calLastDiff = 46; A.calLastTapAt = -100; gfx_begin(); screens_draw(0); gfx_end(); save_named("calib");
     double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
     snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(t)); A.screen = SC_PAUSE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("pause");
     for (; !A.S.run.finished; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
@@ -272,8 +278,8 @@ static void frames_mode(void) {
     headless_init();
     double t = -2000, perf = 0; int saved = 0; Uint32 t0 = SDL_GetTicks();
     for (int f = 0; f < cfg.frames; f++, t += 1000.0 / 60, perf += 1000.0 / 60) {
-        game_step(&A.S.run, t, perf);
-        gfx_begin(); hud_info hi = { A.S.song->title, A.S.song->artist, app_section_at(t), 1, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail }; render_game(&A.S.run, perf, &hi); gfx_end();
+        game_step(&A.S.run, t, perf); { const char *wv = getenv("GH3_TEST_WHAMMY"); if (wv) A.S.run.whammy = atof(wv); }
+        gfx_begin(); hud_info hi = { A.S.song->title, A.S.song->artist, app_section_at(t), 1, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail, "Select / L2 / L1" }; render_game(&A.S.run, perf, &hi); gfx_end();
         if (f % cfg.every == 0) { char nm[32]; snprintf(nm, sizeof nm, "frame_%04d", f); save_named(nm); saved++; }
         if (A.S.run.finished) break;
     }
@@ -301,6 +307,7 @@ int main(int argc, char **argv) {
     SDL_Window *win = SDL_CreateWindow("Guitar Hero III", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, cfg.W, cfg.H, cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
     if (!win) { fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
     SDL_Renderer *ren = NULL; SDL_Texture *softTex = NULL;
+    SDL_SetHint("SDL_RENDER_BATCHING", "1");
     if (!cfg.soft) {
         ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | (cfg.vsync ? SDL_RENDERER_PRESENTVSYNC : 0));
         if (!ren) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
@@ -322,6 +329,9 @@ int main(int argc, char **argv) {
         double now = SDL_GetTicks(); SDL_Event ev;
         double songT = A.screen == SC_PLAY ? song_time() : 0;
         while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_CONTROLLERBUTTONDOWN || ev.type == SDL_CONTROLLERBUTTONUP) { static int selDown, startDown, guideDown; int dn = ev.type == SDL_CONTROLLERBUTTONDOWN;
+                if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_BACK) selDown = dn; else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_START) startDown = dn; else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) guideDown = dn;
+                if (dn && startDown && (selDown || guideDown)) { SDL_Log("Select+Start: quitting"); running = 0; break; } }
             if (ev.type == SDL_QUIT) running = 0;
             else if (ev.type == SDL_CONTROLLERDEVICEADDED && !pad) open_pads();
             else if (A.screen == SC_PLAY) play_event(&ev, now, songT);
@@ -333,7 +343,8 @@ int main(int argc, char **argv) {
             gh3_run *r = &A.S.run;
             if (A.resumeAt > 0) { if (now >= A.resumeAt) { A.resumeAt = 0; audio_pause(0); input_reset_axes(); audio_sfx(SFX_GO); } else { static int lastTick = -1; int tk = (int)((A.resumeAt - now) / 1000); if (tk != lastTick) { lastTick = tk; } } }
             if (A.resumeAt == 0) { songT = song_time(); game_step(r, songT, now); snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(songT)); }
-            hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail }; render_game(r, now, &hi);
+            audio_set_bend(A.resumeAt == 0 && r->sus && !r->autoPlay && !r->failed ? r->whammy : 0);
+            hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail, A.starKeys }; render_game(r, now, &hi);
             if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); gfx_text_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, "Continuando…", C_AMP, C_SHADOW); }
             else if (r->failed || r->finished) finish_song(now);
         } else {

@@ -22,6 +22,8 @@ void audio_set_master(double gain);
 double audio_duration_ms(void);                   /* best estimate from the stream headers */
 void audio_fade_out(double sec);
 void audio_selftest(void);
+void audio_set_bend(double amount);               /* whammy bend of the player track, 0..1 (only while a sustain is held) */
+void audio_metronome(double periodMs, double leadMs); /* calibration: clicks at song time 0, period, 2 period... (audio_song_ms is their clock) */
 /* effects */
 void audio_sfx(int kind);
 void audio_set_sfx_gain(double gain);
