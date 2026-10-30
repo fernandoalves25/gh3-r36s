@@ -217,6 +217,21 @@ static void lightshow_read(const secmap *m, gh3_library *lib) {
         if (o->kind) lib->hasLightNotes = 1; }
     if (ex && ex->kind == QB_ARRAY) for (int i = 0; i < ex->narr && lib->nlightKeep < 128; i++) { uint32_t k; if (qb_keyof(ex->arr[i], &k)) lib->lightKeep[lib->nlightKeep++] = k; }
 }
+/* sections other modules read themselves, copied whole: the musicians, their bodies and instruments, and the store's
+ * lists for them (their names are not known: by key) - default guitars, guitars for sale, finishes, special guitars,
+ * secret rockers, second outfits, styles */
+static qbv *qb_dup(const qbv *v) {
+    if (!v) return NULL; qbv *o = malloc(sizeof *o); *o = *v; o->s = v->s ? strdup(v->s) : NULL; o->items = NULL; o->arr = NULL;
+    if (v->nitems > 0 && v->items) { o->items = malloc(v->nitems * sizeof *o->items); for (int i = 0; i < v->nitems; i++) { o->items[i] = v->items[i]; o->items[i].v = qb_dup(v->items[i].v); } } else o->nitems = 0;
+    if (v->narr > 0 && v->arr) { o->arr = malloc(v->narr * sizeof *o->arr); for (int i = 0; i < v->narr; i++) o->arr[i] = qb_dup(v->arr[i]); } else o->narr = 0;
+    return o;
+}
+static void sections_keep(const secmap *m, gh3_library *lib) {
+    const uint32_t K[] = { gh3_qbkey("musician_profiles"), gh3_qbkey("musician_body"), gh3_qbkey("musician_instrument"), 0xb0a6a7f4u, 0x6b999e82u, 0x5e190e34u, 0xbc02c6adu, 0x1c11400au, 0x625feafcu, 0x06af4fdbu };
+    lib->kept = calloc(sizeof K / sizeof *K, sizeof *lib->kept); lib->nkept = 0;
+    for (unsigned i = 0; i < sizeof K / sizeof *K; i++) { const qbv *v = secmap_get(m, K[i]); if (v) { lib->kept[lib->nkept].id = K[i]; lib->kept[lib->nkept].kind = v->kind; lib->kept[lib->nkept++].v = qb_dup(v); } }
+}
+const qbv *gh3_library_section(const gh3_library *lib, uint32_t id) { for (int i = 0; lib && i < lib->nkept; i++) if (lib->kept[i].id == id) return lib->kept[i].v; return NULL; }
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib) {
     memset(lib, 0, sizeof *lib); gh3_default_tuning(&lib->tuning);
     gh3_pakent *ents; int ne = gh3_pak_parse(pak, pakLen, pab, pabLen, &ents);
@@ -311,6 +326,7 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
     shop_read(&m, lib);
     battle_read(&m, lib);
     lightshow_read(&m, lib);
+    sections_keep(&m, lib);
     for (int i = 0; i < ne; i++) if (keep[i]) gh3_qb_free_sections(keep[i], keepn[i]);
     free(keep); free(keepn); free(m.a); free(ents);
     return lib->nsongs ? 0 : -1;

@@ -18,6 +18,8 @@ int store_selftest(const gh3_library *lib);              /* --moneytest: the pay
 void store_demo(long cash);                              /* --screens: a pretend balance; nothing is saved from then on */
 /* the store screen (from the career set list, Y) */
 void store_open(double now);
+void store_open_at(int cat, const char *key, int backTo);   /* on a shelf (0 songs, 1 videos, 2.. charsel.c's CS_* + 2) at the item of that key; B goes to backTo */
+int store_owns(const char *key);                         /* bought: "roqueiro:Slash", "guitarra:1369ab7b", a song's name… */
 void store_draw(double now);
 void store_event(int in, double now);
 void store_draw_result(int W, int y, double T);          /* "+$X" on the results screen (Career) */

@@ -25,6 +25,7 @@
 #include "practice.h"
 #include "stretch.h"
 #include "store.h"
+#include "charsel.h"
 #include "movie.h"
 #include "battle.h"
 #include "cheats.h"
@@ -129,6 +130,8 @@ static void sfx_hook(const char *name) {
     else if (!strncmp(name, "streak", 6)) audio_sfx(!strcmp(name, "streak100") ? SFX_STREAK100 : SFX_STREAK); else if (!strncmp(name, "lose", 4)) audio_sfx(name[4] == '4' ? SFX_LOSE4 : name[4] == '3' ? SFX_LOSE3 : SFX_LOSE);   /* lose2..4: the multiplier lost */
 }
 static void mute_hook(int m) { audio_mute(BUS_PLAYER, m); }
+static double practice_speed(void) { return PRACTICE_SPEED[A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0]; }   /* the game's current_speedfactor */
+static int practicePlay;   /* load_song for a practice played at practice_speed() (not the tutorials, which are MODE_PRACTICE at full speed) */
 /* --judgetest: the judging on a made-up chart, input simulated, and which sounds each case makes (no audio device) */
 static double jtT; static char jtLog[160];
 static void jt_sfx(const char *n) { size_t l = strlen(jtLog); snprintf(jtLog + l, sizeof jtLog - l, " %s@%.0f", n, jtT); }
@@ -178,6 +181,17 @@ static int judge_test(void) {
         if (!ok) fails++;
         printf("%-32s expect %-26s got%s | hits %d misses %d overstrums %d %s\n", k->name, e, jtLog[0] ? jtLog : " (nothing)", r.hits - warm, r.misses, r.overstrums, ok ? "ok" : "FAIL");
         jtLog[0] = 0; }
+    { /* practice: the windows times current_speedfactor (script 0xd8eeddfa), a strum just inside and just outside each edge */
+        static const int32_t FB2[] = { 0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000 };
+        for (int k = 0; k < PRACTICE_SPEEDS; k++) { double sp = PRACTICE_SPEED[k]; const gh3_tuning *pt = practice_tuning(&tn, sp); double E = tn.early * sp, L = tn.late * sp;
+            const struct { const char *name; double at; int hit; } P[4] = { { "early edge, inside", 3000 - E + 0.5, 1 }, { "early edge, outside", 3000 - E - 0.5, 0 }, { "late edge, inside", 3000 + L - 0.5, 1 }, { "late edge, outside", 3000 + L + 0.5, 0 } };
+            printf("practice x%.3f: windows %.1f / %.1f song ms (= %.0f / %.0f ms of real time)\n", sp, pt->early, pt->late, pt->early / sp, pt->late / sp); if (fabs(pt->early - E) > 1e-9 || fabs(pt->late - L) > 1e-9) fails++;
+            for (int c = 0; c < 4; c++) { gh3_note N[2]; memset(N, 0, sizeof N); N[0].t = 3000; N[0].mask = 1; N[0].n = 1; N[0].star = -1; N[1].t = 3600; N[1].mask = 2; N[1].n = 1; N[1].star = -1;
+                gh3_chart ch; memset(&ch, 0, sizeof ch); ch.notes = N; ch.nnotes = 2; ch.fretbars = FB2; ch.nfret = sizeof FB2 / sizeof FB2[0]; ch.end = 5000;
+                gh3_runopts o; memset(&o, 0, sizeof o); o.endMs = 5000; o.speed = 100; o.noFail = 1; gh3_run r; game_new(&r, &ch, practice_tuning(&tn, sp), 3, &o); gh3_sfx_hook = jt_sfx; gh3_mute_hook = jt_mute;
+                int done = 0; for (double t = 0; t < 3300; t += 1000.0 / 240) { if (!done && t + 1000.0 / 240 > P[c].at) { game_step(&r, t, t); game_set_frets(&r, 1, P[c].at, P[c].at); game_strum(&r, P[c].at, P[c].at); done = 1; continue; } game_step(&r, t, t); }
+                int ok = P[c].hit ? r.hits == 1 && !r.overstrums : r.hits == 0 && r.overstrums == 1; if (!ok) fails++;
+                printf("   %-20s strum at %7.1f: hits %d overstrums %d misses %d %s\n", P[c].name, P[c].at, r.hits, r.overstrums, r.misses, ok ? "ok" : "FAIL"); jtLog[0] = 0; } } }
     gh3_sfx_hook = sfx_hook; gh3_mute_hook = mute_hook;
     printf("%d failures\n", fails); return fails;
 }
@@ -217,9 +231,11 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
         double from, to; practice_range(&S->sd, A.practiceSec, A.practiceEnd, endMs, &from, &to); gh3_chart *c = &S->chart; int k = 0;
         for (int i = 0; i < c->nnotes; i++) if (c->notes[i].t >= from - 1 && c->notes[i].t < to) { c->notes[k] = c->notes[i]; c->notes[k].star = -1; k++; }
         if (!k) { snprintf(err, errCap, "Esse trecho não tem notas nesta parte"); return -1; }
-        c->nnotes = k; if (to + 120 < endMs) endMs = to + 120; }
+        c->nnotes = k; if (to + 120 < endMs) endMs = to + 120;
+        if (practicePlay && practice_speed() < 1) practice_drums_load(S->pakBytes, len, S->sd.name); }   /* below full speed: the song's drum cues for the game's kit */
     o.endMs = endMs; o.speed = 100;
-    game_new(&S->run, &S->chart, cheats_tuning(&lib.tuning, A.mode), diff, &o);
+    const gh3_tuning *tn = cheats_tuning(&lib.tuning, A.mode); if (practicePlay && A.mode == MODE_PRACTICE) tn = practice_tuning(tn, practice_speed());   /* the windows times the speed, after the cheats (as the game's song setup) */
+    game_new(&S->run, &S->chart, tn, diff, &o);
     S->loaded = 1; return 0;
 }
 const char *app_section_at(double t) {
@@ -300,7 +316,7 @@ void app_guitar_lick(void) { if (!nLicks || !SET.menuMusic) return; lickWanted =
 static int menu_music_wanted(void) {
     if (!SET.menuMusic || !bankFound || !nMenu || !audio_has_device()) return 0;
     if (A.screen == SC_SETLIST && prevWant >= 0) return 0;
-    switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: case SC_STORE: return 1;
+    switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: case SC_STORE: case SC_CHARSEL: return 1;
         case SC_OPTIONS: case SC_CONTROLS: case SC_CHEATS: return A.optionsFrom != SC_PAUSE; case SC_TUTORIAL: return !tutorial_busy(); default: return 0; }
 }
 static void preview_tick(void) {
@@ -401,7 +417,8 @@ static int song_load(void) {   /* the blocking part: the set's venue (3D build),
 #ifdef GH3_3D
     if (perf_mode()) autoPlay = 1;   /* Performance Mode: the band plays the song on its own (and the run counts for nothing, as autoplay) */
 #endif
-    if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
+    practicePlay = A.mode == MODE_PRACTICE; int bad = load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, autoPlay, 1, err, sizeof err); practicePlay = 0;
+    if (bad) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
     { Uint32 t0 = SDL_GetTicks(); sfx_song_prepare(A.mode != MODE_PRACTICE && A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : ""); static int once; if (!once) { once = 1; SDL_Log("sfx: the song's sounds decoded in %u ms (behind the loading screen)", SDL_GetTicks() - t0); } }
     return 0;
 }
@@ -415,8 +432,11 @@ void app_begin_song(void) {
 static void song_go(void) {
     app_apply_volumes();
     if (A.mode == MODE_PRACTICE) { /* the notes outside the sections are gone (load_song); the clock runs at the speed chosen */
-        double sp = PRACTICE_SPEED[A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0], from, to, at, lead;
-        practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, 1e12, &from, &to); practice_lead(from, sp, &at, &lead); audio_set_speed(sp); audio_play(at, lead); sfx_song_begin(NULL, lead / sp); }   /* (no crowd in practice) */
+        double sp = practice_speed(), from, to, at, lead;
+        practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, 1e12, &from, &to); practice_lead(from, sp, &at, &lead);
+        if (sp >= 1) { audio_set_bus_gain(BUS_BAND, SET.volMusic / 100.0 * PRACTICE_BAND_FULL); audio_set_bus_gain(BUS_OTHER, SET.volMusic / 100.0 * PRACTICE_BAND_FULL); }   /* set_band_volume vol=7 */
+        int hits = practice_drums_start(at, to, sp); if (sp < 1) SDL_Log("practice x%.3f: %s, %d drum hits from %.0f to %.0f ms", sp, hits >= 0 ? "no band, the game's drum kit" : "no drum kit: the band, stretched", hits, at, to);   /* below: set_band_volume vol=0 and the kit */
+        audio_set_speed(sp); audio_play(at, lead); sfx_song_begin(NULL, lead / sp); }   /* (no crowd in practice) */
     else { double from = cfg.playFrom, lead = 2600; cfg.playFrom = 0; battle_start(A.selSong, &from, &lead); audio_play(from, lead);   /* a boss song is a battle (or the devil's last part) */
         sfx_song_begin(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "", lead); }   /* the venue's crowd, the highway's rise and the intro kick */
     input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
@@ -454,7 +474,7 @@ static void open_pads(void) { for (int i = 0; i < SDL_NumJoysticks(); i++) if (S
 void app_finish_song(double now) {
     if (battle_end(now)) return;   /* a battle's banner first; it comes back here */
     gh3_run *r = &A.S.run; int total = r->nnotes; A.resultPct = total ? (int)(100.0 * r->hits / total + 0.5) : 0; A.resultScore = (long)r->score;
-    A.resultStars = r->failed || BTL.on ? 0 : game_stars(r->score, A.S.chart.base);   /* (a battle is won or lost, without stars) */ A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.newRecord = 0;
+    A.resultStars = r->failed || BTL.on ? 0 : game_stars(r->score, A.S.chart.base);   /* (a battle is won or lost, without stars) */ A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.resMore = 0; A.newRecord = 0;
     sfx_song_end(r->failed); if (!r->failed && A.mode != MODE_PRACTICE) audio_sfx(SFX_ROCK);   /* You Rock! (and the crowd's applause after it), or the boo */
     if (r->failed) { audio_fade_out(1.5); audio_sfx(SFX_FAIL); }
     else if (A.mode == MODE_PRACTICE) audio_fade_out(0.8);   /* the run may end mid-song, at its last section */
@@ -511,20 +531,29 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
       if (boss >= 0) { A.cursor = boss; gfx_begin(); screens_draw(20000); gfx_end(); save_named("setlist_boss"); }
       A.cursor = c0; snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", lib.tiers[1].title); A.unlockAt = 29000; gfx_begin(); screens_draw(30000); gfx_end(); save_named("setlist_unlock"); A.unlockAt = 0; }
     { int c0 = A.cursor; store_demo(2350);   /* the bonus songs with their prices, the store (a pretend balance: nothing saved) */
-      for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind == 0 && lib.tiers[A.rows[i].tier].tab == 1) { A.cursor = i + 3; A.scroll = i; break; }
-      gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
+      screens_event(IN_R, 0); A.cursor = A.nrows > 3 ? 3 : A.nrows - 1;   /* the Bonus tab (R1), a few songs down */
+      gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus");
+      { int c1 = A.cursor; screens_event(IN_R, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads_quick"); A.mode = MODE_CAREER;
+        screens_event(IN_L, 0); A.cursor = c1; } A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
       store_open(0); store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store"); store_event(IN_OK, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_buy"); store_event(IN_BACK, 0);
-      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); A.cursor = c0; A.scroll = 0; }
+      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); screens_set_tab(0); A.cursor = c0; A.scroll = 0;
+      charsel_screens(save_named); }   /* the character hub, its lists, the store's rockers / guitars / finishes */
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     loading_start(-500); A.screen = SC_LOADING; gfx_begin(); screens_draw(0); gfx_end(); save_named("loading");   /* the loading screen, its spinner half a second in */
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     { int r0 = A.setupRow; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_play"); A.setupRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_part"); A.setupRow = r0; }
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
-    A.optCat = 3; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
-    A.optCat = 2; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle");   /* Controle, on Canhoto */
+    A.optCat = 1; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
+    A.optCat = 4; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle");   /* Controle, on Canhoto */
+    { A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle_alavanca");   /* on Calibrar alavanca, then its three steps (the readings made up; nothing saved) */
+      screens_event(IN_OK, 0); A.whamNow = 0.08f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_rest"); screens_event(IN_OK, 0);
+      A.whamNow = A.whamFull = 0.93f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_full"); int sens = SET.whamSens; screens_event(IN_OK, 0); screens_event(IN_RIGHT, 0);
+      A.whamNow = 0.55f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_done"); printf("whammy calibration: rest %d%%, full %d%%, sensitivity %d%%; 0.55 of the stick -> %.2f\n", SET.whamRest, SET.whamFull, SET.whamSens, input_whammy_level(0.55f));
+      screens_event(IN_BACK, 0); printf("cancelled: rest %d%%, full %d%%, sensitivity %d%% (was %d%%)\n", SET.whamRest, SET.whamFull, SET.whamSens, sens); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = 8; }
+    { int r0 = A.optRow; screens_event(IN_UP, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("options_menu_down"); A.optRow = r0; A.optCat = 4; }   /* from the grey store strip up: over the greys to Controle */
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
-    A.optionsFrom = SC_MAIN; A.optRow = 5; cheats_open(); gfx_begin(); screens_draw(0); gfx_end(); save_named("cheats");
+    A.optionsFrom = SC_MAIN; A.optRow = 10; cheats_open(); gfx_begin(); screens_draw(0); gfx_end(); save_named("cheats");
     { /* the Hyperspeed code of the game (O B O Y O B O Y) typed on the keyboard frets, to see the matcher unlock it */
       static const SDL_Keycode code[8] = { SDLK_5, SDLK_4, SDLK_5, SDLK_3, SDLK_5, SDLK_4, SDLK_5, SDLK_3 }; int hyper = SET.hyper; SET.hyper = 0; screens_event(IN_OK, 1000);
       for (int k = 0; k < 8; k++) { SDL_Event e; memset(&e, 0, sizeof e); double at = 2000 + k * 300;
@@ -540,11 +569,16 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.S.run.autoPlay = 0; app_finish_song(perf);
     for (double rt = 0; rt <= 1.06; rt += 1.0 / 60) { A.resultsAt = perf - rt * 1000; gfx_begin(); screens_draw(perf); gfx_end(); } save_named("results_reveal");   /* the third star landing, its sparks flying */
     A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
+    { char was[24]; snprintf(was, sizeof was, "%s", SET.rocker); snprintf(SET.rocker, sizeof SET.rocker, "Midori"); gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rocker"); snprintf(SET.rocker, sizeof SET.rocker, "%s", was); }   /* another rocker on the cover */
     A.resultsAt = perf - 500; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rock");
     A.resultsAt = perf - 1550; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_burst"); A.resultsAt = perf - 3000;   /* and bursting apart */   /* the letters shaking over the landing page */
     { gh3_run *r = &A.S.run; int mode = A.mode, row = A.resRow, rec = A.newRecord;   /* in memory only: some notes missed, then practice, a new record, a failed run */
       for (int i = r->nnotes / 2; i < r->nnotes; i += 5) if (r->notes[i].hit) { r->notes[i].hit = 0; r->hits--; } A.resultPct = r->nnotes ? (int)(100.0 * r->hits / r->nnotes + 0.5) : 0;
       A.newRecord = 1; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_record"); A.newRecord = rec;
+      A.resRow = 2; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more_item");   /* MAIS ESTATÍSTICAS chosen, then its sheet, moved down, put away */
+      screens_event(IN_OK, perf); gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more");
+      for (int k = 0; k < 6; k++) screens_event(IN_DOWN, perf); gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more_down");
+      A.mode = MODE_PRACTICE; A.resMoreY = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more_practice"); A.mode = mode; screens_event(IN_BACK, perf); A.resRow = row;
       A.mode = MODE_PRACTICE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_practice"); A.mode = mode;
       r->failed = 1; r->now = r->endMs * 0.43; A.resRow = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_failed"); r->failed = 0; A.resRow = row;
       if (lib.battle.nbosses) { int on = BTL.on, won = BTL.won, mf = BTL.me.fired, cf = BTL.cpu.fired; const gh3_boss *bs = BTL.boss; BTL.on = 1; BTL.won = 1; BTL.boss = &lib.battle.bosses[0]; BTL.me.fired = 5; BTL.cpu.fired = 3;   /* a battle won, then lost */
@@ -581,6 +615,7 @@ int main(int argc, char **argv) {
     { size_t pl, bl; uint8_t *pak = read_data("pak", "qb.pak.xen", &pl), *pab = read_data("pak", "qb.pab.xen", &bl);
       if (pak && pab && gh3_library_read(pak, pl, pab, bl, &lib) == 0) A.libOk = 1; else snprintf(libErr, sizeof libErr, "Não consegui ler PAK/qb.pak.xen + qb.pab.xen em %s. Copie a pasta DATA do jogo (PAK, SONGS e MUSIC) para ports/gh3/DATA.", cfg.data);
       { size_t sl; uint8_t *sb = read_data("zones", "global_sfx.pak.xen", &sl); sfx_init(pak, pl, pab, bl, sb, sl); }   /* the game's sound effects (sfx keeps the bank) */
+      practice_init(pak, pl, pab, bl);   /* practice_notemapping: the drum kit of slowed practice */
       free(pak); free(pab); }
     A.lib = &lib; A.autoPlay = cfg.autoPlay; A.selDiff = 1;
     if (A.libOk) store_load(&lib);
@@ -593,11 +628,13 @@ int main(int argc, char **argv) {
     if (judgeTest) return judge_test() ? 1 : 0;   /* --judgetest: overstrum, wrong frets, a passed note, a hit: the sounds each makes */   /* --sfxtest: the game's sound effects, listed and decoded */
     if (cfg.stretchtest) { SDL_Init(0); int bad = stretch_selftest(); if (*cfg.song && A.libOk) { int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i;   /* and a song through the mixer at each speed */
             char e[300]; if (si < 0) puts("song not found"); else if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { practice_bench(A.S.durationMs);
-                A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 4; int all = A.S.chart.nnotes; double from, to, at, lead;   /* and a practice run of sections 3 to 4 played by the bot */
-                if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { gh3_run *r = &A.S.run; practice_range(&A.S.sd, 3, 4, 1e12, &from, &to); practice_lead(from, 0.5, &at, &lead);
+                A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 4; A.practiceSpeed = PRACTICE_SPEEDS - 1; int all = A.S.chart.nnotes; double from, to, at, lead;   /* and a practice run of sections 3 to 4 played by the bot */
+                practicePlay = 1; int lbad = load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e); practicePlay = 0; if (lbad) puts(e); else { gh3_run *r = &A.S.run; practice_range(&A.S.sd, 3, 4, 1e12, &from, &to); practice_lead(from, 0.5, &at, &lead);
                     double t = at - lead; while (!r->finished && t < 1e7) { game_step(r, t, t); t += 1000.0 / 60; }
                     printf("practice sections 3-4 (%.0f..%.0f ms) at 50%%: sound from %.0f ms after a %.0f ms count-in (song ms); %d of the song's %d notes, first %d last %d; run ends at %.0f ms, %d hits, %d misses\n",
-                        from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses); } } } return bad ? 1 : 0; }
+                        from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses);
+                    printf("judging windows at x%.3f: early %.1f late %.1f song ms (full speed %.0f / %.0f)\n", practice_speed(), r->tn->early, r->tn->late, lib.tuning.early, lib.tuning.late);
+                    bad += practice_drumtest(at, to, practice_speed(), lead); } } } return bad ? 1 : 0; }
     if (moneyTest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); bank_index(); return store_selftest(&lib) ? 1 : 0; }
     if (cfg.movietest[0]) { SDL_Init(0); movie_test(); audio_close(); return 0; }
 #ifdef GH3_3D

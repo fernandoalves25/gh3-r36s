@@ -1,6 +1,7 @@
 #!/bin/bash
 # Turns the game's movies (already converted to MP4 in DATA/MOVIES/WEB) into what the R36S player decodes:
-# MPEG-1 video + MP2 audio in an MPEG program stream (pl_mpeg), 640 wide, at most 30 fps, in DATA/MOVIES/R36S.
+# MPEG-1 video + MP2 audio in an MPEG program stream (pl_mpeg), 640 wide, at most 30 fps, in DATA/MOVIES/R36S; and the
+# see-through overlays from their animated WebP (see below).
 #   tools/convert_movies.sh [DATA dir] [name ...]      (default: DATA, every movie the player uses)
 # Needs ffmpeg/ffprobe. A file already converted is skipped unless FORCE=1.
 set -u
@@ -8,11 +9,20 @@ DATA=${1:-DATA}; shift || true
 SRC="$DATA/MOVIES/WEB"; OUT="$DATA/MOVIES/R36S"
 [ -d "$SRC" ] || { echo "no $SRC"; exit 1; }
 mkdir -p "$OUT"
-# boot logos and the intro, the career's cutscenes, the battle and multiplayer overlays, the bonus videos, the co-op career
+# boot logos and the intro, the career's cutscenes, the bonus videos, the co-op career
 NAMES="atvi ro_logo ns_logo intro singleplayer_01 singleplayer_02 singleplayer_03 singleplayer_04 singleplayer_05 singleplayer_06
- singleplayer_07 singleplayer_08 singleplayer_end Satan-Battle_WIN Satan-Battle_LOSS Golden_Guitar Fret_Flames Player1_wins Player2_wins
- brettmichaels sexpistols slash tommorello coop_01 coop_02 coop_03 coop_04 coop_05 coop_06"
-[ $# -gt 0 ] && NAMES="$*"
+ singleplayer_07 singleplayer_08 singleplayer_end brettmichaels sexpistols slash tommorello coop_01 coop_02 coop_03 coop_04 coop_05 coop_06"
+# the see-through overlays (battle ends, golden guitar, fret flames): from the animated WebP beside the MP4s, which keeps
+# their alpha, to <name>.alpha.mpg (colour above alpha in one MPEG-1 picture; tools/convert_overlays.py, needs python3
+# with Pillow and numpy: PY=/path/to/python to pick one)
+OVERLAYS="Player1_wins Player2_wins Satan-Battle_WIN Satan-Battle_LOSS Golden_Guitar Fret_Flames"
+if [ $# -gt 0 ]; then NAMES=""; OV=""; for n in "$@"; do case " $OVERLAYS " in *" $n "*) OV="$OV $n";; *) NAMES="$NAMES $n";; esac; done; OVERLAYS=$OV; fi
+for n in $OVERLAYS; do
+  in="$SRC/$n.webp"; out="$OUT/$n.alpha.mpg"
+  [ -f "$in" ] || { echo "skip $n (no $in)"; continue; }
+  [ -f "$out" ] && [ "${FORCE:-0}" != 1 ] && { echo "have $n (overlay)"; continue; }
+  "${PY:-python3}" "$(dirname "$0")/convert_overlays.py" "$in" "$out.tmp" && mv "$out.tmp" "$out" && echo "$n: overlay, $(du -k "$out" | cut -f1) KB" || { rm -f "$out.tmp"; echo "FAILED $n (overlay)"; }
+done
 # the MPEG-1 frame rate closest to the source's, never above 30 (a 59.94 source drops every other frame)
 pick_rate() { awk -v r="$1" 'BEGIN { split(r, p, "/"); f = p[2] ? p[1] / p[2] : p[1]; if (f > 30.5) f /= 2;
   n = split("24000/1001 24 25 30000/1001 30", c, " "); best = c[n]; bd = 1e9;

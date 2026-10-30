@@ -53,7 +53,9 @@ typedef struct { char zone[24]; uint32_t tex[16]; int n; } gh3_zonecrowd;   /* a
 enum { LN_NONE = 0, LN_MOOD, LN_COLOUR, LN_TIME, LN_STROBE, LN_NEXT, LN_PYRO };
 typedef struct { int kind; uint32_t mood; float rgb[3], time; } gh3_lightnote;
 typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; char careerMovie[48]; gh3_battledata battle; gh3_zonecrowd crowd[12]; int ncrowd;
-    gh3_lightnote lightNote[128]; int hasLightNotes; uint32_t lightKeep[128]; int nlightKeep; } gh3_library;   /* careerMovie: the career's initial_movie; lightKeep: lightshow_coloroverrideexcludelights, the lights a colour cue leaves alone */
+    gh3_lightnote lightNote[128]; int hasLightNotes; uint32_t lightKeep[128]; int nlightKeep;
+    qbsection *kept; int nkept; } gh3_library;   /* careerMovie: the career's initial_movie; lightKeep: lightshow_coloroverrideexcludelights, the lights a colour cue leaves alone; kept: see gh3_library_section */
+const qbv *gh3_library_section(const gh3_library *lib, uint32_t id);   /* a section kept whole after the read (the rockers, guitars and their store lists, for charsel.c); NULL when not kept */
 const gh3_zonecrowd *gh3_library_crowd(const gh3_library *lib, const char *zone);   /* NULL when the venue lists none */
 const gh3_boss *gh3_library_boss(const gh3_library *lib, int songIdx);   /* the boss of a battle song, or NULL */
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib);

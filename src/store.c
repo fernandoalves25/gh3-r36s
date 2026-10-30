@@ -7,13 +7,15 @@
  * - the store sells the bonus songs (store_song_data: $500 each; the one with no price, Through the Fire and Flames,
  *   opens when a career is finished on any difficulty, as in the game) and the four bonus videos (bonus_videos, $1500).
  *   A bonus song is locked in every mode until bought; one with a record (played before the store existed) is owned;
- *   the "Liberar todas as músicas" cheat opens them all. The guitars, finishes and rockers the data also prices need
- *   3D models this port does not draw: left out.
+ *   the "Liberar todas as músicas" cheat opens them all. It also sells what charsel.c reads: the secret rockers, the
+ *   guitars and special guitars, and the finishes (a finish once its guitar is yours), at the data's prices; from the
+ *   character hub the store opens on the locked item and B goes back there.
  * - the encore: the crowd chants for it first (STREAMS/streamall's encore_build_<venue>, the venue being the tier's
  *   level in levelzones), over an ENCORE! banner on the setup screen, then the song starts.
  * Money and purchases are kept in gh3-carreira.cfg next to gh3.cfg. */
 #include "app.h"
 #include "store.h"
+#include "charsel.h"
 #include "render.h"
 #include "ui.h"
 #include "audio.h"
@@ -99,34 +101,48 @@ const char *store_lock_text(int si, int career) {
 }
 
 /* ------------------------------------------------------------------ the store screen */
-static int cat, sel[2], top, confirm; static int list[64], nlist;
+enum { NCAT = 2 + CS_CATS };   /* bonus songs, bonus videos, then charsel.c's rockers, guitars and finishes */
+static int cat, sel[NCAT], top, confirm, back = SC_SETLIST; static int list[64], nlist;
 static void note(double now, const char *m) { snprintf(A.note, sizeof A.note, "%s", m); A.noteAt = now; }
 static void make_list(void) { nlist = 0; const gh3_library *lib = A.lib;
     for (int t = 0; t < lib->ntiers; t++) if (lib->tiers[t].tab == 1) for (int k = 0; k < lib->tiers[t].nsongs && nlist < 64; k++) { int si = lib->tiers[t].songIdx[k]; if (strncmp(lib->songs[si].name, "tutorial", 8)) list[nlist++] = si; } }
-static int count(void) { return cat == 0 ? nlist : A.lib->shop.nvideos; }
+static int count_of(int c) { return c == 0 ? nlist : c == 1 ? A.lib->shop.nvideos : charsel_store_n(c - 2); }
+static int count(void) { return count_of(cat); }
+int store_owns(const char *key) { return bought(key); }
 static int video_owned(const gh3_video *v) { char k[48]; snprintf(k, sizeof k, "video:%s", v->id); return bought(k); }
-static void item(int i, const char **title, const char **sub, int *price, int *have) {
-    const gh3_shop *sh = &A.lib->shop;
-    if (cat == 0) { const gh3_song *g = &A.lib->songs[list[i]]; *title = g->title; *sub = g->artist; *price = sh->songPrice[list[i]]; *have = owned[list[i]]; }
-    else { const gh3_video *v = &sh->videos[i]; *title = v->name; *sub = ""; *price = v->price; *have = video_owned(v); }
+/* an item of the shelf shown: info (its text), why (it cannot be bought yet) and key (what a purchase keeps) when asked */
+static void item_x(int i, const char **title, const char **sub, int *price, int *have, const char **info, const char **why, char *key, size_t cap) {
+    const gh3_shop *sh = &A.lib->shop; const char *in_ = NULL, *wy = NULL; char k_[72];
+    if (cat == 0) { const gh3_song *g = &A.lib->songs[list[i]]; *title = g->title; *sub = g->artist; *price = sh->songPrice[list[i]]; *have = owned[list[i]]; in_ = sh->songInfo[list[i]]; snprintf(k_, sizeof k_, "%s", g->name); }
+    else if (cat == 1) { const gh3_video *v = &sh->videos[i]; *title = v->name; *sub = ""; *price = v->price; *have = video_owned(v); in_ = v->info; snprintf(k_, sizeof k_, "video:%s", v->id); }
+    else charsel_store_item(cat - 2, i, title, sub, price, have, &in_, &wy, k_, sizeof k_);
+    if (info) *info = in_; if (why) *why = wy; if (key) snprintf(key, cap, "%s", k_);
 }
+static void item(int i, const char **title, const char **sub, int *price, int *have) { item_x(i, title, sub, price, have, NULL, NULL, NULL, 0); }
 /* a bonus video, from MOVIES/R36S (tools/convert_movies.sh makes them) */
 static void watch_video(const gh3_video *v, double now) {
     if (app_movie_exists(v->id)) { audio_sfx(SFX_OK); app_play_movie(v->id, SC_STORE); return; }
     char b[160]; snprintf(b, sizeof b, "Falta o vídeo \"%s\" em DATA/MOVIES/R36S.", v->name); note(now, b); audio_sfx(SFX_WARN);
 }
-void store_open(double now) { make_list(); store_refresh(A.lib); A.screen = SC_STORE; confirm = 0; app_preview(-1); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); (void)now; }
+void store_open(double now) { make_list(); store_refresh(A.lib); A.screen = SC_STORE; confirm = 0; back = SC_SETLIST; if (cat > 1) cat = 0; app_preview(-1); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); (void)now; }
+void store_open_at(int c, const char *key, int backTo) {
+    make_list(); store_refresh(A.lib); A.screen = SC_STORE; confirm = 0; back = backTo; cat = c >= 0 && c < NCAT ? c : 0; top = 0; app_preview(-1); audio_sfx(SFX_WHOOSH);
+    for (int i = 0, n = count(); key && *key && i < n; i++) { const char *t, *s, *in_, *wy; int p, h; char k[72]; item_x(i, &t, &s, &p, &h, &in_, &wy, k, sizeof k); if (!strcmp(k, key)) sel[cat] = i; }
+}
 void store_draw(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; const gh3_library *lib = A.lib; char b[320], c[32];
     snprintf(b, sizeof b, "Seu dinheiro: %s", store_cash_str()); ui_header(W, "LOJA", b);
-    static const char *CAT[2] = { "MÚSICAS BÔNUS", "VÍDEOS BÔNUS" };
-    for (int k = 0, x = 12; k < 2; k++) { int w = gfx_text_w(CAT[k], 2) + 28; if (k == cat) ui_panel(x, 64, w, 28, UI_PANEL_AMBER); gfx_text_sh(x + 14, 71, 2, CAT[k], k == cat ? C_INK : C_MUTED, C_SHADOW); x += w + 6; }
-    gfx_text_right(W - 16, 76, 1, "L1 / R1 ou ← →", C_LINE);
+    static const char *CAT[NCAT] = { "MÚSICAS BÔNUS", "VÍDEOS BÔNUS", "ROQUEIROS", "GUITARRAS", "ACABAMENTOS" };
+    { int nc = 0, tw = 0; for (int k = 0; k < NCAT; k++) if (k == 0 || count_of(k)) { nc++; tw += gfx_text_w(CAT[k], 1) + 18; } int big = nc <= 2, gap = big ? 6 : 4, x = 12;   /* the tabs: big when only the songs and videos are sold */
+      if (!big && tw + gap * (nc - 1) > W - 24) gap = 0;
+      for (int k = 0; k < NCAT; k++) { if (k && !count_of(k)) continue; int w = gfx_text_w(CAT[k], big ? 2 : 1) + (big ? 28 : 18); if (k == cat) ui_panel(x, 64, w, big ? 28 : 22, UI_PANEL_AMBER);
+          gfx_text_sh(x + (big ? 14 : 9), big ? 71 : 70, big ? 2 : 1, CAT[k], k == cat ? C_INK : C_MUTED, C_SHADOW); x += w + gap; }
+      if (big) gfx_text_right(W - 16, 76, 1, "L1 / R1 ou ← →", C_LINE); }
     int n = count(), rowH = 24, y0 = 102, vis = (H - 150 - y0) / rowH, *s = &sel[cat];
     if (*s >= n) *s = n ? n - 1 : 0; if (*s < top) top = *s; if (*s >= top + vis) top = *s - vis + 1; if (top < 0) top = 0;
     for (int i = top, y = y0; i < n && i < top + vis; i++, y += rowH) { const char *title, *sub; int price, have, on = i == *s; uint32_t sc;
         item(i, &title, &sub, &price, &have);
-        if (have) { snprintf(b, sizeof b, cat ? "✓ Assistir" : "✓ comprada"); sc = C_GOOD; } else if (price > 0) { fmt_cash(price, b, sizeof b); sc = cash >= price ? C_AMP : C_BAD; }
+        if (have) { snprintf(b, sizeof b, cat == 1 ? "✓ Assistir" : cat == 0 ? "✓ comprada" : "✓ seu"); sc = C_GOOD; } else if (price > 0) { fmt_cash(price, b, sizeof b); sc = cash >= price ? C_AMP : C_BAD; }
         else { snprintf(b, sizeof b, careerDone || SET.unlockAll ? "liberada" : "termine a carreira"); sc = careerDone || SET.unlockAll ? C_GOOD : C_MUTED; }
         if (on) { ui_panel(10, y - 3, W - 20, rowH, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), 16, y + 1, 0.5f, RGB(255, 255, 255), 1); }
         gfx_text_sh(34, y + 1, 2, title, on ? C_INK : have ? C_MUTED : RGB(210, 204, 196), C_SHADOW);
@@ -135,14 +151,16 @@ void store_draw(double now) {
         if (price > 0 && !have) gfx_text_sh_right(W - 22, y + 1, 2, b, sc, C_SHADOW); else gfx_text_sh_right(W - 22, y + 6, 1, b, sc, C_SHADOW); }
     if (top > 0) gfx_text_center(W / 2, y0 - 9, 1, "↑", C_MUTED); if (top + vis < n) gfx_text_center(W / 2, y0 + vis * rowH - 4, 1, "↓", C_MUTED);
     int py = H - 146; ui_panel(14, py, W - 28, 94, UI_PANEL_FLAT);
-    if (n) { const char *title, *sub, *info; int price, have; item(*s, &title, &sub, &price, &have);
-        if (cat == 0) { const gh3_song *g = &lib->songs[list[*s]]; snprintf(b, sizeof b, "%s • %s%s%s", g->title, g->artist, *g->year ? " • " : "", g->year); info = lib->shop.songInfo[list[*s]]; }
-        else { snprintf(b, sizeof b, "%s", title); info = lib->shop.videos[*s].info; }
-        gfx_text_sh(26, py + 8, 1, b, C_AMP, C_SHADOW); gfx_text_box(26, py + 26, W - 52, 1, info && *info ? info : cat ? "" : "Uma das músicas bônus do jogo.", C_MUTED); }
+    if (n) { const char *title, *sub, *info, *why; int price, have, tx0 = 26; item_x(*s, &title, &sub, &price, &have, &info, &why, NULL, 0);
+        if (cat == 0) { const gh3_song *g = &lib->songs[list[*s]]; snprintf(b, sizeof b, "%s • %s%s%s", g->title, g->artist, *g->year ? " • " : "", g->year); }
+        else if (cat >= 2 && *sub) snprintf(b, sizeof b, "%s • %s", title, sub); else snprintf(b, sizeof b, "%s", title);
+        if (cat == 2) { char k[72]; const char *t, *u, *in_, *wy; int p, h; item_x(*s, &t, &u, &p, &h, &in_, &wy, k, sizeof k); gfx_sprite *ph = charsel_photo(k + 9);   /* "roqueiro:<name>": the rocker's photo beside the text */
+            if (ph) { gfx_blit(ph, 0, 0, gfx_sprite_w(ph), gfx_sprite_h(ph), 20, py + 5, 84, 84, RGB(255, 255, 255), 1); tx0 = 114; } }
+        gfx_text_sh(tx0, py + 8, 1, b, C_AMP, C_SHADOW); gfx_text_box(tx0, py + 26, W - 26 - tx0, 1, why ? why : info && *info ? info : cat ? "" : "Uma das músicas bônus do jogo.", why ? C_BAD : C_MUTED); }
     else gfx_text_box(26, py + 10, W - 52, 1, "Os itens da loja não estão no qb.pak desta cópia do jogo.", C_MUTED);
-    gfx_text_center(W / 2, H - 44, 1, "Guitarras, acabamentos e roqueiros precisam de modelos 3D que este port não desenha.", C_LINE);
+    if (cat >= 2) gfx_text_center(W / 2, H - 44, 1, back == SC_CHARSEL ? "B volta à escolha do roqueiro e da guitarra." : "Escolha o roqueiro e a guitarra ao entrar na Carreira ou no Jogo rápido.", C_LINE);
     { const char *title, *sub; int price = 0, have = 0; if (n) item(*s, &title, &sub, &price, &have);
-      static const char *bt[3] = { "A", "← →", "B" }; const char *tx[3] = { have && cat ? "Assistir" : "Comprar", "Categoria", "Voltar" }; ui_hints(H - 22, W, bt, tx, 3); }
+      static const char *bt[3] = { "A", "← →", "B" }; const char *tx[3] = { have && cat == 1 ? "Assistir" : "Comprar", "Categoria", "Voltar" }; ui_hints(H - 22, W, bt, tx, 3); }
     if (confirm && n) { const char *title, *sub; int price, have; item(*s, &title, &sub, &price, &have);
         ui_dim(W, H, 160); ui_panel(W / 2 - 240, H / 2 - 62, 480, 124, UI_PANEL_DARK);
         snprintf(b, sizeof b, "Comprar \"%s\"?", title); gfx_text_sh_center(W / 2, H / 2 - 46, gfx_text_w(b, 2) < 440 ? 2 : 1, b, C_INK, C_SHADOW);
@@ -150,19 +168,19 @@ void store_draw(double now) {
         static const char *qb[2] = { "A", "B" }, *qt[2] = { "Comprar", "Cancelar" }; ui_hints(H / 2 + 26, W, qb, qt, 2); }
 }
 static void buy(double now) {
-    const char *title, *sub; int price, have; item(sel[cat], &title, &sub, &price, &have); confirm = 0; if (have || price <= 0 || cash < price) return;
-    char k[72]; if (cat == 0) snprintf(k, sizeof k, "%s", A.lib->songs[list[sel[cat]]].name); else snprintf(k, sizeof k, "video:%s", A.lib->shop.videos[sel[cat]].id);
+    const char *title, *sub, *info, *why; int price, have; char k[72]; item_x(sel[cat], &title, &sub, &price, &have, &info, &why, k, sizeof k); confirm = 0; if (have || why || price <= 0 || cash < price) return;
     cash -= price; add_buy(k); save(); store_refresh(A.lib); audio_sfx(SFX_CASH);   /* the store's Cash_Sound */
-    note(now, cat == 0 ? "Comprada! Já está na lista de músicas." : "Comprado! Aperte A para assistir.");
+    note(now, cat == 0 ? "Comprada! Já está na lista de músicas." : cat == 1 ? "Comprado! Aperte A para assistir." : back == SC_CHARSEL ? "Comprado! Aperte B e escolha." : "Comprado! Escolha ao entrar na Carreira ou no Jogo rápido.");
 }
 void store_event(int in, double now) {
     int n = count(), *s = &sel[cat];
     if (confirm) { if (in == IN_OK) buy(now); else if (in == IN_BACK || in == IN_X || in == IN_Y) { confirm = 0; audio_sfx(SFX_BACK); } return; }
     if (in == IN_UP || in == IN_DOWN) { if (n) { *s = (*s + n + (in == IN_UP ? -1 : 1)) % n; audio_sfx(SFX_MOVE); } }
-    else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { cat = !cat; top = 0; audio_sfx(SFX_MOVE); }
-    else if (in == IN_BACK || in == IN_Y) { A.screen = SC_SETLIST; audio_sfx(SFX_BACK); app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); }
-    else if (in == IN_OK && n) { const char *title, *sub; int price, have; item(*s, &title, &sub, &price, &have); char b[120], c[24];
-        if (have) { if (cat == 1) watch_video(&A.lib->shop.videos[*s], now); else { audio_sfx(SFX_WARN); note(now, "Essa já é sua: toque na lista de músicas."); } return; }
+    else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { int d = in == IN_RIGHT || in == IN_R ? 1 : -1; do cat = (cat + NCAT + d) % NCAT; while (cat && !count_of(cat)); top = 0; audio_sfx(SFX_MOVE); }
+    else if (in == IN_BACK || in == IN_Y) { A.screen = back; audio_sfx(SFX_BACK); if (back == SC_SETLIST) app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); }
+    else if (in == IN_OK && n) { const char *title, *sub, *info, *why; int price, have; item_x(*s, &title, &sub, &price, &have, &info, &why, NULL, 0); char b[120], c[24];
+        if (have) { if (cat == 1) watch_video(&A.lib->shop.videos[*s], now); else { audio_sfx(SFX_WARN); note(now, cat == 0 ? "Essa já é sua: toque na lista de músicas." : "Esse já é seu."); } return; }
+        if (why) { audio_sfx(SFX_WARN); note(now, why); return; }
         if (price <= 0) { audio_sfx(SFX_WARN); note(now, careerDone || SET.unlockAll ? "Essa já está liberada na lista de músicas." : "Termine a carreira (em qualquer dificuldade) para liberar esta."); return; }
         if (cash < price) { audio_sfx(SFX_WARN); fmt_cash(price - cash, c, sizeof c); snprintf(b, sizeof b, "Faltam %s: tire 3 estrelas ou mais na carreira.", c); note(now, b); return; }
         confirm = 1; audio_sfx(SFX_OK); }

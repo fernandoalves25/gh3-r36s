@@ -76,7 +76,9 @@ A lista de músicas é a carreira do jogo, liberada como no original:
 
 - Os 8 sets abrem em ordem; cada set tem 4 músicas, uma batalha em alguns (Tom Morello, Slash, Lou) e um encore.
 - Complete **2 músicas no Fácil, 3 no Médio e as 4 no Difícil e no Expert** para liberar a batalha e depois o encore.
-- O encore (ou a última batalha) fecha o set e abre o seguinte. O progresso é separado por dificuldade (← → ou L1/R1 na lista).
+- O encore (ou a última batalha) fecha o set e abre o seguinte. O progresso é separado por dificuldade (← → na lista).
+- A lista tem as três abas do jogo, cada uma o seu caderno: **Setlist** (os sets da carreira, depois os encores do
+  co-op e o resto), **Bônus** e **Downloads**. L1 e R1 passam de uma aba para a do lado.
 - As batalhas são como no jogo (na Carreira e no Jogo rápido, na guitarra solo): o chefe toca a guitarra base na pista
   da direita. Completar uma frase de notas de batalha dá um ataque (até 3); o botão de star power lança o de cima.
   Ataques: amp sobrecarregado (a pista treme e as notas piscam), corda arrebentada (aperte o traste quebrado até
@@ -139,7 +141,10 @@ Organizadas como no jogo:
 
 - **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
 - **Calibrar atraso**: a medição descrita acima.
-- **Controle**: canhoto (lefty flip), palhetada normal (o direcional, como na guitarra) ou toque livre (como o GH3 no controle comum do PS2: apertar o botão do traste já é a palhetada, com as mesmas regras e o mesmo som de nota errada), botões.
+- **Controle**: canhoto (lefty flip), palhetada normal (o direcional, como na guitarra) ou toque livre (como o GH3 no controle comum do PS2: apertar o botão do traste já é a palhetada, com as mesmas regras e o mesmo som de nota errada), **Calibrar alavanca** (solte o analógico e aperte A, empurre até o fim e aperte A: o jogo guarda onde ele descansa, a zona morta, e o fim do curso), a **sensibilidade** da alavanca (50% a 200%) e os botões.
+- O cartaz de opções tem as doze faixas do jogo; as que não servem no R36S (calibrar imagem, gerenciar banda,
+  salvar/carregar, vídeos, a loja) ficam em cinza e o cursor passa por cima delas. A faixa do login automático do PC
+  ficou com **Restaurar padrões**.
 - **Vídeo**: palco 3D, a resolução do palco 3D e a banda 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
 
 O visual é o do próprio jogo, lido de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os trastes, as chamas, a pista com

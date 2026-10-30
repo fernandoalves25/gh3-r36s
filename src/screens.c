@@ -13,6 +13,7 @@
 #include "cheats.h"
 #include "tutorial.h"
 #include "orig_setup.h"
+#include "charsel.h"
 #include "orig_setlist.h"
 #include "orig_loading.h"
 #include "original.h"
@@ -37,9 +38,12 @@ static void stars_str(int n, char *out) { out[0] = 0; for (int i = 0; i < 5; i++
 static const char *part_name(const gh3_song *s, int part) { return part == 1 ? (s->hasRhythm ? "Baixo" : "Guitarra base") : "Guitarra solo"; }
 
 /* ------------------------------------------------------------------ rows */
+int screens_tab_of(int tier) { int t = A.lib->tiers[tier].tab; return t == 1 || t == 2 ? t : 0; }   /* change_tab's three lists: the co-op encores and the rest go with the set list */
+static int tab_songs(int tab) { const gh3_library *lib = A.lib; int n = 0; for (int t = 0; t < lib->ntiers; t++) if (tab < 0 || screens_tab_of(t) == tab) for (int k = 0; k < lib->tiers[t].nsongs; k++) n += strncmp(lib->songs[lib->tiers[t].songIdx[k]].name, "tutorial", 8) != 0; return n; }
 void screens_build_rows(void) {
     gh3_library *lib = A.lib; A.nrows = 0; A.rows = realloc(A.rows, (lib->nsongs + lib->ntiers + 1) * sizeof *A.rows);
-    for (int t = 0; t < lib->ntiers; t++) { int head = A.nrows; A.rows[A.nrows].kind = 0; A.rows[A.nrows].idx = t; A.rows[A.nrows].tier = t; A.nrows++;
+    if (A.slTab > 2 || (A.slTab > 0 && !tab_songs(A.slTab))) A.slTab = 0;
+    for (int t = 0; t < lib->ntiers; t++) { if (A.slTab >= 0 && screens_tab_of(t) != A.slTab) continue; int head = A.nrows; A.rows[A.nrows].kind = 0; A.rows[A.nrows].idx = t; A.rows[A.nrows].tier = t; A.nrows++;
         for (int k = 0; k < lib->tiers[t].nsongs; k++) { const gh3_song *s = &lib->songs[lib->tiers[t].songIdx[k]];
             if (!strncmp(s->name, "tutorial", 8)) continue;
             A.rows[A.nrows].kind = 1; A.rows[A.nrows].idx = lib->tiers[t].songIdx[k]; A.rows[A.nrows].tier = t; A.nrows++; }
@@ -47,6 +51,9 @@ void screens_build_rows(void) {
     if (A.cursor >= A.nrows || A.cursor < 0) A.cursor = 0;
     while (A.cursor < A.nrows && A.rows[A.cursor].kind == 0) A.cursor++;
 }
+int screens_set_tab(int tab) { if (tab < 0 || tab > 2 || !tab_songs(tab)) return 0; A.slTab = tab; A.cursor = 0; screens_build_rows(); return 1; }
+static int topKeep[2] = { -1, 0 };   /* Top Rockers lists every song: the song and tab the set list was on */
+static void rows_keep(int songIdx, int tab) { A.slTab = tab; screens_build_rows(); for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind && A.rows[i].idx == songIdx) { A.cursor = i; break; } }   /* back to a tab, on the song that was chosen */
 static void move_cursor(int d) { int c = A.cursor; do { c += d; if (c < 0 || c >= A.nrows) return; } while (A.rows[c].kind == 0); A.cursor = c; }
 static int row_lock(int i) { return app_song_lock(A.rows[i].tier, A.rows[i].idx); }
 
@@ -127,7 +134,7 @@ static void draw_setlist(double now) {
     if (career) snprintf(b, sizeof b, "%s • %d/%d sets • ★ %d • %s", diff_name_pt(A.selDiff), done, ntier, records_count_stars(), store_cash_str()); else snprintf(b, sizeof b, "★ %d", records_count_stars());
     ui_header(W, career ? "CARREIRA" : A.mode == MODE_QUICK ? "JOGO RÁPIDO" : "TREINO", b);
     snprintf(b, sizeof b, career ? "Dificuldade da carreira:  ← %s →" : "Dificuldade:  ← %s →", diff_name_pt(A.selDiff)); gfx_text_sh(16, 66, 1, b, C_MUTED, C_SHADOW);
-    gfx_text_right(W - 16, 66, 1, "L1 / R1 ou ← → mudam", C_LINE);
+    { static const char *TAB[3] = { "Setlist", "Bônus", "Downloads" }; snprintf(b, sizeof b, "L1 %s%s%s R1", A.slTab == 0 ? "[Setlist]" : TAB[0], A.slTab == 1 ? "  [Bônus]  " : "  Bônus  ", A.slTab == 2 ? "[Downloads]" : TAB[2]); gfx_text_right(W - 16, 66, 1, b, C_LINE); }
     int rowH = 22, top = 84, vis = (H - top - 34) / rowH;
     if (A.cursor < A.scroll) A.scroll = A.cursor; if (A.cursor >= A.scroll + vis) A.scroll = A.cursor - vis + 1; if (A.scroll < 0) A.scroll = 0;
     for (int i = A.scroll, y = top; i < A.nrows && i < A.scroll + vis; i++, y += rowH) {
@@ -149,8 +156,8 @@ static void draw_setlist(double now) {
         else if (rc) { stars_str(rc->stars, b2); fmt_num(rc->score, b, sizeof b); gfx_text_right(W - 20, y + 6, 1, b, sel ? C_INK : C_MUTED); gfx_text_right(W - 20 - gfx_text_w(b, 1) - 12, y + 3, 2, b2, C_AMP); }
         else { snprintf(b, sizeof b, "%s%s%s", s->artist, *s->year ? " • " : "", s->year); if (gfx_text_w(b, 1) + tw + 60 < W) gfx_text_right(W - 20, y + 6, 1, b, sel ? C_MUTED : C_LINE); }
     }
-    static const char *bt[4] = { "A", "B", "← →", "Y" }, *tx[4] = { "Escolher", "Voltar", "Dificuldade", "Loja" };
-    ui_hints(H - 24, W, bt, tx, career ? 4 : 3);
+    static const char *bt[5] = { "A", "B", "← →", "L1 R1", "Y" }, *tx[5] = { "Escolher", "Voltar", "Dificuldade", "Abas", "Loja" };
+    ui_hints(H - 24, W, bt, tx, career ? 5 : 4);
     if (A.unlockAt > 0 && now - A.unlockAt < 4500) { float a = now - A.unlockAt > 3500 ? (float)(1 - (now - A.unlockAt - 3500) / 1000) : 1; int w = gfx_text_w(A.unlockMsg, 2) + 40; ui_panel(W / 2 - w / 2, H / 2 - 30, w, 60, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_CROWN), W / 2 - w / 2 + 10, H / 2 - 20, 1, RGB(255, 255, 255), a); gfx_text_sh_center(W / 2 + 10, H / 2 - 11, 2, A.unlockMsg, fb_alpha(C_INK, a), C_SHADOW); }
 }
 /* ------------------------------------------------------------------ setup */
@@ -194,9 +201,9 @@ static void draw_setup(double now) {
     encore_draw(now);
 }
 /* ------------------------------------------------------------------ options */
-enum { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, OPT_INTRO, OPT_STAGE3D, OPT_BAND3D, OPT_RES3D, OPT_N };   /* OPT_STAGE3D, OPT_BAND3D, OPT_RES3D: listed in the gh3-3d build only */
+enum { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, OPT_INTRO, OPT_STAGE3D, OPT_BAND3D, OPT_RES3D, OPT_WHAMCAL, OPT_WHAMSENS, OPT_N };   /* OPT_STAGE3D, OPT_BAND3D, OPT_RES3D: listed in the gh3-3d build only */
 static const char *OPT_LABEL[OPT_N] = { "Volume da banda", "Volume da guitarra", "Volume dos efeitos", "Música do menu", "Prévia das músicas", "Atraso do áudio", "Canhoto (lefty flip)", "Palhetada", "Botões…",
-    "Tema visual", "Efeitos de palco", "Escurecer o fundo", "Mostrar FPS", "Hyperspeed", "Sem falhar (No Fail)", "Liberar todas as músicas", "Vídeos de abertura", "Palco 3D", "Banda 3D", "Resolução do palco 3D" };
+    "Tema visual", "Efeitos de palco", "Escurecer o fundo", "Mostrar FPS", "Hyperspeed", "Sem falhar (No Fail)", "Liberar todas as músicas", "Vídeos de abertura", "Palco 3D", "Banda 3D", "Resolução do palco 3D", "Calibrar alavanca", "Sensibilidade" };
 static const char *OPT_HELP[OPT_N] = {
     "O volume da banda (as outras faixas da música) e da música do menu.", "O volume da parte que você toca. Ela silencia quando você erra, como no jogo.", "Volume dos sons do menu, erros e star power.",
     "As músicas do menu do próprio jogo tocam nos menus.", "Na lista de músicas, toca um trecho da música selecionada no lugar da música do menu.",
@@ -211,23 +218,36 @@ static const char *OPT_HELP[OPT_N] = {
     "Os logotipos e a abertura do jogo ao ligar. A ou B pula um vídeo, Start pula todos.",
     "O palco do próprio jogo em 3D atrás da pista (o cenário do set, com as câmeras do jogo). Desligue para o palco em pixel art.",
     "Os músicos do jogo no palco 3D: o guitarrista, o baixista (ou o chefe numa batalha), o baterista e o vocalista, tocando com a música. Vale a partir da próxima música. Desligue se o aparelho engasgar.",
-    "O tamanho em que o cenário 3D é desenhado antes de ser ampliado atrás da pista: Alta (a tela inteira), Média (3/4, mais leve) ou Baixa (metade, a mais leve). A pista e o placar continuam nítidos." };
-enum { CAT_AUDIO, CAT_CALIB, CAT_CONTROL, CAT_VIDEO, CAT_TOP, CAT_CHEATS, CAT_RESET, CAT_N };
-static const char *CAT_LABEL[CAT_N] = { "ÁUDIO", "CALIBRAR ATRASO", "CONTROLE", "VÍDEO", "TOP ROCKERS", "TRAPAÇAS", "RESTAURAR PADRÕES" };
+    "O tamanho em que o cenário 3D é desenhado antes de ser ampliado atrás da pista: Alta (a tela inteira), Média (3/4, mais leve) ou Baixa (metade, a mais leve). A pista e o placar continuam nítidos.",
+    "Mede o analógico da alavanca: onde ele descansa (a zona morta) e até onde vai empurrado. Faça se a alavanca treme sozinha ou não chega ao fim.",
+    "Quanto da alavanca o jogo sente: acima de 100% chega ao máximo antes do fim do curso, abaixo pede o curso inteiro." };
+/* the twelve strips of the game's options poster, in its order (create_options_menu: audio, graphics, the two lag
+ * calibrations, controller, manage band, save / load, videos, the store, top rockers, cheats, automatic login): the ones
+ * the R36S has no use for are written grey and passed over, as the game greys what it does not offer; the PC's
+ * automatic login strip holds Restaurar padrões */
+enum { CAT_AUDIO, CAT_VIDEO, CAT_VLAG, CAT_CALIB, CAT_CONTROL, CAT_BAND, CAT_SAVE, CAT_MOVIES, CAT_STORE, CAT_TOP, CAT_CHEATS, CAT_RESET, CAT_N };
+static const char *CAT_LABEL[CAT_N] = { "ÁUDIO", "VÍDEO", "CALIBRAR IMAGEM", "CALIBRAR ATRASO", "CONTROLE", "GERENCIAR BANDA", "SALVAR / CARREGAR", "VÍDEOS", "A LOJA", "TOP ROCKERS", "TRAPAÇAS", "RESTAURAR PADRÕES" };
 static const char *CAT_HELP[CAT_N] = {
     "Volumes da banda, da guitarra e dos efeitos, a música do menu, as prévias e o atraso do áudio.",
+    "Palco 3D e a sua resolução (no GH3 3D), efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
+    "No PC o jogo mede também o atraso da imagem. A tela do R36S não tem esse atraso: só o do som conta (Calibrar atraso).",
     "Toca um clique e você palheta no ritmo: o jogo mede o atraso do som e ajusta as notas e o julgamento. Faça antes de jogar.",
-    "Canhoto, modo de palhetada e os botões de cada ação.", "Palco 3D e a sua resolução (no GH3 3D), efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
+    "Canhoto, modo de palhetada, a alavanca (calibrar e sensibilidade) e os botões de cada ação.",
+    "O nome e o logotipo da banda: sem teclado para escrever no R36S, a banda fica sem nome.",
+    "Não precisa: a carreira, os recordes, a Loja e as opções são salvos sozinhos a cada música.",
+    "Os vídeos bônus ficam na Loja da carreira: compre e assista por lá (Y na lista de músicas).",
+    "A Loja abre na lista de músicas da carreira: aperte Y.",
     "Os seus melhores resultados em cada música.", "As trapaças do jogo: toque os códigos nos trastes ou ligue cada uma direto.", "Volta todas as opções e controles ao padrão (recordes e carreira ficam)." };
 #ifdef GH3_3D
 #define VIDEO_ITEMS { OPT_STAGE3D, OPT_RES3D, OPT_BAND3D, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
 #else
 #define VIDEO_ITEMS { OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
 #endif
-static const int CAT_ITEMS[CAT_N][8] = { { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, -1 }, { -1 }, { OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, -1 },
-    VIDEO_ITEMS, { -1 }, { OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, -1 }, { -1 } };
+static const int CAT_ITEMS[CAT_N][8] = { { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, -1 }, VIDEO_ITEMS, { -1 }, { -1 }, { OPT_LEFTY, OPT_STRUM, OPT_WHAMCAL, OPT_WHAMSENS, OPT_BUTTONS, -1 },
+    { -1 }, { -1 }, { -1 }, { -1 }, { -1 }, { OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, -1 }, { -1 } };
 static int cat_count(int c) { int n = 0; while (n < 8 && CAT_ITEMS[c][n] >= 0) n++; return n; }
-static int cat_off(int c) { return A.optionsFrom == SC_PAUSE && (c == CAT_CALIB || c == CAT_TOP || c == CAT_RESET); }
+static int cat_na(int c) { return c == CAT_VLAG || c == CAT_BAND || c == CAT_SAVE || c == CAT_MOVIES || c == CAT_STORE; }   /* not on the R36S: grey, passed over */
+static int cat_off(int c) { return cat_na(c) || (A.optionsFrom == SC_PAUSE && (c == CAT_CALIB || c == CAT_TOP || c == CAT_RESET)); }
 static void opt_value(int i, char *out, size_t n) {
     switch (i) { case OPT_THEME: snprintf(out, n, "%s", render_theme_name(SET.theme)); break; case OPT_STRUM: snprintf(out, n, "%s", SET.tap ? "Toque livre" : "Normal"); break; case OPT_LEFTY: snprintf(out, n, "%s", SET.lefty ? "Sim" : "Não"); break;
     case OPT_HYPER: if (SET.hyper) snprintf(out, n, "+%d", SET.hyper); else snprintf(out, n, "Desligada"); break; case OPT_NOFAIL: snprintf(out, n, "%s", SET.noFail ? "Ligado" : "Desligado"); break;
@@ -236,6 +256,7 @@ static void opt_value(int i, char *out, size_t n) {
     case OPT_VOLB: snprintf(out, n, "%d%%", SET.volMusic); break; case OPT_VOLG: snprintf(out, n, "%d%%", SET.volGuitar); break; case OPT_VOLS: snprintf(out, n, "%d%%", SET.volSfx); break; case OPT_OFFSET: snprintf(out, n, "%+d ms", SET.offsetMs); break;
     case OPT_FPS: snprintf(out, n, "%s", SET.showFps ? "Sim" : "Não"); break; case OPT_UNLOCK: snprintf(out, n, "%s", SET.unlockAll ? "Ligado" : "Desligado"); break;
     case OPT_INTRO: snprintf(out, n, "%s", SET.introMovies ? "Ligados" : "Desligados"); break; case OPT_STAGE3D: snprintf(out, n, "%s", SET.stage3d ? "Ligado" : "Desligado"); break; case OPT_BAND3D: snprintf(out, n, "%s", SET.band3d ? "Ligada" : "Desligada"); break;
+    case OPT_WHAMSENS: snprintf(out, n, "%d%%", SET.whamSens); break;
     case OPT_RES3D: { static const char *RN[3] = { "Alta", "Média", "Baixa" }; snprintf(out, n, "%s", RN[SET.stage3dRes < 0 || SET.stage3dRes > 2 ? 1 : SET.stage3dRes]); break; } default: out[0] = 0; }
 }
 static int clamp100(int v) { return v < 0 ? 0 : v > 100 ? 100 : v; }
@@ -246,7 +267,8 @@ static void opt_change(int i, int d) {
     case OPT_VOLB: SET.volMusic = clamp100(SET.volMusic + d * 10); app_apply_volumes(); break; case OPT_VOLG: SET.volGuitar = clamp100(SET.volGuitar + d * 10); app_apply_volumes(); break;
     case OPT_VOLS: SET.volSfx = clamp100(SET.volSfx + d * 10); app_apply_volumes(); break;
     case OPT_OFFSET: SET.offsetMs += d * 5; if (SET.offsetMs < -300) SET.offsetMs = -300; if (SET.offsetMs > 300) SET.offsetMs = 300; break;
-    case OPT_FPS: SET.showFps = !SET.showFps; break; case OPT_UNLOCK: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break; case OPT_INTRO: SET.introMovies = !SET.introMovies; break; case OPT_STAGE3D: SET.stage3d = !SET.stage3d; break; case OPT_BAND3D: SET.band3d = !SET.band3d; break; case OPT_RES3D: SET.stage3dRes = (SET.stage3dRes + 3 + d) % 3; break; }
+    case OPT_FPS: SET.showFps = !SET.showFps; break; case OPT_UNLOCK: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break; case OPT_INTRO: SET.introMovies = !SET.introMovies; break; case OPT_STAGE3D: SET.stage3d = !SET.stage3d; break; case OPT_BAND3D: SET.band3d = !SET.band3d; break; case OPT_RES3D: SET.stage3dRes = (SET.stage3dRes + 3 + d) % 3; break;
+    case OPT_WHAMSENS: SET.whamSens += d * 10; if (SET.whamSens < 50) SET.whamSens = 50; if (SET.whamSens > 200) SET.whamSens = 200; break; }
 }
 static void draw_options(double now) {
     if (SET.theme == 2 && orig_ready() && orig_options_draw(now, CAT_LABEL, CAT_HELP, CAT_ITEMS, CAT_N, OPT_LABEL, OPT_HELP, opt_value, cat_off)) return;
@@ -339,8 +361,8 @@ static void draw_results(double now) {
     else if (!cheats_records_ok(A.mode) && !r->failed) gfx_text_center(W / 2, 362, 1, "Easy Expert: não vale para recordes.", C_MUTED);
     else if (A.mode == MODE_QUICK && !r->failed && !A.newRecord) gfx_text_center(W / 2, 362, 1, "Jogo rápido: o recorde conta, a carreira não muda.", C_MUTED);
     store_draw_result(W, 200, T);
-    const char *it[2] = { "Tocar de novo", A.mode == MODE_PRACTICE ? "Mudar o treino" : store_encore_offer() >= 0 ? "Encore!" : "Lista de músicas" }; int by = 404;
-    for (int i = 0; i < 2; i++) { int x = W / 2 - 236 + i * 244; if (i == A.resRow) ui_panel(x, by - 7, 228, 30, UI_PANEL_AMBER); gfx_text_sh_center(x + 114, by, 2, it[i], i == A.resRow ? C_INK : C_MUTED, C_SHADOW); }
+    const char *it[3] = { "Tocar de novo", A.mode == MODE_PRACTICE ? "Mudar o treino" : store_encore_offer() >= 0 ? "Encore!" : "Lista de músicas", "Mais estatísticas" }; int by = 404, ni = r->failed ? 2 : 3, cw = ni == 3 ? 204 : 244;
+    for (int i = 0; i < ni; i++) { int x = W / 2 - ni * cw / 2 + 8 + i * cw; if (i == A.resRow) ui_panel(x, by - 7, cw - 16, 30, UI_PANEL_AMBER); gfx_text_sh_center(x + cw / 2 - 8, by, ni == 3 ? 1 : 2, it[i], i == A.resRow ? C_INK : C_MUTED, C_SHADOW); }
     static const char *bt[2] = { "A", "← →" }, *tx[2] = { "Confirmar", "Escolher" }; ui_hints(H - 22, W, bt, tx, 2);
 }
 static void draw_calib(double now) {
@@ -356,12 +378,38 @@ static void draw_calib(double now) {
     if (A.calN > 0 && now - A.calLastTapAt < 600) { snprintf(b, sizeof b, "%+d ms", (int)A.calLastDiff); gfx_text_sh_center(W / 2, H - 70, 2, b, fabs(A.calLastDiff) < 35 ? C_GOOD : C_AMP, C_SHADOW); }
     static const char *bt[3] = { "↑↓", "A", "B" }, *tx[3] = { "Palhetar no clique", "Salvar", "Cancelar" }; ui_hints(H - 24, W, bt, tx, 3);
 }
+/* Calibrar alavanca (Opções > Controle): the stick let go (its rest, the dead zone past it), then pushed all the way (its
+ * full throw), then the sensitivity with the whammy live; A keeps it, B puts the old one back */
+static int whamOld[3];
+static void whammy_open(void) { whamOld[0] = SET.whamRest; whamOld[1] = SET.whamFull; whamOld[2] = SET.whamSens; A.whamStep = 0; A.whamFull = 0; A.whamRest = 0; A.whamNow = input_whammy_raw(); A.screen = SC_WHAMMY; input_reset_axes(); audio_sfx(SFX_OK); }
+static void whammy_leave(int keep) {
+    if (!keep) { SET.whamRest = whamOld[0]; SET.whamFull = whamOld[1]; SET.whamSens = whamOld[2]; } else settings_save();
+    A.screen = SC_OPTIONS; A.optCat = CAT_CONTROL; A.optRow = 0; for (int k = 0; k < cat_count(CAT_CONTROL); k++) if (CAT_ITEMS[CAT_CONTROL][k] == OPT_WHAMCAL) A.optRow = k; }
+static void whammy_event(int in, double now) {
+    if (in == IN_BACK) { whammy_leave(0); audio_sfx(SFX_BACK); return; }
+    if (A.whamStep == 2 && (in == IN_LEFT || in == IN_RIGHT)) { opt_change(OPT_WHAMSENS, in == IN_RIGHT ? 1 : -1); audio_sfx(SFX_MOVE); return; }
+    if (in != IN_OK) return;
+    if (A.whamStep == 0) { A.whamRest = A.whamNow; A.whamFull = A.whamNow; A.whamStep = 1; A.whamAt = now; audio_sfx(SFX_OK); }   /* at rest: where the stick sits when nobody holds it */
+    else if (A.whamStep == 1) { if (A.whamFull - A.whamRest < 0.25f) { audio_sfx(SFX_WARN); note(now, "Empurre a alavanca até o fim antes de apertar A."); return; }
+        int r = (int)lroundf((A.whamRest + 0.06f) * 100), f = (int)lroundf(A.whamFull * 0.95f * 100); if (r < 5) r = 5; if (f > 100) f = 100; if (f < r + 15) f = r + 15;   /* a little past the rest (it shakes), a little short of the end (to reach it) */
+        SET.whamRest = r; SET.whamFull = f; A.whamStep = 2; A.whamAt = now; audio_sfx(SFX_FANFARE); }
+    else { whammy_leave(1); audio_sfx(SFX_OK); }
+}
+static void draw_whammy(double now) {
+    if (SET.theme == 2 && orig_ready() && orig_whammy_draw(now)) return;
+    int W = A.W, H = A.H; char b[120]; render_backdrop(now, SET.stageFx); ui_header(W, "CALIBRAR ALAVANCA", NULL); ui_panel(14, 66, W - 28, 200, UI_PANEL_FLAT);
+    gfx_text_box(26, 76, W - 52, 1, A.whamStep == 0 ? "Solte a alavanca (o analógico) e aperte A." : A.whamStep == 1 ? "Empurre a alavanca até o fim, segure e aperte A." : "Pronto. ← → mudam a sensibilidade; A salva, B volta ao que era.", C_INK);
+    gfx_text_sh(26, 120, 1, "analógico", C_MUTED, C_SHADOW); ui_bar(120, 120, W - 160, 10, A.whamNow, C_MUTED);
+    gfx_text_sh(26, 150, 1, "o jogo sente", C_MUTED, C_SHADOW); ui_bar(120, 150, W - 160, 10, input_whammy_level(A.whamNow), C_AMP);
+    snprintf(b, sizeof b, "Repouso %d%%   Fim %d%%   Sensibilidade %d%%", SET.whamRest, SET.whamFull, SET.whamSens); gfx_text_sh(26, 190, 1, b, C_INK, C_SHADOW);
+    static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Confirmar", "Cancelar", "Sensibilidade" }; ui_hints(H - 24, W, bt, tx, A.whamStep == 2 ? 3 : 2);
+}
 static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; ui_header(W, "OPA…", NULL); ui_panel(30, 120, W - 60, 160, UI_PANEL_DARK); gfx_text_sh(46, 134, 2, "Algo deu errado", C_BAD, C_SHADOW); gfx_text_box(46, 170, W - 92, 1, A.errMsg, C_INK); static const char *bt[1] = { "A" }, *tx[1] = { "Continuar" }; ui_hints(H - 24, W, bt, tx, 1); }
 
 void screens_draw(double now) {
     switch (A.screen) { case SC_TITLE: draw_title(now); break; case SC_MAIN: draw_main(now); break; case SC_TRAINING: draw_training(now); break; case SC_TOPROCK: draw_toprock(now); break;
         case SC_SETLIST: draw_setlist(now); break; case SC_SETUP: draw_setup(now); break; case SC_OPTIONS: draw_options(now); break; case SC_CONTROLS: draw_controls(now); break;
-        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CHEATS: cheats_draw(now); break; case SC_TUTORIAL: tutorial_frame(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: if (A.outroUntil > now) { if (render_venue(now)) break; A.outroUntil = 0; A.resultsAt = now; } draw_results(now); break;   /* (gh3-3d: the song's end on the stage first; no venue to show, none) */ case SC_BATTLE: battle_screen_draw(now); break; case SC_LOADING: loading_draw(now); break; default: draw_error(now); }
+        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CHARSEL: charsel_draw(now); break; case SC_CHEATS: cheats_draw(now); break; case SC_TUTORIAL: tutorial_frame(now); break; case SC_CALIB: draw_calib(now); break; case SC_WHAMMY: draw_whammy(now); break; case SC_RESULTS: if (A.outroUntil > now) { if (render_venue(now)) break; A.outroUntil = 0; A.resultsAt = now; } draw_results(now); break;   /* (gh3-3d: the song's end on the stage first; no venue to show, none) */ case SC_BATTLE: battle_screen_draw(now); break; case SC_LOADING: loading_draw(now); break; default: draw_error(now); }
     draw_note(now);
 }
 
@@ -370,9 +418,12 @@ static void go_options(int from) { A.optionsFrom = from; A.screen = SC_OPTIONS; 
 static void to_setlist(double now) {
     if (A.moviePending[0] && A.mode == MODE_CAREER) { char m[48]; snprintf(m, sizeof m, "%s", A.moviePending); A.moviePending[0] = 0; app_play_movie(m, SC_SETLIST); return; }   /* a tier's cutscene first */
     A.moviePending[0] = 0; A.screen = SC_SETLIST; app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); if (A.unlockPending && A.mode == MODE_CAREER) { A.unlockPending = 0; A.unlockAt = now; audio_sfx(SFX_FANFARE); } }
-static void open_mode(int mode, double now) { A.mode = mode; app_refresh_career(0); screens_build_rows(); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH);
-    if (mode == MODE_CAREER && !SET.careerIntro && app_movie_exists(A.lib->careerMovie)) { SET.careerIntro = 1; settings_save(); app_play_movie(A.lib->careerMovie, SC_SETLIST); return; }   /* the career's opening movie, the first time */
+void screens_mode_go(double now) {
+    if (A.mode == MODE_CAREER && !SET.careerIntro && app_movie_exists(A.lib->careerMovie)) { SET.careerIntro = 1; settings_save(); app_play_movie(A.lib->careerMovie, SC_SETLIST); return; }   /* the career's opening movie, the first time */
     to_setlist(now); }
+static void open_mode(int mode, double now) { A.mode = mode; app_refresh_career(0); screens_build_rows(); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH);
+    if (mode != MODE_PRACTICE && charsel_open(now)) return;   /* the character hub first, as the game does */
+    screens_mode_go(now); }
 static void to_main(void) { A.screen = SC_MAIN; A.confirmQuit = 0; app_preview(-1); }
 static void leave_options(void) { settings_save(); app_apply_volumes(); if (A.optionsFrom == SC_PAUSE) A.screen = SC_PAUSE; else { A.screen = SC_MAIN; A.mainRow = MM_OPTIONS; } }
 void screens_enter(int screen, double now) {
@@ -400,12 +451,15 @@ void screens_event(int in, double now) {
         else if (in == IN_OK) { if (A.trainRow == TR_TUTORIAL) { audio_sfx(SFX_OK); app_preview(-1); tutorial_open(now); } else { A.practiceSec = A.practiceEnd = 0; open_mode(MODE_PRACTICE, now); } }
     } else if (A.screen == SC_SETLIST) {
         if (in == IN_UP || in == IN_DOWN) { int was = A.cursor; move_cursor(in == IN_UP ? -1 : 1); if (A.cursor != was) { audio_sfx(SFX_MOVE); app_preview(A.rows[A.cursor].idx); } }
-        else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { A.selDiff = (A.selDiff + 4 + ((in == IN_RIGHT || in == IN_R) ? 1 : -1)) % 4; app_refresh_career(0); audio_sfx(SFX_MOVE); }
+        else if (in == IN_LEFT || in == IN_RIGHT) { A.selDiff = (A.selDiff + 4 + (in == IN_RIGHT ? 1 : -1)) % 4; app_refresh_career(0); audio_sfx(SFX_MOVE); }
+        else if (in == IN_L || in == IN_R) { int to = A.slTab + (in == IN_R ? 1 : -1); while (to >= 0 && to <= 2 && !screens_set_tab(to)) to += in == IN_R ? 1 : -1;   /* change_tab: the next list that has songs */
+            if (to >= 0 && to <= 2) { audio_sfx(SFX_OK); app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); } else audio_sfx(SFX_WARN); }
         else if (in == IN_OK && A.cursor < A.nrows) { int lock = row_lock(A.cursor); if (lock) { audio_sfx(SFX_WARN); snprintf(A.unlockMsg, sizeof A.unlockMsg, "%s", lock == LOCK_BUY ? (A.mode == MODE_CAREER ? "Compre esta música na Loja (Y)" : "Compre esta música na Loja da carreira") : lock == LOCK_FINALE ? "Termine a carreira para liberar esta" : A.mode != MODE_CAREER ? "Libere esta música na carreira primeiro" : lock == LOCK_TIER ? "Termine o set anterior primeiro" : lock == LOCK_BOSS ? "Complete mais músicas do set para a batalha" : "Complete o set (e a batalha) para o encore"); A.unlockAt = now; return; }
             A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier; A.practiceSec = A.practiceEnd = 0; if (app_prepare_song(A.selSong) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); } }
         else if (in == IN_Y && A.mode == MODE_CAREER) store_open(now);
         else if (in == IN_BACK) { to_main(); audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_STORE) store_event(in, now);
+    else if (A.screen == SC_CHARSEL) charsel_event(in, now);
     else if (A.screen == SC_SETUP) { if (encore_event(in, now)) return; int rows[8], nr = setup_rows(rows);
         if (menu_move(in, &A.setupRow, nr)) return;
         if (in == IN_LEFT || in == IN_RIGHT) { audio_sfx(SFX_MOVE); setup_change(rows[A.setupRow], in == IN_RIGHT ? 1 : -1); }
@@ -414,25 +468,26 @@ void screens_event(int in, double now) {
         else if (in == IN_BACK) { app_session_free(); A.screen = SC_SETLIST; audio_sfx(SFX_BACK); app_preview(A.rows[A.cursor].idx); }
     } else if (A.screen == SC_OPTIONS) {
         if (A.optCat < 0) {
-            if (menu_move(in, &A.optRow, CAT_N)) return;
+            if (in == IN_UP || in == IN_DOWN) { int r = A.optRow; do r = (r + CAT_N + (in == IN_UP ? -1 : 1)) % CAT_N; while (cat_na(r)); A.optRow = r; audio_sfx(SFX_MOVE); return; }   /* omMove: the grey strips are passed over */
             if (in == IN_BACK) { leave_options(); audio_sfx(SFX_BACK); return; }
             if (in != IN_OK) return;
             if (cat_off(A.optRow)) { audio_sfx(SFX_WARN); return; }
             if (A.optRow == CAT_CALIB) { audio_sfx(SFX_OK); app_calib_start(SC_OPTIONS); }
-            else if (A.optRow == CAT_TOP) { A.screen = SC_TOPROCK; A.topDiff = A.selDiff; A.topScroll = 0; while (A.topScroll < A.nrows - 1 && A.rows[A.topScroll].kind == 0) A.topScroll++; audio_sfx(SFX_OK); }
+            else if (A.optRow == CAT_TOP) { topKeep[0] = A.cursor < A.nrows ? A.rows[A.cursor].idx : -1; topKeep[1] = A.slTab; A.slTab = -1; screens_build_rows();   /* every song, whatever tab the list is on */
+                A.screen = SC_TOPROCK; A.topDiff = A.selDiff; A.topScroll = 0; while (A.topScroll < A.nrows - 1 && A.rows[A.topScroll].kind == 0) A.topScroll++; audio_sfx(SFX_OK); }
             else if (A.optRow == CAT_CHEATS) { cheats_open(); audio_sfx(SFX_OK); }
             else if (A.optRow == CAT_RESET) { int seen = SET.careerIntro; settings_defaults(); SET.careerIntro = seen; A.preset = 0; app_apply_volumes(); app_refresh_career(0); audio_sfx(SFX_OK); note(now, "Opções e controles voltaram ao padrão."); }
             else { A.optCat = A.optRow; A.optRow = 0; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); }
             return; }
         int n = cat_count(A.optCat), it = CAT_ITEMS[A.optCat][A.optRow];
         if (menu_move(in, &A.optRow, n)) return;
-        if (in == IN_LEFT || in == IN_RIGHT) { if (it != OPT_BUTTONS) { opt_change(it, in == IN_RIGHT ? 1 : -1); audio_sfx(SFX_MOVE); } }
-        else if (in == IN_OK) { if (it == OPT_BUTTONS) { A.screen = SC_CONTROLS; A.ctlRow = 1; A.ctlSlot = 0; audio_sfx(SFX_OK); } else { opt_change(it, 1); audio_sfx(SFX_MOVE); } }
+        if (in == IN_LEFT || in == IN_RIGHT) { if (it != OPT_BUTTONS && it != OPT_WHAMCAL) { opt_change(it, in == IN_RIGHT ? 1 : -1); audio_sfx(SFX_MOVE); } }
+        else if (in == IN_OK) { if (it == OPT_BUTTONS) { A.screen = SC_CONTROLS; A.ctlRow = 1; A.ctlSlot = 0; audio_sfx(SFX_OK); } else if (it == OPT_WHAMCAL) whammy_open(); else { opt_change(it, 1); audio_sfx(SFX_MOVE); } }
         else if (in == IN_BACK) { A.optRow = A.optCat; A.optCat = -1; settings_save(); audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_TOPROCK) {
         if (in == IN_UP || in == IN_DOWN) { int c = A.topScroll, d = in == IN_UP ? -1 : 1; do { c += d; } while (c >= 0 && c < A.nrows && A.rows[c].kind == 0); if (c >= 0 && c < A.nrows) { A.topScroll = c; audio_sfx(SFX_MOVE); } }
         else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { A.topDiff = (A.topDiff + 4 + ((in == IN_RIGHT || in == IN_R) ? 1 : -1)) % 4; audio_sfx(SFX_MOVE); }
-        else if (in == IN_BACK || in == IN_OK) { A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_TOP; audio_sfx(SFX_BACK); }
+        else if (in == IN_BACK || in == IN_OK) { rows_keep(topKeep[0], topKeep[1] < 0 ? 0 : topKeep[1]); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_TOP; audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_CONTROLS) {
         if (A.capturing) return;
         if (in == IN_UP) { A.ctlRow = (A.ctlRow + CTL_ROWS - 1) % CTL_ROWS; audio_sfx(SFX_MOVE); } else if (in == IN_DOWN) { A.ctlRow = (A.ctlRow + 1) % CTL_ROWS; audio_sfx(SFX_MOVE); }
@@ -445,8 +500,12 @@ void screens_event(int in, double now) {
         else if (in == IN_OK) { audio_sfx(SFX_OK); if (A.pauseRow == 0) app_resume_play(); else if (A.pauseRow == 1) app_begin_song(); else if (A.pauseRow == 2) go_options(SC_PAUSE); else { app_session_free(); app_refresh_career(0); to_setlist(now); } }
         else if (in == IN_BACK) app_resume_play();
     } else if (A.screen == SC_RESULTS) {
-        if (A.outroUntil > now) { if (in == IN_OK || in == IN_BACK) { A.outroUntil = 0; A.resultsAt = now; } }   /* the song's end on the stage: a button skips it */
-        else if (in == IN_LEFT || in == IN_RIGHT) { A.resRow = !A.resRow; audio_sfx(SFX_MOVE); }
+        if (A.outroUntil > now) { if (in == IN_OK || in == IN_BACK) { A.outroUntil = 0; A.resultsAt = now; } return; }   /* the song's end on the stage: a button skips it */
+        if (A.resMore) { if (in == IN_UP || in == IN_DOWN) { A.resMoreY += in == IN_UP ? -50 : 50; if (A.resMoreY < 0) A.resMoreY = 0; audio_sfx(SFX_MOVE); }   /* MORE STATS: the sheet moves; A or B puts it away */
+            else if (in == IN_OK || in == IN_BACK) { A.resMore = 0; audio_sfx(SFX_BACK); } return; }
+        int nres = A.S.run.failed ? 2 : 3;   /* won: the two ways on and MAIS ESTATÍSTICAS; failed: the two ways on */
+        if (in == IN_LEFT || in == IN_RIGHT || in == IN_UP || in == IN_DOWN) { A.resRow = (A.resRow + nres + (in == IN_RIGHT || in == IN_DOWN ? 1 : -1)) % nres; audio_sfx(SFX_MOVE); }
+        else if (in == IN_OK && A.resRow == 2) { A.resMore = 1; A.resMoreY = 0; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); }
         else if (in == IN_OK && A.resRow == 1 && store_encore_offer() >= 0) { int enc = store_encore_offer(); app_session_free(); A.selSong = enc; A.practiceSec = A.practiceEnd = 0;   /* sent to the encore: its setup, the chant, the song */
             for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind && A.rows[i].idx == enc && A.rows[i].tier == A.selTier) A.cursor = i;
             if (app_prepare_song(enc) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; encore_begin(now); } }
@@ -457,7 +516,8 @@ void screens_event(int in, double now) {
     } else if (A.screen == SC_CALIB) {
         if (in == IN_OK) { if (A.calN >= 6) { SET.offsetMs = app_calib_result(); settings_save(); audio_sfx(SFX_FANFARE); } else audio_sfx(SFX_BACK); app_calib_stop(); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_CALIB; }
         else if (in == IN_BACK) { app_calib_stop(); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_CALIB; audio_sfx(SFX_BACK); }
-    } else if (A.screen == SC_CHEATS) cheats_event(in, now);
+    } else if (A.screen == SC_WHAMMY) whammy_event(in, now);
+    else if (A.screen == SC_CHEATS) cheats_event(in, now);
     else if (A.screen == SC_TUTORIAL) tutorial_event(in, now);
     else if (A.screen == SC_ERROR) { if (in == IN_OK || in == IN_BACK) { app_session_free(); if (A.libOk) to_main(); else app_quit(); } }
 }
@@ -467,6 +527,9 @@ int screens_raw_event(const SDL_Event *ev, double now) {
             double te = audio_song_ms() - (SDL_GetTicks() - ev->common.timestamp); long k = lround(te / 500); if (k < 0) continue; double d = te - k * 500.0; if (fabs(d) > 240) continue;
             if (A.calN == 24) { memmove(A.calDiff, A.calDiff + 1, 23 * sizeof(double)); A.calN = 23; } A.calDiff[A.calN++] = d; A.calLastDiff = d; A.calLastTapAt = now; }
         return n > 0 && (evs[0].action == ACT_STRUM_UP || evs[0].action == ACT_STRUM_DOWN); }
+    if (A.screen == SC_WHAMMY) { inev_t evs[4]; input_translate(ev, evs, 4); A.whamNow = input_whammy_raw();   /* the stick read as it is, for the measure */
+        if (A.whamStep == 1 && A.whamNow > A.whamFull) A.whamFull = A.whamNow;
+        return ev->type == SDL_CONTROLLERAXISMOTION; }   /* pushing the stick does not move the menu */
     if (A.screen == SC_CHEATS) return cheats_raw_event(ev, now);
     if (A.screen == SC_TUTORIAL) return tutorial_raw_event(ev, now);
     if (A.screen != SC_CONTROLS) return 0;

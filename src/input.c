@@ -67,6 +67,8 @@ void input_reset_axes(void) { memset(axState, 0, sizeof axState); memset(stickOn
 #define STICK_DEAD 0.20f
 static float stick_mag(int s) { int x = axVal[s ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX], y = axVal[s ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY];
     float m = sqrtf((float)x * x + (float)y * y) / 32767.0f; m = (m - STICK_DEAD) / (1 - STICK_DEAD); return m < 0 ? 0 : m > 1 ? 1 : m; }
+static float stick_raw(int s) { int x = axVal[s ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX], y = axVal[s ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY];
+    float m = sqrtf((float)x * x + (float)y * y) / 32767.0f; return m > 1 ? 1 : m; }
 static float bind_value(const bind_t *b) {
     if (b->type == BIND_STICK) return stick_mag(b->id);
     if (b->type == BIND_AXIS) { int v = axVal[b->id]; float f = b->dir == 0 ? fabsf((float)v) / 32767.0f : b->dir > 0 ? (v > 0 ? v / 32767.0f : 0) : (v < 0 ? -v / 32767.0f : 0); return f > 1 ? 1 : f; }
@@ -96,7 +98,8 @@ int input_translate(const SDL_Event *ev, inev_t *out, int max) {
         int stOn = stick >= 0 && stick_mag(stick) > 0.5f, stChanged = stick >= 0 && stOn != stickOn[stick]; if (stick >= 0) stickOn[stick] = stOn;
         for (int a = 0; a < ACT_N && n < max; a++) {
             if (a == ACT_WHAMMY) { int touches = 0; float val = 0;   /* the whammy is the deepest of all its bindings */
-                for (int s = 0; s < BIND_SLOTS; s++) { const bind_t *b = &SET.binds[a][s]; if ((b->type == BIND_AXIS && b->id == ax) || (b->type == BIND_STICK && b->id == stick)) touches = 1; float bv = bind_value(b); if (bv > val) val = bv; }
+                for (int s = 0; s < BIND_SLOTS; s++) { const bind_t *b = &SET.binds[a][s]; if ((b->type == BIND_AXIS && b->id == ax) || (b->type == BIND_STICK && b->id == stick)) touches = 1; }
+                val = input_whammy_level(input_whammy_raw());   /* the calibrated rest and full push, the sensitivity */
                 if (touches && fabsf(val - whamLast) > 0.004f) { whamLast = val; out[n].action = a; out[n].pressed = val > 0.02f; out[n].value = val; n++; }
                 continue; }
             for (int s = 0; s < BIND_SLOTS; s++) { const bind_t *b = &SET.binds[a][s];
@@ -108,6 +111,11 @@ int input_translate(const SDL_Event *ev, inev_t *out, int max) {
         return n;
     }
     return 0;
+}
+float input_whammy_raw(void) { float v = 0; for (int s = 0; s < BIND_SLOTS; s++) { const bind_t *b = &SET.binds[ACT_WHAMMY][s]; float bv = b->type == BIND_STICK ? stick_raw(b->id) : bind_value(b); if (bv > v) v = bv; } return v; }
+float input_whammy_level(float raw) {
+    float r0 = SET.whamRest / 100.0f, r1 = SET.whamFull / 100.0f; if (r1 < r0 + 0.1f) r1 = r0 + 0.1f;
+    float v = (raw - r0) / (r1 - r0); if (v <= 0) return 0; v *= SET.whamSens / 100.0f; return v > 1 ? 1 : v;
 }
 int input_capture(const SDL_Event *ev, int action, bind_t *out) {
     if (ev->type == SDL_CONTROLLERBUTTONDOWN) { *out = B(ev->cbutton.button); return 1; }

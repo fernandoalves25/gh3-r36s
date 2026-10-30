@@ -179,6 +179,9 @@ int sfx_play(int kind) {
     float lv = ui_kind(kind) ? UI_LEVEL : SFX_LEVEL; audio_lock(); play_event(e0, 0, lv, 0); play_event(e1, 0, lv, 0); if (kind == SFX_STREAK || kind == SFX_STREAK100) crowd_swell(); audio_unlock();
     return 1;
 }
+int sfx_event_find(uint32_t cont) { event_t *e = ready ? event_of(cont) : NULL; return e ? (int)(e - events) : -1; }
+int sfx_event_prepare(int idx) { return ready && idx >= 0 && idx < nevents ? event_decode(&events[idx]) : 0; }
+void sfx_event_fire(int idx, float level) { if (ready && idx >= 0 && idx < nevents) play_event(&events[idx], 0, level, 0); }
 void sfx_prepare(int kind) { if (!ready) return; event_t *e; for (int w = 0; w < 2 && (e = kind_event(kind, w)); w++) event_decode(e); }
 void sfx_loop(int kind, int on) {
     if (!ready) return; event_t *ev = kind_event(kind, 0); if (!ev) return; if (on) event_decode(ev);
@@ -247,6 +250,7 @@ static int show_clip(clip_t *c, float vol, float pitch) {
         printf(" %d Hz %dch %.2f s peak %.2f rms %.3f", c->hz, c->ch, c->frames / (double)c->hz, pk, n ? sqrt(sq / n) : 0); } else printf(" DECODE FAILED");
     if (vol != 100) printf(" vol %.0f", vol); if (pitch != 100) printf(" pitch %.0f", pitch); printf("\n"); return !ok;
 }
+void sfx_event_show(int idx) { if (!ready || idx < 0 || idx >= nevents) return; event_t *e = &events[idx]; for (int j = 0; j < e->n; j++) show_clip(&clips[e->s[j].clip], e->s[j].vol, e->s[j].pitch); }
 int sfx_selftest(void) {
     if (!ready) { puts("sfx: no ZONES/global_sfx.pak.xen or no global_sound_events table"); return 1; }
     int bad = 0, unnamed = 0; for (int i = 0; i < nclips; i++) if (!clips[i].name[0]) unnamed++;
