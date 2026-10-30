@@ -5,7 +5,7 @@
 #define INPUT_H
 #include <SDL.h>
 #include "settings.h"
-#define PRESET_N 5
+#define PRESET_N 6
 const char *input_preset_name(int preset);
 void input_apply_preset(int preset);
 const char *input_action_name(int action);

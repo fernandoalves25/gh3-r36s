@@ -75,23 +75,25 @@ Uma música só conta como completada se não falhar; no modo "sem falhar" nada 
 
 ## Controles (padrão igual ao PS2, todos configuráveis em Opções > Controle > Botões)
 
-O perfil padrão é o do manual do Guitar Hero III de PS2 para o controle comum (DualShock 2): os trastes ficam nos
-botões de ombro e no X, que no R36S é o botão de baixo (B):
+O perfil padrão segue o Guitar Hero III de PS2 com o controle comum (DualShock 2): os trastes ficam nos botões de ombro e
+o laranja no X, que no R36S é o botão de baixo (B). O perfil "R36S" põe os trastes
+na ordem L1 L2 R2 R1, que ficou mais natural nos ombros do aparelho; o perfil "PS2" é o do manual ao pé da letra, botão
+por botão:
 
-| Ação | PS2 (DualShock 2) | R36S |
-| --- | --- | --- |
-| Traste verde | L2 | L2 |
-| Traste vermelho | L1 | L1 |
-| Traste amarelo | R1 | R1 |
-| Traste azul | R2 | R2 |
-| Traste laranja | X | B (botão de baixo) |
-| Palhetada | direcional cima/baixo | direcional cima/baixo |
-| Star power | Select | Select ou X (botão de cima) |
-| Alavanca (whammy) | analógico esquerdo | qualquer um dos dois analógicos |
-| Pausa | Start | Start |
-| Sair do jogo | | Select + Start juntos, em qualquer tela |
+| Ação | PS2 (DualShock 2) | R36S (padrão) | perfil PS2 |
+| --- | --- | --- | --- |
+| Traste verde | L2 | L1 | L2 |
+| Traste vermelho | L1 | L2 | L1 |
+| Traste amarelo | R1 | R2 | R1 |
+| Traste azul | R2 | R1 | R2 |
+| Traste laranja | X | B (botão de baixo) | B |
+| Palhetada | direcional cima/baixo | direcional cima/baixo | igual |
+| Star power | Select | Select ou X (botão de cima) | igual |
+| Alavanca (whammy) | analógico esquerdo | qualquer um dos dois analógicos | igual |
+| Pausa | Start | Start | igual |
+| Sair do jogo | | Select + Start juntos, em qualquer tela | igual |
 
-Cada ação aceita até três botões. Há cinco perfis prontos (PS2, o do primeiro Guitar Hero com os botões de face, em linha, invertido e gatilhos) e a tela de controles
+Cada ação aceita até três botões. Há seis perfis prontos (R36S, PS2, o do primeiro Guitar Hero com os botões de face, em linha, invertido e gatilhos) e a tela de controles
 tem um teste ao vivo. Para cancelar a troca de um botão é só esperar 5 segundos sem apertar nada.
 
 A alavanca funciona como no PS2: segurando uma nota longa, ela abaixa o tom da guitarra (até três quartos de
