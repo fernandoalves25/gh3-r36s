@@ -199,17 +199,17 @@ static const glyph_t *donor(const ga_font *f, int acc, int upper, const glyph_t 
     return NULL;
 }
 /* tildes drawn at the size they are shown (w x h px, a stroke t px thick), so a small one stays crisp: one turn and a bit of a sine */
-static struct { int w, h, t; gfx_sprite *s; } tildes[24]; static int ntildes;
-static gfx_sprite *tilde_at(int w, int h, float t) {
-    int tq = (int)(t * 4 + 0.5f); for (int i = 0; i < ntildes; i++) if (tildes[i].w == w && tildes[i].h == h && tildes[i].t == tq) return tildes[i].s;
+static struct { int w, h, t, hat; gfx_sprite *s; } tildes[24]; static int ntildes;
+static gfx_sprite *tilde_at(int w, int h, float t, int hat) {   /* hat: a circumflex instead (a chevron, for a font with no ê or Ê to lend one) */
+    int tq = (int)(t * 4 + 0.5f); for (int i = 0; i < ntildes; i++) if (tildes[i].w == w && tildes[i].h == h && tildes[i].t == tq && tildes[i].hat == hat) return tildes[i].s;
     fb_t f; fb_init(&f, w, h); float r = tq / 8.0f, amp = (h - 2 * r) / 2, x0 = r, x1 = w - r; if (amp < 0.3f) amp = 0.3f;
     for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) { int in = 0;
         for (int sy = 0; sy < 4; sy++) for (int sx = 0; sx < 4; sx++) { float px = x + (sx + 0.5f) / 4, py = y + (sy + 0.5f) / 4, d = 1e9f;
-            for (int i = 0; i <= 48; i++) { float u = i / 48.0f, tt = -0.3f * (float)M_PI + 2.6f * (float)M_PI * u, cx = x0 + (x1 - x0) * u, cy = h / 2.0f - amp * sinf(tt), dx = px - cx, dy = py - cy; if (dx * dx + dy * dy < d) d = dx * dx + dy * dy; }
+            for (int i = 0; i <= 48; i++) { float u = i / 48.0f, tt = -0.3f * (float)M_PI + 2.6f * (float)M_PI * u, cx = x0 + (x1 - x0) * u, cy = hat ? r + (h - 2 * r) * fabsf(2 * u - 1) : h / 2.0f - amp * sinf(tt), dx = px - cx, dy = py - cy; if (dx * dx + dy * dy < d) d = dx * dx + dy * dy; }
             if (d <= r * r) in++; }
         if (in) f.px[(size_t)y * w + x] = RGBA(255, 255, 255, in * 255 / 16); }
     if (ntildes == 24) { gfx_free_sprite(tildes[23].s); ntildes = 23; }
-    tildes[ntildes].w = w; tildes[ntildes].h = h; tildes[ntildes].t = tq; tildes[ntildes].s = gfx_bake(&f, 1); fb_free(&f); return tildes[ntildes++].s;
+    tildes[ntildes].w = w; tildes[ntildes].h = h; tildes[ntildes].t = tq; tildes[ntildes].hat = hat; tildes[ntildes].s = gfx_bake(&f, 1); fb_free(&f); return tildes[ntildes++].s;
 }
 static void acute_ink(ga_font *f, const fb_t *sh) {   /* where the ink of an acute (á, Á...) sits over its letter: the tilde goes there */
     for (int up = 0; up < 2; up++) { const glyph_t *pg = NULL, *dg = donor(f, 0, up, &pg); float *o = f->acute[up]; o[0] = o[1] = o[2] = 0; if (!dg || dg->sh <= 0 || dg->h <= 0) continue;
@@ -229,11 +229,12 @@ static float draw_char(const ga_font *f, float x, float base, float k, float sx,
     int i; if (own(f, c) || (i = acc_of(c)) < 0) return adv;
     int up = ACCS[i].base < 'a', acc = ACCS[i].acc; const glyph_t *pg = NULL, *dg = donor(f, acc == 3 ? 0 : acc, up, &pg); if (!dg) dg = donor(f, acc == 3 ? 0 : acc, !up, &pg);   /* Ê from ê when no capital has it */
     float strip = dg ? (dg->h - dg->yo) - (pg->h - pg->yo) : g->h * 0.3f, cx = x + g->w * k * sx / 2; if (strip <= 0) return adv; strip *= k;
-    if (acc == 3) {   /* about as wide as the letter's bowl, as thick as the font's strokes (a bit less), in the acute's place */
+    if (acc == 3 || (acc == 2 && !dg)) {   /* (a circumflex no letter of the font lends: drawn the same way, a chevron) about as wide as the letter's bowl, as thick as the font's strokes (a bit less), in the acute's place */
         const float *ink = f->acute[f->acute[up][1] > 0 ? up : !up]; float t = f->stem > 0 ? f->stem * k * 0.75f : g->h * k * 0.08f; if (t < 1.2f) t = 1.2f; if (t > 6) t = 6;
         int tw = (int)(g->w * k * sx * (up ? 0.66f : 0.74f) + 0.5f), th = (int)(tw * 0.36f + t * 0.6f + 0.5f); if (tw < 4) tw = 4; if (tw > 64) tw = 64; if (ink[1] > 0 && th > ink[1] * k * 1.15f + 1) th = (int)(ink[1] * k * 1.15f + 1); if (th < 3) th = 3; if (th > 24) th = 24;
         float lift = ink[1] > 0 ? ink[0] * k : strip * 0.2f; if (lift < 1) lift = 1; cx += ink[2] * k * sx;
-        gfx_blit(tilde_at(tw, th, t), 0, 0, tw, th, floorf(cx - tw / 2.0f + 0.5f), floorf(top - lift - th + 0.5f), (float)tw, (float)th, tint, a); }
+        if (acc == 2) { tw = (int)(tw * 0.85f + 0.5f); th = (int)(tw * 0.5f + t + 0.5f); if (th > 24) th = 24; }
+        gfx_blit(tilde_at(tw, th, t, acc == 2), 0, 0, tw, th, floorf(cx - tw / 2.0f + 0.5f), floorf(top - lift - th + 0.5f), (float)tw, (float)th, tint, a); }
     else if (dg) { int rows = (int)(dg->sh * strip / (dg->h * k) + 0.5f); float h = rows * dg->h * k / dg->sh; if (rows > 0) gfx_blit(f->sheet, dg->sx, dg->sy, dg->sw, rows, cx - dg->w * k * sx / 2, top - h, dg->w * k * sx, h, tint, a); }
     return adv;
 }
@@ -257,7 +258,8 @@ void ga_release(void) {
     memUsed = 0;
 }
 void ga_text_dir(const ga_font *f, float x, float y, float size, float sx, float ca, float sa, const char *s, uint32_t color) {
-    if (!f || !s) return; float k = size / f->size, d = 0, al = (color >> 24) / 255.0f; uint32_t tint = color & 0xFFFFFF;
+    if (!f || !s) return; if (sa == 0 && ca == 1) { draw_text(f, x, y, size, sx, s, color); return; }   /* not turned: the accents a font lacks are put together */
+    float k = size / f->size, d = 0, al = (color >> 24) / 255.0f; uint32_t tint = color & 0xFFFFFF;
     while (*s) { int c = utf8_next(&s); const glyph_t *g = c == ' ' ? NULL : glyph_of(f, c);
         if (g && g->sw > 0 && g->sh > 0) gfx_blit(f->sheet, g->sx, g->sy, g->sw, g->sh, x + d * ca, y + d * sa + (f->asc + g->yo - g->h) * k, g->w * k * sx, g->h * k, tint, al);
         d += (g ? g->w + f->gap : f->space) * k * sx; }
