@@ -5,8 +5,9 @@
  *     card from the boss's own list (weighted, the last one drawn and the one on top less likely), up to three.
  *     The star power button fires the top card at the boss. The boss plays the song's rhythm chart, with its own
  *     battle gems, and fires his cards back a moment after he gets them.
- *   * An attack lasts its drain time (longer on the harder difficulties). While it lasts the boss misses a share of
- *     his notes and each note he plays or misses moves his meter; the player's meter moves the same way while under
+ *   * An attack lasts its drain time (battle_<diff>_drain_offset is for two player battles, not the boss's). While it
+ *     lasts the boss misses a share of his notes, and every note on a fret out of play (a broken string, the whammy
+ *     attack), and each note he plays or misses moves his meter; the player's meter moves the same way while under
  *     attack. Outside an attack neither meter moves.
  *   * The boss fails when his meter runs out: the player wins. If he lasts, the song's last cue
  *     (boss_battle_begin_deathlick) sets a Death Drain on the player. Against Lou, once he fails the rest of the song

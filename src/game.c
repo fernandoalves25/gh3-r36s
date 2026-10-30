@@ -139,7 +139,7 @@ void game_step(gh3_run *r, double t, double perf) {
     r->now = t;
     if (r->autoPlay) {
         if (r->botRelease >= 0 && t >= r->botRelease) { r->held = 0; r->botRelease = -1; }
-        while (r->botIdx < r->nnotes && r->notes[r->botIdx].t <= t) { gh3_note *n = &r->notes[r->botIdx++]; if (n->hit || n->missed) continue; if (n->bflags & BN_BOTMISS) { missNote(r, n, perf); continue; } /* (a boss under attack misses some) */ r->held = n->mask; r->botRelease = n->t + fmax(90, n->sus); hitNote(r, n, t, 0, perf, 0); }
+        while (r->botIdx < r->nnotes && r->notes[r->botIdx].t <= t) { gh3_note *n = &r->notes[r->botIdx++]; if (n->hit || n->missed) continue; if ((n->bflags & BN_BOTMISS) || (r->battle && ((bside_t *)r->battle)->cpu && (n->mask & ((bside_t *)r->battle)->mask))) { missNote(r, n, perf); continue; } /* (a boss under attack misses some, and those on a fret out of play) */ r->held = n->mask; r->botRelease = n->t + fmax(90, n->sus); hitNote(r, n, t, 0, perf, 0); }
         if (!r->spOn && r->sp >= 0.5) starOn(r, perf);
     } else if (r->hasPending && t - r->pending > r->tn->strumBefore + INPUT_SLOP) r->hasPending = 0;
     for (gh3_note *n = nextNote(r); n && t > n->t + n->lateW + (r->autoPlay ? 0 : MISS_HOLD); n = nextNote(r)) { missNote(r, n, perf); if (r->hasPending) { r->hasPending = 0; overstrum(r, perf); } }
