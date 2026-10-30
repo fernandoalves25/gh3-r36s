@@ -176,7 +176,7 @@ static void read_struct(ctx *c, const qbv *st) {
     if (hasName && hasCls && !made) PUSH(c->v->hidden, c->v->nhidden, c->capH, name);
     if (cls == K_LEVELOBJECT && hasName) { r3d_object o; memset(&o, 0, sizeof o); o.key = name; o.shown = made;
         if (qb_vec(qb_getk(st, K_POS), o.pos, 3)) { qb_vec(qb_getk(st, K_ANGLES), o.angles, 3); PUSH(c->v->objects, c->v->nobjects, c->capO, o); } }
-    if (cls == K_LEVELLIGHT && hasName && made) { r3d_light l; memset(&l, 0, sizeof l); uint32_t ty = 0, grp = 0; float q[4] = { 0, 0, 0, 1 };
+    if (cls == K_LEVELLIGHT && hasName && made) { r3d_light l; memset(&l, 0, sizeof l); l.key = name; uint32_t ty = 0, grp = 0; float q[4] = { 0, 0, 0, 1 };
         if (!qb_vec(qb_getk(st, K_POS), l.pos, 3) || !qb_vec(qb_getk(st, K_LIGHTCOLOR), l.colour, 3)) return;
         qb_keyof(qb_getk(st, K_TYPE), &ty); qb_keyof(qb_getk(st, K_LIGHTGROUP), &grp); qb_vec(qb_getk(st, K_LQUAT), q, 4); turn_vec(q, l.dir);
         l.kind = ty == K_AMBIENT ? L_AMBIENT : ty == K_POINT ? L_POINT : ty == K_DIR ? L_DIR : L_SPOT; l.band = grp == K_BAND || grp == K_ALTBAND || grp == K_CROWD;
