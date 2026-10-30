@@ -33,6 +33,7 @@ typedef struct { uint32_t key; int l0, nl, b0, nb; } preset;
 typedef struct { uint32_t key; int list[3][16], n[3]; } moodset;   /* per level (poor medium good): preset indices */
 typedef struct { float pos[3]; int mask; } jet;                     /* a pyro spot of z_<v>_pyro and the levels (bits) it fires at */
 typedef struct { float p[3], v[3], age, life, delay; } spark;
+typedef struct { GLint uBake, uDyn, uAmb, uLP[NDYN], uLC[NDYN], uLD[NDYN]; } lightlocs;   /* where a venue program keeps the show's uniforms */
 
 static struct {
     int loaded; char zone[32];
@@ -44,7 +45,7 @@ static struct {
     float bake[3], ambk[3], lp[NDYN][4], lc[NDYN][4], ld[NDYN][4], flick, pulse;
     spark S[MAXS]; int nS; uint32_t rng;
     /* GL */
-    GLuint prog, vbo, ibo, tex; GLint aP, aT, aC, uVP, uTex, uBake, uDyn, uAmb, uLP[NDYN], uLC[NDYN], uLD[NDYN];
+    GLuint prog, vbo, ibo, tex; GLint aP, aT, aC, uVP, uTex; lightlocs u[2];   /* u: per venue program (0 plain, 1 alpha-tested) */
     float *vb; int nq; char info[200];
 } S;
 static uint32_t kIntro, kVerse, kChorus, kSolo, kFlare, kStrobe, kFail, kWin, kPoor, kMedium, kGood, kDefault, kTrans, kSnaps, kPos;
@@ -261,18 +262,19 @@ void r3d_lights_sim(const gh3_songdata *sd, double ms, double health) {
 const char *r3d_lights_info(void) { return S.on ? S.info : "light show off"; }
 
 /* ------------------------------------------------------------------ the venue shader's side */
-void r3d_lights_program(GLuint prog) {
-    char nm[16]; S.uBake = GL(glGetUniformLocation)(prog, "uBake"); S.uDyn = GL(glGetUniformLocation)(prog, "uDyn"); S.uAmb = GL(glGetUniformLocation)(prog, "uAmb");
-    for (int d = 0; d < NDYN; d++) { snprintf(nm, sizeof nm, "uLP[%d]", d); S.uLP[d] = GL(glGetUniformLocation)(prog, nm); snprintf(nm, sizeof nm, "uLC[%d]", d); S.uLC[d] = GL(glGetUniformLocation)(prog, nm); snprintf(nm, sizeof nm, "uLD[%d]", d); S.uLD[d] = GL(glGetUniformLocation)(prog, nm); }
+void r3d_lights_program(int slot, GLuint prog) {
+    char nm[16]; lightlocs *U = &S.u[slot & 1]; U->uBake = GL(glGetUniformLocation)(prog, "uBake"); U->uDyn = GL(glGetUniformLocation)(prog, "uDyn"); U->uAmb = GL(glGetUniformLocation)(prog, "uAmb");
+    for (int d = 0; d < NDYN; d++) { snprintf(nm, sizeof nm, "uLP[%d]", d); U->uLP[d] = GL(glGetUniformLocation)(prog, nm); snprintf(nm, sizeof nm, "uLC[%d]", d); U->uLC[d] = GL(glGetUniformLocation)(prog, nm); snprintf(nm, sizeof nm, "uLD[%d]", d); U->uLD[d] = GL(glGetUniformLocation)(prog, nm); }
 }
-void r3d_lights_uniforms(void) {
-    if (!S.on) { GL(glUniform3f)(S.uBake, 1, 1, 1); for (int d = 0; d < NDYN; d++) GL(glUniform4f)(S.uLC[d], 0, 0, 0, 0); return; }
-    GL(glUniform3f)(S.uBake, S.bake[0], S.bake[1], S.bake[2]);
-    for (int d = 0; d < NDYN; d++) { GL(glUniform4f)(S.uLP[d], S.lp[d][0], S.lp[d][1], S.lp[d][2], S.lp[d][3]); GL(glUniform4f)(S.uLC[d], S.lc[d][0], S.lc[d][1], S.lc[d][2], S.lc[d][3]); GL(glUniform4f)(S.uLD[d], S.ld[d][0], S.ld[d][1], S.ld[d][2], S.ld[d][3]); }
+void r3d_lights_uniforms(int slot) {
+    const lightlocs *U = &S.u[slot & 1];
+    if (!S.on) { GL(glUniform3f)(U->uBake, 1, 1, 1); for (int d = 0; d < NDYN; d++) GL(glUniform4f)(U->uLC[d], 0, 0, 0, 0); return; }
+    GL(glUniform3f)(U->uBake, S.bake[0], S.bake[1], S.bake[2]);
+    for (int d = 0; d < NDYN; d++) { GL(glUniform4f)(U->uLP[d], S.lp[d][0], S.lp[d][1], S.lp[d][2], S.lp[d][3]); GL(glUniform4f)(U->uLC[d], S.lc[d][0], S.lc[d][1], S.lc[d][2], S.lc[d][3]); GL(glUniform4f)(U->uLD[d], S.ld[d][0], S.ld[d][1], S.ld[d][2], S.ld[d][3]); }
 }
-void r3d_lights_batch(int lit, const float amb[3]) {
-    int on = S.on && lit; GL(glUniform1f)(S.uDyn, on ? 1.0f : 0.0f);
-    if (on) GL(glUniform3f)(S.uAmb, amb[0] * S.ambk[0], amb[1] * S.ambk[1], amb[2] * S.ambk[2]); else GL(glUniform3f)(S.uAmb, amb[0], amb[1], amb[2]);
+void r3d_lights_batch(int slot, int lit, const float amb[3]) {
+    const lightlocs *U = &S.u[slot & 1]; int on = S.on && lit; GL(glUniform1f)(U->uDyn, on ? 1.0f : 0.0f);
+    if (on) GL(glUniform3f)(U->uAmb, amb[0] * S.ambk[0], amb[1] * S.ambk[1], amb[2] * S.ambk[2]); else GL(glUniform3f)(U->uAmb, amb[0], amb[1], amb[2]);
 }
 
 /* ------------------------------------------------------------------ beams, glows, sparks */

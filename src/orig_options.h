@@ -10,7 +10,7 @@
 /* the options menu (A.optCat < 0) and a category's page. The tables are screens.c's: category names and help, each
  * category's items (-1 ends them; categories 0 Audio, 2 Controller, 3 Video have pages), item names and help, an item's
  * value as shown ("70%", "Ligada", "Não", "+0 ms"; "" for an action) and whether a category is closed (opened from the pause) */
-int orig_options_draw(double now, const char *const *catLabel, const char *const *catHelp, const int (*catItems)[7], int ncat,
+int orig_options_draw(double now, const char *const *catLabel, const char *const *catHelp, const int (*catItems)[8], int ncat,
     const char *const *optLabel, const char *const *optHelp, void (*value)(int item, char *out, size_t n), int (*off)(int cat));
 int orig_calib_draw(double now);       /* Calibrar atraso: the lane with the clicks, the explanation on the game's paper */
 int orig_controls_draw(double now);    /* the bindings on the controller poster, the live test under them */

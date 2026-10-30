@@ -38,9 +38,15 @@ Na mesma pasta `gh3/` há dois programas feitos dos mesmos fontes:
 - `gh3-3d.aarch64` (**GH3 3D.sh**): o mesmo jogo, mas atrás da pista ele desenha o cenário do próprio jogo em 3D, lido
   de `DATA/ZONES/z_*.pak.xen`: as malhas e texturas do palco do set (o bar, o inferno, o Budokan…), com as luzes do
   cenário e as câmeras do jogo cortando pela lista de cortes de cada música (`<música>_cameras_notes`). Nos menus, o
-  último palco carregado passeia pelas tomadas gerais do jogo. Banda, plateia, show de luzes dinâmico, fogo e brilho
-  ainda não entram. É experimental: se engasgar ou a imagem sair errada, **Opções > Vídeo > Palco 3D** desliga o
+  último palco carregado passeia pelas tomadas gerais do jogo. A banda do jogo toca no palco (**Opções > Vídeo >
+  Banda 3D**) e o show de luzes do jogo (feixes, cor, estrobo, fogo) segue a música; a plateia ainda não entra. É experimental: se engasgar ou a imagem sair errada, **Opções > Vídeo > Palco 3D** desliga o
   cenário (volta ao palco 2D) sem trocar de executável; `Escurecer o fundo` continua valendo sobre o cenário.
+  **Opções > Vídeo > Resolução do palco 3D** escolhe o tamanho em que o cenário é desenhado antes de ser ampliado atrás
+  da pista: Alta (640x480), **Média** (480x360, o padrão) ou Baixa (320x240, a mais leve); a pista e o placar ficam
+  sempre nítidos. Na primeira vez que um palco abre, as texturas são comprimidas (ETC1) e guardadas em `cache-3d/`
+  na pasta do port; das outras vezes ele abre mais rápido. Apagar `cache-3d/` só faz o próximo carregamento refazê-lo.
+  Enquanto uma música toca, o `log-3d.txt` ganha a cada 10 s uma linha `r3d perf:` com quadros por segundo, tempo
+  médio e máximo do quadro, tempo do cenário, chamadas de desenho, triângulos e memória de texturas.
 
 Os dois leem o mesmo `DATA` e os mesmos arquivos de save (`gh3.cfg`, `gh3-recordes.cfg`, `gh3-carreira.cfg`,
 `gh3-tutoriais.cfg`), então dá para alternar entre eles sem perder nada; cada um escreve o seu log (`log.txt` e
@@ -134,7 +140,7 @@ Organizadas como no jogo:
 - **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
 - **Calibrar atraso**: a medição descrita acima.
 - **Controle**: canhoto (lefty flip), palhetada normal (o direcional, como na guitarra) ou toque livre (como o GH3 no controle comum do PS2: apertar o botão do traste já é a palhetada, com as mesmas regras e o mesmo som de nota errada), botões.
-- **Vídeo**: palco 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
+- **Vídeo**: palco 3D, a resolução do palco 3D e a banda 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
 
 O visual é o do próprio jogo, lido de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os trastes, as chamas, a pista com
 os seus trilhos, o medidor de rock com as válvulas do star power, a caixa do placar com a válvula do multiplicador e os
@@ -151,7 +157,7 @@ Sem esses dois arquivos o jogo desenha tudo num visual liso de reserva.
 
 ## O que ainda não tem
 
-- A banda, a plateia e o show de luzes do próprio jogo (o cenário 3D entra só no GH3 3D, parado e sem a banda), co-op e
+- A plateia do próprio jogo (o cenário, a banda e o show de luzes entram só no GH3 3D), co-op e
   multiplayer. No treino lento o jogo troca a banda pelos seus samples de bateria; aqui a banda toca, esticada.
 - Os efeitos sonoros são os do próprio jogo (`ZONES/global_sfx.pak.xen`, pela tabela de eventos de som do jogo: menus,
   notas erradas, multiplicador perdido, sequências, star power, ataques das batalhas, loja, resultado), com a plateia do

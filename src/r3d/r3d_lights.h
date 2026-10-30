@@ -11,10 +11,10 @@
 #include "r3d_zone.h"
 void r3d_lights_load(const char *zone, const gh3_pakent *ents, int n, const r3d_venueqb *vq);   /* after the venue is read: its presets, mapping, pyro spots */
 void r3d_lights_unload(void);
-void r3d_lights_program(GLuint prog);         /* the venue shader linked: where its light uniforms are (uBake uDyn uLP[4] uLC[4] uLD[4], uAmb) */
+void r3d_lights_program(int slot, GLuint prog);   /* a venue shader linked (slot 0 plain, 1 alpha-tested): where its light uniforms are (uBake uDyn uLP[4] uLC[4] uLD[4], uAmb) */
 void r3d_lights_update(double t);             /* once a frame (t: wall seconds): the song's cues up to now, the rock meter, the cross-fades, the sparks */
-void r3d_lights_uniforms(void);               /* after glUseProgram(venue shader), once a frame */
-void r3d_lights_batch(int lit, const float amb[3]);   /* per batch: lit = the batch takes the room's lights (not unlit / ambient-only); sets uDyn and uAmb */
+void r3d_lights_uniforms(int slot);           /* after glUseProgram(that venue shader), once a frame for each */
+void r3d_lights_batch(int slot, int lit, const float amb[3]);   /* per batch, the program it is drawn with in use: lit = the batch takes the room's lights (not unlit / ambient-only); sets uDyn and uAmb */
 void r3d_lights_draw(const float *vp, const float *view);   /* after the venue: beams, glows, sparks (additive, depth tested, no depth write) */
 void r3d_lights_shutdown(void);
 /* --r3dtest: the show driven by a song's cues at song time ms with this rock meter (0..2) instead of the game; NULL gives the game back */

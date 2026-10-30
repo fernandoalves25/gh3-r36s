@@ -138,10 +138,10 @@ static int gfx_draw(int cat, const char *const *catLabel, const int *items, int 
     return 1;
 }
 
-int orig_options_draw(double now, const char *const *catLabel, const char *const *catHelp, const int (*catItems)[7], int ncat,
+int orig_options_draw(double now, const char *const *catLabel, const char *const *catHelp, const int (*catItems)[8], int ncat,
     const char *const *optLabel, const char *const *optHelp, void (*value)(int, char *, size_t), int (*off)(int)) {
     if (A.optCat < 0) { if (!ga_img("options_main_poster")) return 0; back(now); return menu_draw(now, catLabel, catHelp, ncat, off); }
-    int cat = A.optCat, n = 0; const int *items = catItems[cat]; while (n < 7 && items[n] >= 0) n++; if (!n) return 0;
+    int cat = A.optCat, n = 0; const int *items = catItems[cat]; while (n < 8 && items[n] >= 0) n++; if (!n) return 0;
     if (A.optRow >= n) A.optRow = n - 1;   /* a row past the category (one that lost an item), as draw_options does */
     const char *need = cat == 0 ? "options_audio_poster" : cat == 2 ? "options_controller_poster" : "graphics_options_poster_part1"; if (!ga_img(need)) return 0;
     back(now);
