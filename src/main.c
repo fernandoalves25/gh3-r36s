@@ -30,6 +30,7 @@
 #include "cheats.h"
 #include "tutorial.h"
 #include "sfx.h"
+#include "orig_loading.h"
 #ifdef GH3_3D
 #include "r3d/r3d.h"   /* the 3D build (gh3-3d): the game's venues behind the highway */
 static char r3dTest[32];
@@ -330,13 +331,22 @@ static void movie_test(void) {   /* --movietest NAME|all [--movieplay]: decodes 
 }
 
 /* ---- playing ---- */
-void app_begin_song(void) {
-    char err[300]; app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
+static int song_load(void) {   /* the blocking part: the set's venue (3D build), the chart and the audio */
+    char err[300];
 #ifdef GH3_3D
     r3d_select(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "");   /* the set's venue (levelzones); a bonus song with none gets the default */
 #endif
+    if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
+    return 0;
+}
+static void song_go(void);
+void app_begin_song(void) {
+    app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
     if (battle_intro_start(A.selSong, SDL_GetTicks())) return;   /* a boss: his intro first (it comes back here) */
-    if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return; }
+    if (BTL.finishNext > 0) { if (song_load() == 0) song_go(); return; }   /* the rest of a won battle's song: straight on */
+    loading_start(SDL_GetTicks()); A.screen = SC_LOADING;   /* the loading screen; the main loop loads once it is shown, then song_go */
+}
+static void song_go(void) {
     app_apply_volumes();
     if (A.mode == MODE_PRACTICE) { /* the notes outside the sections are gone (load_song); the clock runs at the speed chosen */
         double sp = PRACTICE_SPEED[A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0], from, to, at, lead;
@@ -434,6 +444,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
       store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); A.cursor = c0; A.scroll = 0; }
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
+    loading_start(-500); A.screen = SC_LOADING; gfx_begin(); screens_draw(0); gfx_end(); save_named("loading");   /* the loading screen, its spinner half a second in */
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
     A.optCat = 3; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
@@ -551,6 +562,7 @@ int main(int argc, char **argv) {
             else { if (screens_raw_event(&ev, now)) continue; int in = menu_event(&ev); if (in != IN_NONE) screens_event(in, now); }
         }
         preview_tick(); battle_frame(now);
+        if (A.screen == SC_LOADING) { int ph = loading_phase(now); if (ph == 1 && song_load() == 0) loading_loaded(); else if (ph == 2) song_go(); }
         gfx_begin();
         if (A.screen == SC_PLAY) {
             gh3_run *r = &A.S.run;

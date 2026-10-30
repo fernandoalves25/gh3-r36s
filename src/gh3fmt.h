@@ -32,7 +32,7 @@ const char *qb_str(const qbv *v);
 int qb_keyof(const qbv *v, uint32_t *key);
 
 /* ---- song list + tuning (qb.pak + qb.pab) ---- */
-typedef struct { uint32_t key; char name[64], title[128], artist[128], year[16]; float hmScale, bandVol, guitarVol; int hasRhythm; uint32_t bossKey; int isBoss; } gh3_song;
+typedef struct { uint32_t key; char name[64], title[128], artist[128], year[16]; float hmScale, bandVol, guitarVol; int hasRhythm; uint32_t bossKey; int isBoss; char artistText[64]; } gh3_song;   /* artistText: the game's artist_text ("by", "as made famous by"…), for the intro card */
 /* a set of the song list. tab: 0 career tier, 1 bonus, 2 downloads, 3 the rest. In a career tier the songs are in
  * the game's order; encoreIdx / bossIdx are song indices (or -1) and defaultUnlocked the songs open from the start. */
 typedef struct { char title[96]; int *songIdx; int nsongs; int tab; int career, hasEncore, defaultUnlocked, encoreIdx, bossIdx; char movie[48]; } gh3_tier;   /* movie: completion_movie, lower case ("" none) */

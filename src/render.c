@@ -7,6 +7,7 @@
 #include "ui.h"
 #include "settings.h"
 #include "original.h"
+#include "orig_loading.h"
 #ifdef GH3_3D
 #include "r3d/r3d.h"
 #endif
@@ -305,9 +306,10 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             uint32_t mc = sp ? C_SP : mult >= 4 ? RGB(0xf2, 0x8d, 0x2d) : mult == 3 ? RGB(0xf3, 0xd2, 0x3b) : mult == 2 ? RGB(0x31, 0xc4, 0x66) : C_INK;
             float bump = (float)((perf - multAt) / 350); float bs = bump >= 0 && bump < 1 ? 1 + 0.35f * (1 - bump) : 1;
             /* top left: the song */
+            if (orig()) orig_intro_card(hi, t, W, H); else {   /* the game's look: its intro card for the first seconds, the section's name */
             if (hi->title) gfx_text_sh(14, 10, 2, hi->title, C_INK, C_SHADOW);
-            if (hi->artist) gfx_text_sh(14, 36, 1, hi->artist, C_MUTED, C_SHADOW);
-            if (hi->section && *hi->section) { gfx_sprite_at(art_get(ART_NOTE), 14, 52, 1.0f / PXS * 1.0f, C_AMP, 1); gfx_text_sh(14 + 14, 50, 1, hi->section, C_AMP, C_SHADOW); }
+            if (hi->artist) gfx_text_sh(14, 36, 1, hi->artist, C_MUTED, C_SHADOW); }
+            if (hi->section && *hi->section && !orig()) { gfx_sprite_at(art_get(ART_NOTE), 14, 52, 1.0f / PXS * 1.0f, C_AMP, 1); gfx_text_sh(14 + 14, 50, 1, hi->section, C_AMP, C_SHADOW); }
             if (orig()) orig_hud(r, hi, perf, W, H, mult, sp, pulse); else {
             /* top right: score panel */
             snprintf(b, sizeof b, "%ld", (long)r->score); int sw = gfx_text_w(b, 3); int pw = (sw > 120 ? sw : 120) + 24;
