@@ -132,7 +132,7 @@ static void jt_mute(int m) { size_t l = strlen(jtLog); snprintf(jtLog + l, sizeo
 static int judge_test(void) {
     static const int32_t FB[] = { 0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500, 8000 };
     gh3_tuning tn; if (A.libOk) tn = lib.tuning; else gh3_default_tuning(&tn);
-    typedef struct { const char *name, *expect; int bass, warm; struct { double t; int frets, strum; } in[6]; } jcase;
+    typedef struct { const char *name, *expect; int bass, warm; struct { double t; int frets, strum; } in[6]; int tap; } jcase;
     static const jcase C[] = {   /* notes: green at 3000, red at 3600 (a streak of greens before them when warm) */
         { "overstrum (no note in reach)", "bad, mute", 0, 0, { { 2000, 1, 1 } } },
         { "wrong frets on a note", "bad (bum_note miss), mute", 0, 0, { { 2990, 2, 1 } } },
@@ -142,14 +142,19 @@ static int judge_test(void) {
         { "strum, then the frets in 20 ms", "unmute", 0, 0, { { 2990, 0, 1 }, { 3010, 1, 0 } } },
         { "wrong frets, fixed after 60 ms", "bad, mute", 0, 0, { { 2990, 2, 1 }, { 3050, 1, 0 } } },
         { "x2 streak lost on wrong frets", "lose2, bad, mute", 0, 1, { { 2990, 2, 1 } } },
-        { "x4 streak lost passively", "lose4, mute", 0, 3, { { 0, 0, 0 } } } };
+        { "x4 streak lost passively", "lose4, mute", 0, 3, { { 0, 0, 0 } } },
+        { "free tap: right frets", "unmute", 0, 0, { { 2990, 1, 0 } }, 1 },
+        { "free tap: wrong frets pressed", "bad, mute", 0, 0, { { 2990, 2, 0 }, { 3060, 0, 0 } }, 1 },
+        { "free tap: wrong frets held", "bad, mute", 0, 0, { { 2500, 4, 0 } }, 1 },
+        { "free tap: nothing pressed", "mute only", 0, 0, { { 0, 0, 0 } }, 1 },
+        { "free tap: frets with no note", "mute only", 0, 0, { { 2000, 2, 0 }, { 2100, 0, 0 } }, 1 } };
     int fails = 0;
     for (size_t c = 0; c < sizeof C / sizeof C[0]; c++) {
         const jcase *k = &C[c]; int warm = k->warm ? k->warm * 10 + 1 : 0; gh3_note N[40]; int nn = 0; memset(N, 0, sizeof N);
         for (int i = 0; i < warm; i++) { gh3_note *n = &N[nn++]; n->t = 200 + i * 60; n->mask = 1; n->n = 1; n->star = -1; }
         gh3_note *g = &N[nn++]; g->t = 3000; g->mask = 1; g->n = 1; g->star = -1; gh3_note *rd = &N[nn++]; rd->t = 3600; rd->mask = 2; rd->n = 1; rd->star = -1;
         gh3_chart ch; memset(&ch, 0, sizeof ch); ch.notes = N; ch.nnotes = nn; ch.fretbars = FB; ch.nfret = sizeof FB / sizeof FB[0]; ch.end = 8000;
-        gh3_runopts o; memset(&o, 0, sizeof o); o.bass = k->bass; o.endMs = 5000; o.speed = 100; o.noFail = 1;
+        gh3_runopts o; memset(&o, 0, sizeof o); o.bass = k->bass; o.endMs = 5000; o.speed = 100; o.noFail = 1; o.noStrum = k->tap;
         gh3_run r; game_new(&r, &ch, &tn, 3, &o); gh3_sfx_hook = jt_sfx; gh3_mute_hook = jt_mute;
         int in = 0, w = 0;
         for (double t = 0; t < 4200; t += 1000.0 / 240) {

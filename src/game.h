@@ -7,7 +7,7 @@ typedef struct {
     gh3_chart *chart; gh3_note *notes; int nnotes;
     const gh3_tuning *tn; gh3_diff d;
     int idx, held; double score; int streak, best, hits, misses, overstrums; double sp; int spOn; double health;
-    gh3_note *sus; int hasPending, pendNote; double pending; int chain, hamShape; double hamUntil;   /* pending: a strum on the wrong frets, pendNote the note it was at */
+    gh3_note *sus; int hasPending, pendNote, tapWrong; double pending; int chain, hamShape; double hamUntil;   /* pending: a strum on the wrong frets, pendNote the note it was at; tapWrong: free tap, the note a press on the wrong frets was at */
     struct { int held; double until; } hist[16]; int nhist;
     double flash[5], spFlash, missFlash, spAt, spOffAt, spReadyAt, streakAt; int streakN;
     double lastBeat; int hasLastBeat;
