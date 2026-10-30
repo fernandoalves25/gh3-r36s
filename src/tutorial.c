@@ -391,13 +391,13 @@ static void draw_lesson(double now) {
         if (T.goal == G_SP) snprintf(b, sizeof b, "%s: %d%%", what, (int)(A.S.run.sp * 100 + 0.5)); else if (T.goal == G_DEPLOY) snprintf(b, sizeof b, "%s", A.S.run.sp >= 0.5 ? "Poder pronto: lance!" : "Ganhe um poder"); else snprintf(b, sizeof b, "%s: %d / %d", what, T.count, T.need);
         gfx_text_sh(x + 10, 96 + th, 1, b, C_AMP, C_SHADOW); }
     else if (T.task[0]) { int w = 212, x = W - w - 8, h = 30 + text_h(w - 20, T.task); ui_panel(x, 66, w, h, UI_PANEL_FLAT); gfx_text_sh(x + 10, 74, 1, "TAREFA", C_MUTED, C_SHADOW); gfx_text_box(x + 10, 92, w - 20, 1, T.task, C_MUTED); }
-    if (T.big[0]) { int s = gfx_text_w(T.big, 3) > W - 60 ? 2 : 3, w = gfx_text_w(T.big, s) + 48; ui_panel(W / 2 - w / 2, 150, w, 16 * s + 22, UI_PANEL_AMBER); gfx_text_title(W / 2 - gfx_text_w(T.big, s) / 2, 160, s, T.big, C_INK, C_SHADOW, 2); }
+    if (T.big[0]) { int s = gfx_text_w(T.big, 3) > W - 60 ? 2 : 3, w = gfx_text_w(T.big, s) + 48; ui_panel(W / 2 - w / 2, 150, w, 16 * s + 22, UI_PANEL_AMBER); ui_title(W / 2 - gfx_text_w(T.big, s) / 2, 160, s, T.big, C_INK, C_SHADOW, 2); }
     if (now < T.againUntil) gfx_text_sh_center(W / 2, 214, 2, "A música acabou: de novo!", C_BAD, C_SHADOW);
     if (now < T.capUntil && T.cap[0]) { int side = T.capNote && T.loaded, w = side ? 212 : 440, x = side ? W - w - 8 : W / 2 - w / 2, th = text_h(w - 28, T.cap), h = th + (T.capNote ? 34 : 50), y = side ? 200 : T.loaded ? 236 : 322;   /* the cheering goes by the task, off the highway */
         if (y + h > H - 30) y = H - 30 - h;
         ui_panel(x, y, w, h, UI_PANEL_DARK); gfx_text_sh(x + 14, y + 8, 1, T.capWho, C_AMP, C_SHADOW); if (speaking(now)) gfx_text_sh(x + 14 + gfx_text_w(T.capWho, 1) + 8, y + 8, 1, "♪", C_AMP, C_SHADOW);
         gfx_text_box(x + 14, y + 24, w - 28, 1, T.cap, C_INK); if (!T.capNote) gfx_text_right(x + w - 14, y + h - 16, 1, "resumo da fala, não é tradução", C_LINE); }
-    if (T.paused) { ui_dim(W, H, 170); ui_panel(W / 2 - 150, 120, 300, 230, UI_PANEL_DARK); gfx_text_title(W / 2 - gfx_text_w("PAUSA", 4) / 2, 134, 4, "PAUSA", C_INK, C_SHADOW, 3);
+    if (T.paused) { ui_dim(W, H, 170); ui_panel(W / 2 - 150, 120, 300, 230, UI_PANEL_DARK); ui_title(W / 2 - gfx_text_w("PAUSA", 4) / 2, 134, 4, "PAUSA", C_INK, C_SHADOW, 3);
         const char *it[4] = { "Continuar", "Pular a fala", "Recomeçar a lição", "Sair do tutorial" };
         for (int i = 0; i < 4; i++) { int y = 196 + i * 34, off = i == 1 && !speaking(now); if (i == T.pauseRow) { ui_panel(W / 2 - 130, y - 7, 260, 30, off ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), W / 2 - 122, y - 3, 0.5f, RGB(255, 255, 255), 1); }
             gfx_text_sh_center(W / 2 + 6, y, 2, it[i], off ? RGB(110, 104, 122) : i == T.pauseRow ? C_INK : C_MUTED, C_SHADOW); } }

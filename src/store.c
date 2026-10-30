@@ -170,7 +170,7 @@ void store_event(int in, double now) {
 void store_draw_result(int W, int y, double T) {
     if (A.mode != MODE_CAREER || A.S.run.failed || A.S.run.autoPlay || SET.noFail || T < 1.2) return; char b[64], c[32];
     float k = (float)fmin(1, (T - 1.2) / 0.3);
-    if (lastGain > 0) { fmt_cash(lastGain, c, sizeof c); snprintf(b, sizeof b, "+%s", c); gfx_text_title(W / 2 + 296 - gfx_text_w(b, 3), y - (int)(8 * (1 - k)), 3, b, C_GOOD, C_SHADOW, 2); }
+    if (lastGain > 0) { fmt_cash(lastGain, c, sizeof c); snprintf(b, sizeof b, "+%s", c); ui_title(W / 2 + 296 - gfx_text_w(b, 3), y - (int)(8 * (1 - k)), 3, b, C_GOOD, C_SHADOW, 2); }
     else gfx_text_right(W / 2 + 294, y + 8, 1, "sem dinheiro novo", C_MUTED);
     snprintf(b, sizeof b, "total %s", store_cash_str()); gfx_text_right(W / 2 + 294, y + 30, 1, b, C_MUTED);
 }
@@ -204,7 +204,7 @@ void encore_draw(double now) {
     if ((T > 3.5 && !audio_preview_on()) || T > 10.5) { chant_end(1); return; }
     ui_dim(W, H, 170 + (int)(50 * fmin(1, T))); gfx_rect(0, H - 40, W, 40, RGBA(10, 8, 16, 255));   /* over the setup screen, its hints hidden */
     float pulse = (float)(0.5 + 0.5 * sin(T * 6.2)); int sc = T < 0.4 ? 4 + (int)(T / 0.1) : 8; const char *E = "ENCORE!";
-    gfx_text_title(W / 2 - gfx_text_w(E, sc) / 2, H / 2 - 92, sc, E, fb_alpha(C_AMP, 0.75f + 0.25f * pulse), C_SHADOW, 4);
+    ui_title(W / 2 - gfx_text_w(E, sc) / 2, H / 2 - 92, sc, E, fb_alpha(C_AMP, 0.75f + 0.25f * pulse), C_SHADOW, 4);
     gfx_text_sh_center(W / 2, H / 2 + 6, 2, "A plateia quer mais uma!", C_INK, C_SHADOW);
     const gh3_song *s = &A.lib->songs[A.selSong]; char b[320]; snprintf(b, sizeof b, "%s • %s", s->title, s->artist); gfx_text_sh_center(W / 2, H / 2 + 40, 1, b, C_MUTED, C_SHADOW);
     for (int i = 0; i < 5; i++) { float a = (float)(0.35 + 0.65 * fmax(0, sin(T * 6.2 - i * 0.9))); { gfx_sprite *st = fx_star(1, SET.theme == 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), W / 2 - 116 + i * 50, H / 2 + 66, 32, 32, RGB(255, 255, 255), a); } }

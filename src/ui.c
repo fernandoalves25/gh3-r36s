@@ -1,9 +1,12 @@
 #include "ui.h"
 #include "render.h"
+#include "settings.h"
+#include "original.h"
 #include <string.h>
 #include <stdio.h>
 
 void ui_panel(float x, float y, float w, float h, int style) {
+    if (SET.theme == 2 && orig_ready() && orig_panel(x, y, w, h, style) == 0) return;
     uint32_t fill = style == UI_PANEL_AMBER ? RGBA(70, 48, 20, 230) : style == UI_PANEL_SP ? RGBA(20, 60, 80, 230) : style == UI_PANEL_FLAT ? RGBA(20, 17, 27, 200) : RGBA(27, 24, 35, 225);
     uint32_t hi = style == UI_PANEL_AMBER ? RGB(233, 176, 76) : style == UI_PANEL_SP ? RGB(98, 228, 255) : RGB(90, 80, 112), lo = RGB(8, 6, 12);
     int p = 2;
@@ -19,6 +22,7 @@ void ui_hint(int x, int y, const char *button, const char *text) {
     gfx_text(x + 6, y, 1, button, C_STAGE); gfx_text(x + bw + 6, y, 1, text, C_MUTED);
 }
 void ui_hints(int y, int W, const char *const *buttons, const char *const *texts, int n) {
+    if (SET.theme == 2 && orig_ready() && orig_hints(y, W, buttons, texts, n) == 0) return;
     int total = 0; for (int i = 0; i < n; i++) total += ui_hint_w(buttons[i], texts[i]) + 16; total -= 16;
     int x = W / 2 - total / 2; if (x < 8) x = 8;
     for (int i = 0; i < n; i++) { ui_hint(x, y, buttons[i], texts[i]); x += ui_hint_w(buttons[i], texts[i]) + 16; }
@@ -33,8 +37,12 @@ void ui_bar(float x, float y, float w, float h, float frac, uint32_t color) {
     gfx_rect(x, y, w, h, C_SHADOW); gfx_rect(x + 1, y + 1, w - 2, h - 2, C_PANEL2); gfx_rect(x + 1, y + 1, (w - 2) * frac, h - 2, color); gfx_rect(x + 1, y + 1, (w - 2) * frac, 1, fb_alpha(RGB(255, 255, 255), 0.35f));
 }
 void ui_header(int W, const char *title, const char *subtitle) {
+    if (SET.theme == 2 && orig_ready() && orig_header(W, title, subtitle) == 0) return;
     gfx_rect(0, 0, W, 56, RGBA(10, 8, 16, 170)); gfx_rect(0, 56, W, 2, C_AMP); gfx_rect(0, 58, W, 1, C_AMP_DARK);
     gfx_text_title(16, 12, 3, title, C_AMP, RGB(70, 30, 10), 3);
     if (subtitle) gfx_text_sh_right(W - 16, 22, 1, subtitle, C_MUTED, C_SHADOW);
+}
+void ui_title(int x, int y, int scale, const char *s, uint32_t c, uint32_t edge, int depth) {
+    if (SET.theme == 2 && orig_ready() && orig_title(x, y, scale, s, c, edge) == 0) return; gfx_text_title(x, y, scale, s, c, edge, depth);
 }
 void ui_dim(int W, int H, int alpha) { gfx_rect(0, 0, W, H, RGBA(10, 8, 16, alpha)); }

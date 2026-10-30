@@ -42,7 +42,7 @@ static void bake_icons(void) {
     for (int k = 0; k <= PU_KINDS; k++) { fb_t f; fb_init(&f, 16, 16); card_art(&f, k, 1); icons[0][k] = gfx_bake_up(&f, px, 0); fb_free(&f);   /* pixel art: 16 art px, enlarged */
         fb_init(&f, 64, 64); card_art(&f, k, 4); icons[1][k] = gfx_bake(&f, 1); fb_free(&f); }                                   /* HD: smooth, filtered */
 }
-static int theme(void) { return SET.theme >= 0 && SET.theme < THEME_N ? SET.theme : 0; }
+static int theme(void) { return SET.theme == 1 || SET.theme == 2 ? 1 : 0; }   /* the Original theme uses the HD cards */
 static void card(int pi, float cx, float cy, float d, float alpha) { int k = pi < 0 ? PU_KINDS : battle_pu_kind(pi); if (k < 0) k = PU_LIGHTNING; gfx_sprite *s = icons[theme()][k]; gfx_blit(s, 0, 0, gfx_sprite_w(s), gfx_sprite_h(s), cx - d / 2, cy - d / 2, d, d, RGB(255, 255, 255), alpha); }
 
 /* ---- where things are */
@@ -87,7 +87,7 @@ static void meter(const bside_t *s, double perf) {
 }
 static void tug(double perf) {   /* who is ahead: the two meters against each other */
     int W = A.W; float bw = 140, x = W / 2.0f - bw / 2, y = 26; double a = BTL.me.r->health, b = BTL.cpu.r->health; float k = a + b > 0 ? (float)(a / (a + b)) : 0.5f;
-    gfx_text_title(W / 2 - gfx_text_w("VS", 2) / 2, 6, 2, "VS", C_AMP, C_SHADOW, 2);
+    ui_title(W / 2 - gfx_text_w("VS", 2) / 2, 6, 2, "VS", C_AMP, C_SHADOW, 2);
     gfx_rect(x - 2, y - 2, bw + 4, 14, C_SHADOW); gfx_rect(x, y, bw * k, 10, C_AMP); gfx_rect(x + bw * k, y, bw * (1 - k), 10, C_BAD); gfx_rect(x, y, bw, 2, fb_alpha(RGB(255, 255, 255), 0.3f));
     gfx_rect(x + bw * k - 2, y - 4, 4, 18, C_INK);
     if (A.S.section[0]) gfx_text_sh_center(W / 2, y + 16, 1, A.S.section, C_MUTED, C_SHADOW);
@@ -100,7 +100,7 @@ static void bolts_alerts_flies(double perf) {
     for (int j = 0; j < BTL.nalerts; j++) { double age = perf - BTL.alerts[j].at, life = BTL.alerts[j].small ? 1400 : 1900; if (age < 0 || age >= life) continue;
         float al = age > life - 300 ? (float)((life - age) / 300) : 1; const char *tx = BTL.alerts[j].text; int x = (int)lane_cx(BTL.alerts[j].side);
         if (BTL.alerts[j].small) gfx_text_sh_center(x, (int)(A.H * 0.40f - age / 40), 2, tx, fb_alpha(BTL.alerts[j].col, al), C_SHADOW);
-        else { int sc = age < 160 ? 3 : 2, w = gfx_text_w(tx, sc); if (w > A.W * 0.44f) sc = 2, w = gfx_text_w(tx, 2); gfx_text_title(x - w / 2, (int)(A.H * 0.58f), sc, tx, fb_alpha(BTL.alerts[j].col, al), C_SHADOW, 2); } }
+        else { int sc = age < 160 ? 3 : 2, w = gfx_text_w(tx, sc); if (w > A.W * 0.44f) sc = 2, w = gfx_text_w(tx, 2); ui_title(x - w / 2, (int)(A.H * 0.58f), sc, tx, fb_alpha(BTL.alerts[j].col, al), C_SHADOW, 2); } }
     for (int j = 0; j < BTL.nflies; j++) { float age = (float)((perf - BTL.flies[j].at) / 300); if (age < 0 || age >= 1) continue;   /* a card won flies up to its place */
         int s = BTL.flies[j].side; float fx, fy, sc, tx, ty, d; RL.cx = lane_cx(s); RL.q = LANE_Q; RL.dx = RL.dy = 0; RL.flip = 0; RL.on = 1; render_lane_xy((int)BTL.flies[j].x, 0, &fx, &fy, &sc); RL.on = 0;
         slot_xy(s, 0, &tx, &ty, &d); float e = 1 - (1 - age) * (1 - age); card(BTL.flies[j].card, fx + (tx - fx) * e, fy + (ty - fy) * e, 32 - 2 * e, 1); }
@@ -118,7 +118,7 @@ void render_battle(double perf, int countdown) {
     if (BTL.me.ncards && !r->autoPlay && !BTL.over) { char keys[80]; snprintf(keys, sizeof keys, "%s", A.starKeys[0] ? A.starKeys : "Select"); snprintf(b, sizeof b, "ATACAR: %s", keys); float k = 0.6f + 0.4f * sinf((float)perf / 110);
         int tw = gfx_text_w(b, 1) + 16; ui_panel(W / 2 - tw / 2, H - 28, tw, 20, UI_PANEL_AMBER); gfx_text_sh_center(W / 2, H - 23, 1, b, fb_alpha(C_INK, k), C_SHADOW); }
     if (countdown && r->now < 0) { int n3 = (int)ceil(-r->now / 1000); snprintf(b, sizeof b, "%d", n3); float k = (float)fmod(-r->now, 1000) / 1000; int sc = 8 + (int)(3 * k);
-        gfx_text_title(W / 2 - gfx_text_w(b, sc) / 2, H / 2 - 50, sc, b, C_INK, C_SHADOW, 3); snprintf(b, sizeof b, "Derrote %s!", BTL.boss->name); gfx_text_sh_center(W / 2, H / 2 + 50, 2, b, C_AMP, C_SHADOW); }
+        ui_title(W / 2 - gfx_text_w(b, sc) / 2, H / 2 - 50, sc, b, C_INK, C_SHADOW, 3); snprintf(b, sizeof b, "Derrote %s!", BTL.boss->name); gfx_text_sh_center(W / 2, H / 2 + 50, 2, b, C_AMP, C_SHADOW); }
     if (SET.showFps && A.fps > 0) { snprintf(b, sizeof b, "%d fps", A.fps); gfx_text(W / 2 - 20, H - 44, 1, b, C_MUTED); }
 }
 
@@ -127,8 +127,8 @@ static void draw_intro(double now) {
     int W = A.W, H = A.H; const gh3_song *s = &A.lib->songs[BTL.songIdx]; const gh3_boss *b = gh3_library_boss(A.lib, BTL.songIdx); double T = (now - BTL.phaseAt) / 1000; char t[160], keys[80];
     bake_icons(); render_backdrop(now, SET.stageFx); ui_dim(W, H, 60);
     float k = T < 0.35 ? (float)(T / 0.35) : 1; int y0 = 40 - (int)(30 * (1 - k));
-    gfx_text_title(W / 2 - gfx_text_w("BATALHA", 6) / 2, y0, 6, "BATALHA", C_AMP, C_SHADOW, 4);
-    snprintf(t, sizeof t, "vs %s", b ? b->name : s->artist); int sc = gfx_text_w(t, 4) > W - 40 ? 3 : 4; gfx_text_title(W / 2 - gfx_text_w(t, sc) / 2, y0 + 84, sc, t, C_INK, C_SHADOW, 3);
+    ui_title(W / 2 - gfx_text_w("BATALHA", 6) / 2, y0, 6, "BATALHA", C_AMP, C_SHADOW, 4);
+    snprintf(t, sizeof t, "vs %s", b ? b->name : s->artist); int sc = gfx_text_w(t, 4) > W - 40 ? 3 : 4; ui_title(W / 2 - gfx_text_w(t, sc) / 2, y0 + 84, sc, t, C_INK, C_SHADOW, 3);
     gfx_text_sh_center(W / 2, y0 + 140, 1, s->title, C_MUTED, C_SHADOW);
     input_action_buttons(ACT_STAR, keys, sizeof keys);
     const char *L[3]; char l2[160], l3[120]; snprintf(l2, sizeof l2, "Lance o ataque do topo com o botão de star power (%s).", keys[0] ? keys : "Select"); snprintf(l3, sizeof l3, "Faça %s falhar antes do fim da música!", b ? b->name : "o chefe");
@@ -147,7 +147,7 @@ static void draw_end(double now) {
     const char *tx = BTL.banner; int sc = 5; while (sc > 2 && gfx_text_w(tx, sc) > W - 30) sc--;
     int pop = age < 220 ? (int)((1 - age / 220) * 3) : 0, s2 = sc + pop; int jx = (int)(sinf((float)age / 90) * 3), jy = (int)(cosf((float)age / 70) * 2);
     uint32_t col = BTL.endKind == 0 ? C_BAD : BTL.endKind == 3 ? RGB(255, 215, 90) : C_INK;
-    gfx_text_title(W / 2 - gfx_text_w(tx, s2) / 2 + jx, H / 2 - 40 - pop * 6 + jy, s2, tx, col, C_SHADOW, 4);
+    ui_title(W / 2 - gfx_text_w(tx, s2) / 2 + jx, H / 2 - 40 - pop * 6 + jy, s2, tx, col, C_SHADOW, 4);
     const char *bn = BTL.boss ? BTL.boss->name : "Lou";
     if (BTL.endKind == 1) snprintf(sub, sizeof sub, "%s falhou: a batalha é sua!", bn); else if (BTL.endKind == 2) snprintf(sub, sizeof sub, "Toque o resto da música até o fim!");
     else if (BTL.endKind == 3) snprintf(sub, sizeof sub, "O diabo foi derrotado!"); else snprintf(sub, sizeof sub, "Você não derrotou %s. Tente de novo!", bn);

@@ -50,6 +50,7 @@ void app_guitar_lick(void);            /* one of the game's guitar licks (the ti
 uint8_t *app_stream_load(const char *name, size_t *size);
 int app_play_stream(const char *name, double levelDb);
 uint8_t *app_read_data(const char *dir, const char *name, size_t *len);   /* a file of DATA/<dir> (any case), malloc'd */
+const char *app_data_path(const char *dir, const char *name);             /* its path on disk (NULL when missing), for files read piecemeal (ZONES/global.pab.xen) */
 int app_load_song_named(const char *name, int diff, int autoPlay, int withAudio, char *err, size_t errCap);   /* a song of the list by its name (the tutorials' charts) into A.S; 0 when fine */
 void app_session_free(void);
 void app_quit(void);

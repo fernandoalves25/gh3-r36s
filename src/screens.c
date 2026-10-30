@@ -46,8 +46,8 @@ static int row_lock(int i) { return app_song_lock(A.rows[i].tier, A.rows[i].idx)
 /* ------------------------------------------------------------------ title and main menu */
 static void draw_logo(int cx, int y, int big) {   /* the game's name in the pixel title font: GUITAR HERO over a large III */
     int s1 = big ? 6 : 3, s2 = big ? 9 : 4;
-    gfx_text_title(cx - gfx_text_w("GUITAR HERO", s1) / 2, y, s1, "GUITAR HERO", C_INK, C_SHADOW, big ? 4 : 2);
-    gfx_text_title(cx - gfx_text_w("III", s2) / 2, y + s1 * 13, s2, "III", C_AMP, C_SHADOW, big ? 5 : 3);
+    ui_title(cx - gfx_text_w("GUITAR HERO", s1) / 2, y, s1, "GUITAR HERO", C_INK, C_SHADOW, big ? 4 : 2);
+    ui_title(cx - gfx_text_w("III", s2) / 2, y + s1 * 13, s2, "III", C_AMP, C_SHADOW, big ? 5 : 3);
     gfx_text_sh_center(cx, y + s1 * 13 + s2 * 12 + 4, big ? 2 : 1, "LEGENDS OF ROCK", big ? C_INK : C_MUTED, C_SHADOW);
 }
 static void draw_title(double now) {
@@ -78,7 +78,7 @@ static void note(double now, const char *msg) { snprintf(A.note, sizeof A.note, 
 static void draw_menu_list(const char *const *labels, const int *off, int n, int sel, int x, int y, int step) {
     for (int i = 0; i < n; i++) { int yy = y + i * step, on = i == sel; uint32_t c = off[i] ? RGB(110, 104, 122) : on ? C_INK : RGB(210, 204, 196);
         if (on) { ui_panel(x - 14, yy - 7, gfx_text_w(labels[i], 3) + 52, step - 4, off[i] ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), x - 8, yy - 1, 0.6f, RGB(255, 255, 255), 1); }
-        gfx_text_title(x + 16, yy, 3, labels[i], c, C_SHADOW, on ? 2 : 1); }
+        ui_title(x + 16, yy, 3, labels[i], c, C_SHADOW, on ? 2 : 1); }
 }
 static void draw_main(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; char b[120];
@@ -195,7 +195,7 @@ static const char *OPT_HELP[OPT_N] = {
     "Espelha a pista para quem toca com a mão esquerda: o verde fica à direita.",
     "Normal: palhete com o direcional como no jogo. Toque livre: a nota toca assim que os trastes certos estão apertados.",
     "Troque os botões de cada traste, da palhetada, do star power e da alavanca.",
-    "Pixel art: o visual retrô desenhado pixel a pixel. HD suave: formas lisas com antialiasing.", "Plateia, luzes e feixes atrás da pista. Desligue se o aparelho engasgar.",
+    "Pixel art: o visual retrô desenhado pixel a pixel. HD suave: formas lisas com antialiasing. Original: a arte 2D do próprio jogo (precisa de DATA/ZONES/global.pak.xen e global.pab.xen).", "Plateia, luzes e feixes atrás da pista. Desligue se o aparelho engasgar.",
     "Quanto mais escuro o palco atrás da pista, mais fácil enxergar as notas.", "Quadros por segundo no alto da tela.",
     "Notas mais espaçadas e rápidas na pista. Não muda a dificuldade.", "O medidor de rock nunca encerra a música. A pontuação aparece, mas não vale recorde nem carreira.",
     "Abre todos os sets sem passar pela carreira. Os recordes continuam valendo.",
@@ -294,7 +294,7 @@ static void draw_controls(double now) {
 static void draw_pause(double now) {
     hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 0, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail }; if (BTL.on) render_battle(now, 0); else render_game(&A.S.run, now, &hi);
     int W = A.W, H = A.H; ui_dim(W, H, 170); ui_panel(W / 2 - 140, 120, 280, 230, UI_PANEL_DARK);
-    gfx_text_title(W / 2 - gfx_text_w("PAUSA", 4) / 2, 134, 4, "PAUSA", C_INK, C_SHADOW, 3);
+    ui_title(W / 2 - gfx_text_w("PAUSA", 4) / 2, 134, 4, "PAUSA", C_INK, C_SHADOW, 3);
     const char *it[4] = { "Continuar", "Reiniciar", "Opções", "Sair da música" };
     for (int i = 0; i < 4; i++) { int y = 196 + i * 34; if (i == A.pauseRow) { ui_panel(W / 2 - 120, y - 7, 240, 30, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), W / 2 - 112, y - 3, 0.5f, RGB(255, 255, 255), 1); } gfx_text_sh_center(W / 2 + 6, y, 2, it[i], i == A.pauseRow ? C_INK : C_MUTED, C_SHADOW); }
 }
@@ -302,7 +302,7 @@ static void draw_results(double now) {
     render_backdrop(now, SET.stageFx); gh3_run *r = &A.S.run; char b[120], n[32]; int W = A.W, H = A.H; double T = (now - A.resultsAt) / 1000;
     ui_header(W, r->failed ? "QUE PENA…" : "VOCÊ ARRASOU!", NULL);
     song_title(A.S.song, b, sizeof b); gfx_text_sh_center(W / 2, 70, 2, b, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s • %s • %s", A.S.song->artist, part_name(A.S.song, A.S.part), diff_name_pt(A.S.diff)); gfx_text_center(W / 2, 96, 1, b, C_MUTED);
-    fmt_num((long)r->score, n, sizeof n); gfx_text_title(W / 2 - gfx_text_w(n, 5) / 2, 120, 5, n, r->failed ? C_MUTED : C_AMP, C_SHADOW, 4); gfx_text_center(W / 2, 180, 1, "PONTOS", C_MUTED);
+    fmt_num((long)r->score, n, sizeof n); ui_title(W / 2 - gfx_text_w(n, 5) / 2, 120, 5, n, r->failed ? C_MUTED : C_AMP, C_SHADOW, 4); gfx_text_center(W / 2, 180, 1, "PONTOS", C_MUTED);
     if (BTL.on) battle_result_lines(W / 2, 194);   /* a battle: who won and the attacks */
     else if (!r->failed) render_stars(W / 2, 200, A.resultStars, 3, T);
     else { gfx_sprite_draw(art_get(ART_SKULL), W / 2, 216, 1.5f, RGB(255, 255, 255), 1); gfx_text_center(W / 2, 236, 1, "A plateia vaiou… tente de novo!", C_BAD); }

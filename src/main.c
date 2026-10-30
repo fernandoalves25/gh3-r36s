@@ -158,6 +158,7 @@ const char *app_section_at(double t) {
     if (!m) return ""; return m->text[0] ? m->text : gh3_library_text(&lib, m->key);
 }
 uint8_t *app_read_data(const char *dir, const char *name, size_t *len) { return read_data(dir, name, len); }
+const char *app_data_path(const char *dir, const char *name) { const fentry *e = find_file(dir, name); return e ? e->path : NULL; }
 int app_load_song_named(const char *name, int diff, int autoPlay, int withAudio, char *err, size_t errCap) {
     for (int i = 0; i < lib.nsongs; i++) if (!strcasecmp(lib.songs[i].name, name)) return load_song(&lib.songs[i], 0, diff, autoPlay, withAudio, err, errCap);
     snprintf(err, errCap, "%s não está na lista de músicas", name); return -1;
@@ -530,7 +531,7 @@ int main(int argc, char **argv) {
             if (A.resumeAt == 0) { songT = song_time(); game_step(r, songT, now); battle_tick(now); snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(songT)); }
             audio_set_bend(A.resumeAt == 0 && r->sus && !r->autoPlay && !r->failed ? r->whammy : 0);
             hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail, A.starKeys }; if (BTL.on) render_battle(now, 1); else render_game(r, now, &hi);
-            if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); gfx_text_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, "Continuando…", C_AMP, C_SHADOW); }
+            if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); ui_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, "Continuando…", C_AMP, C_SHADOW); }
             else if (r->failed || r->finished) app_finish_song(now);
         } else if (A.screen == SC_MOVIE) { if (!movie_tick(now)) movie_finish(now, 0); if (A.screen == SC_MOVIE) movie_draw(A.W, A.H); else screens_draw(now);
         } else {
