@@ -7,6 +7,7 @@
 #include "r3d.h"
 #include "r3d_gl.h"
 #include "r3d_zone.h"
+#include "r3d_band.h"
 #include "app.h"
 #include "settings.h"
 #include <stdio.h>
@@ -42,7 +43,7 @@ typedef struct {
     vtx *v; uint16_t *i; int capV, capI; double ambSum[3]; float bmin[3], bmax[3];   /* build-time only */
 } batch;
 typedef struct { float pos[3], q[4], fov; } camend;
-typedef struct { uint32_t list, type, name; camend a, b; int hasB; float orbit; } shot;
+typedef struct { uint32_t list, type, name; camend a, b; int hasB; float orbit; int who; } shot;   /* who: the band member the shot follows (BAND_*), -1 fixed in the room */
 typedef struct {
     int ready, loaded; SDL_Renderer *ren; char zone[32]; int W, H;
     GLuint prog, white; GLint aPos, aCtr, aCol, aLit, aUv, aUv2, uProj, uView, uBoard, uAnim, uWibU, uWibV, uWibR, uWib, uTime, uMap, uSmap, uColour, uAmb, uTint, uAlphaRef, uColA, uTile;
@@ -139,6 +140,7 @@ int r3d_init(SDL_Renderer *ren) {
     R.flush = (int (*)(SDL_Renderer *))dlsym(RTLD_DEFAULT, "SDL_RenderFlush"); if (!R.flush) { SDL_Log("r3d: this SDL has no SDL_RenderFlush: 2D stage"); return -1; }   /* 2.0.10+; the sysroot headers (2.0.8) do not declare it */
     if (r3d_gl_load()) return -1;
     if (build_program()) return -1;
+    if (r3d_band_init()) SDL_Log("r3d: no band (skinning shader)");   /* the venue still shows without it */
     const char *ext = (const char *)GL(glGetString)(GL_EXTENSIONS); if (!ext) ext = "";
     R.s3tc = strstr(ext, "GL_EXT_texture_compression_s3tc") != NULL || (strstr(ext, "GL_EXT_texture_compression_dxt1") && strstr(ext, "GL_ANGLE_texture_compression_dxt"));
     if (getenv("R3D_NODXT")) R.s3tc = 0;   /* R3D_NODXT=1: the textures decoded on the CPU as on the Mali-G31, to check that path on a desktop GPU */
@@ -230,6 +232,7 @@ static int load_zone(const char *zone) {
     r3d_scene sc; if (!se || !te || r3d_scene_read(se->data, se->len, &sc)) { SDL_Log("r3d: %s holds no stage", name); free(ents); free(pak); return -1; }
     r3d_texent *tents; int nt = r3d_texbank_read(te->data, te->len, &tents);
     r3d_venueqb vq; r3d_venueqb_read(ents, ne, &vq);
+    r3d_band_zone(zone, ents, ne, vq.lights, vq.nlights);   /* where the band stands, its lights */
     lightset L = { NULL, 0 }; int roomLit = 0;   /* the lights that fall on the room: not the ones kept for the band or the crowd */
     for (int i = 0; i < vq.nlights && L.n < 32; i++) if (!vq.lights[i].band) { L.l = realloc(L.l, (L.n + 1) * sizeof *L.l); L.l[L.n++] = vq.lights[i]; if (vq.lights[i].kind != L_AMBIENT) roomLit = 1; }
     if (!roomLit) default_lights(&L);   /* a venue with no lights of its own: the game's default daylight */
@@ -289,10 +292,11 @@ static int load_zone(const char *zone) {
     GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0);
     /* the opaque batches first (by texture), the see-through ones after: those are sorted back to front when drawn */
     for (int i = 1; i < R.nb; i++) for (int j = i; j > 0 && (R.b[j].blend != 0) * 1000000 + (int)R.b[j].tex < (R.b[j - 1].blend != 0) * 1000000 + (int)R.b[j - 1].tex; j--) { batch t = R.b[j]; R.b[j] = R.b[j - 1]; R.b[j - 1] = t; }
-    /* the camera shots fixed in the room (no band here: the ones that follow a member and the close-ups are left out); the general lists, shuffled, for when no song is cueing */
+    /* the camera shots: fixed in the room, or following a band member (lockto: placed against where that one stands; shot_ok() leaves them and the close-ups out while there is no band); the general lists, shuffled, for when no song is cueing */
     uint32_t gk[16]; int ng = 0; for (int i = 0; i < (int)(sizeof GENERAL / sizeof *GENERAL); i++) { char s[64]; snprintf(s, sizeof s, "%s_%s", zone, GENERAL[i]); gk[ng++] = gh3_qbkey(s); } R.kCameras = gk[0];
-    for (int i = 0; i < vq.nshots; i++) { const r3d_shot *s = &vq.shots[i]; if (s->a.lock || s->a.fov < 45) continue;
-        R.shots = realloc(R.shots, (R.nshots + 1) * sizeof *R.shots); shot *o = &R.shots[R.nshots++]; o->list = s->list; o->type = s->type; o->name = s->name; cam_of(&s->a, &o->a); o->hasB = s->hasB; if (s->hasB) cam_of(&s->b, &o->b); o->orbit = s->orbit * (float)M_PI / 180; }
+    static const char *ROLES[BAND_ROLES] = { "guitarist", "bassist", "drummer", "vocalist" };
+    for (int i = 0; i < vq.nshots; i++) { const r3d_shot *s = &vq.shots[i]; int who = -1; if (s->a.lock) { for (int r = 0; r < BAND_ROLES; r++) if (s->a.lock == gh3_qbkey(ROLES[r])) who = r; if (who < 0) continue; }
+        R.shots = realloc(R.shots, (R.nshots + 1) * sizeof *R.shots); shot *o = &R.shots[R.nshots++]; o->list = s->list; o->type = s->type; o->name = s->name; cam_of(&s->a, &o->a); o->hasB = s->hasB; if (s->hasB) cam_of(&s->b, &o->b); o->orbit = s->orbit * (float)M_PI / 180; o->who = who; }
     R.order = malloc((R.nshots ? R.nshots : 1) * sizeof *R.order); R.ngen = 0;
     for (int k = 0; k < ng; k++) for (int i = 0; i < R.nshots; i++) if (R.shots[i].list == gk[k]) R.order[R.ngen++] = i;
     if (!R.ngen) for (int i = 0; i < R.nshots; i++) R.order[R.ngen++] = i;
@@ -306,8 +310,8 @@ static int load_zone(const char *zone) {
 const char *r3d_zone(void) { return R.zone; }
 void r3d_select(const char *zone) {
     if (!R.ready) return; if (!zone || strncmp(zone, "z_", 2)) zone = "z_dive";
-    if (R.loaded && !strcmp(R.zone, zone)) return;
-    load_zone(zone);
+    if (!R.loaded || strcmp(R.zone, zone)) load_zone(zone);
+    r3d_band_select();   /* who plays this song (a boss battle has the boss on stage) */
 }
 
 /* ------------------------------------------------------------------ drawing */
@@ -342,10 +346,11 @@ static const cuemap CUEMAP[] = { { 79, "cameras", 0, 0 }, { 80, "cameras_intro",
     { 115, "cameras_boss_closeup", 0, 0 }, { 116, "cameras_player_closeup", 0, 0 }, { 117, "cameras_stagedive", 0, 0 } };
 static const cuemap *cue_of(int note) { for (int i = 0; i < (int)(sizeof CUEMAP / sizeof *CUEMAP); i++) if (CUEMAP[i].note == note) return &CUEMAP[i]; return NULL; }
 /* the shot a cue cuts to: one of its list (narrowed by Type / NAME when the cue says so), picked by hashing the cue's index as the browser port does; not the one already showing */
+static int shot_ok(const shot *s) { return s->who >= 0 ? r3d_band_where(s->who, NULL, NULL) : s->a.fov >= 45 || r3d_band_where(-1, NULL, NULL); }   /* one that follows a member who is not on stage, or a close-up with no band: not shown */
 static int cut_to(const cuemap *m, int i, int prev) {
     if (!m || !R.nshots) return prev; char nm[64]; snprintf(nm, sizeof nm, "%s_%s", R.zone, m->prefix); uint32_t lk = gh3_qbkey(nm), tk = m->type ? gh3_qbkey(m->type) : 0;
     static int cand[512]; int n = 0;
-    for (int pass = 0; pass < 4 && !n; pass++) for (int k = 0; k < R.nshots && n < 512; k++) { const shot *s = &R.shots[k];
+    for (int pass = 0; pass < 4 && !n; pass++) for (int k = 0; k < R.nshots && n < 512; k++) { const shot *s = &R.shots[k]; if (!shot_ok(s)) continue;
         if (pass == 0 && (s->list != lk || (tk && s->type != tk) || (m->name && s->name != m->name))) continue;
         if (pass == 1 && s->list != lk) continue; if (pass == 2 && s->list != R.kCameras) continue; if (pass == 3) { for (int g = 0; g < R.ngen; g++) if (R.order[g] == k) { cand[n++] = k; break; } continue; }
         cand[n++] = k; }
@@ -355,23 +360,28 @@ static void place(const shot *s, double u, double t, float *view, float *fov) {
     float pos[3], q[4], yaw = 0; double e = u * u * (3 - 2 * u);
     if (s->hasB) { for (int i = 0; i < 3; i++) pos[i] = s->a.pos[i] + (s->b.pos[i] - s->a.pos[i]) * (float)e; quat_nlerp(s->a.q, s->b.q, (float)e, q); *fov = s->a.fov + (s->b.fov - s->a.fov) * (float)e; }
     else { memcpy(pos, s->a.pos, 12); memcpy(q, s->a.q, 16); *fov = s->a.fov; yaw = sinf((float)t * 0.23f) * 0.012f; }
-    if (s->orbit) { float a = s->orbit * (float)u, c = cosf(a / 2), sn = sinf(a / 2), qo[4] = { 0, sn, 0, c }, p2[3], q2[4]; quat_rot(qo, pos, p2); quat_mul(qo, q, q2); memcpy(pos, p2, 12); memcpy(q, q2, 16); }   /* circling shots turn about the room's middle */
+    if (s->orbit) { float a = s->orbit * (float)u, c = cosf(a / 2), sn = sinf(a / 2), qo[4] = { 0, sn, 0, c }, p2[3], q2[4]; quat_rot(qo, pos, p2); quat_mul(qo, q, q2); memcpy(pos, p2, 12); memcpy(q, q2, 16); }   /* circling shots turn about the room's middle (or the one they follow) */
+    float at[3], ay; if (s->who >= 0 && r3d_band_where(s->who, at, &ay)) { float qy[4] = { 0, sinf(ay / 2), 0, cosf(ay / 2) }, p2[3], q2[4]; quat_rot(qy, pos, p2); quat_mul(qy, q, q2); for (int i = 0; i < 3; i++) pos[i] = p2[i] + at[i]; memcpy(q, q2, 16); }   /* placed against the band member it follows */
     mat_view(view, pos, q, yaw);
 }
 /* the camera at this moment: over a song, the song's own cue list cuts between the venue's shots; otherwise the general shots one after another
  * (a->b moves eased, single ones swaying); with no shots at all, a slow circle round the room */
+static struct { int on; float view[16], fov; } camOver;   /* --r3dtest --band: a camera on one member */
 static void camera(double t, float *view, float *proj) {
     float fov = 72; if (t < 0) t = 0; int placed = 0;
+    if (camOver.on) { memcpy(view, camOver.view, 64); fov = camOver.fov; placed = 1; }
     const gh3_songdata *sd = A.screen == SC_PLAY && A.S.loaded && A.S.sd.ncams ? &A.S.sd : NULL;
     static const gh3_songdata *song; static int pCam = -1, cur = -1; static double t0, t1, lastMs;
-    if (sd && R.nshots) { double ms = A.S.run.now; int n = sd->ncams;
+    if (placed) {}
+    else if (sd && R.nshots) { double ms = A.S.run.now; int n = sd->ncams;
         if (sd != song || ms + 1500 < lastMs) { song = sd; pCam = -1; cur = -1; }   /* a new song, or the clock wound back (practice, a restart) */
         lastMs = ms; int k = pCam < 0 ? 0 : pCam; while (k + 1 < n && sd->cams[k + 1][0] <= ms) k++;
         if (k != pCam) { pCam = k; int nx = cut_to(cue_of(sd->cams[k][1]), k, cur);
             if (nx != cur || cur < 0) { cur = nx >= 0 ? nx : R.order[0]; t0 = sd->cams[k][0]; int j = k + 1; while (j < n && !cue_of(sd->cams[j][1])) j++; t1 = j < n ? sd->cams[j][0] : t0 + (sd->cams[k][2] > 4000 ? sd->cams[k][2] : 4000); } }   /* a cue that lands on the shot already showing lets it carry on */
         if (cur >= 0) { double u = (ms - t0) / (t1 - t0 > 1 ? t1 - t0 : 1); place(&R.shots[cur], u < 0 ? 0 : u > 1 ? 1 : u, t, view, &fov); placed = 1; } }
     else song = NULL;
-    if (!placed && R.nshots) { double n = floor(t / (SHOT_MS / 1000)), u = t / (SHOT_MS / 1000) - n; place(&R.shots[R.order[(int)((long)n % R.ngen)]], u, t, view, &fov); placed = 1; }
+    if (!placed && R.nshots) { double n = floor(t / (SHOT_MS / 1000)), u = t / (SHOT_MS / 1000) - n; int g = (int)((long)n % R.ngen); for (int k = 0; k < R.ngen && !shot_ok(&R.shots[R.order[g]]); k++) g = (g + 1) % R.ngen;
+        place(&R.shots[R.order[g]], u, t, view, &fov); placed = 1; }
     if (!placed) { float pos[3], q[4], a = (float)t * 0.05f; pos[0] = R.ctr[0] + sinf(a) * R.span * 0.2f; pos[1] = R.ctr[1]; pos[2] = R.ctr[2] + cosf(a) * R.span * 0.2f;
         float d[3] = { R.ctr[0] - pos[0], 0, R.ctr[2] - pos[2] }, L = sqrtf(d[0] * d[0] + d[2] * d[2]); if (L < 1e-4f) { d[2] = 1; L = 1; } float yaw = atan2f(d[0] / L, d[2] / L); q[0] = 0; q[1] = sinf(yaw / 2); q[2] = 0; q[3] = cosf(yaw / 2);   /* the camera's +Z toward the middle */
         mat_view(view, pos, q, 0); }
@@ -401,6 +411,8 @@ static int draw(double perf, int sp, float energy) {
     GL(glEnableVertexAttribArray)(R.aPos); GL(glEnableVertexAttribArray)(R.aCtr); GL(glEnableVertexAttribArray)(R.aCol); GL(glEnableVertexAttribArray)(R.aLit); GL(glEnableVertexAttribArray)(R.aUv); GL(glEnableVertexAttribArray)(R.aUv2);
     float cam[3] = { -(view[0] * view[12] + view[1] * view[13] + view[2] * view[14]), -(view[4] * view[12] + view[5] * view[13] + view[6] * view[14]), -(view[8] * view[12] + view[9] * view[13] + view[10] * view[14]) };
     int first = R.nb; for (int i = 0; i < R.nb; i++) { if (R.b[i].blend) { if (first == R.nb) first = i; continue; } if (R.b[i].board || sphere_visible(vp, R.b[i].centre, R.b[i].radius)) draw_batch(&R.b[i]); }
+    if (r3d_band_draw(view, proj, perf, sp, energy)) { GL(glUseProgram)(R.prog);   /* the band, after the solid parts and before the see-through ones; then the venue's program and arrays again */
+        GL(glEnableVertexAttribArray)(R.aPos); GL(glEnableVertexAttribArray)(R.aCtr); GL(glEnableVertexAttribArray)(R.aCol); GL(glEnableVertexAttribArray)(R.aLit); GL(glEnableVertexAttribArray)(R.aUv); GL(glEnableVertexAttribArray)(R.aUv2); }
     if (first < R.nb) {   /* the see-through parts, farthest first */
         static float *dist; static int *idx, cap; int n = R.nb - first; if (n > cap) { cap = n; dist = realloc(dist, cap * sizeof *dist); idx = realloc(idx, cap * sizeof *idx); }
         for (int i = 0; i < n; i++) { const batch *b = &R.b[first + i]; float dx = b->centre[0] - cam[0], dy = b->centre[1] - cam[1], dz = b->centre[2] - cam[2]; dist[i] = dx * dx + dy * dy + dz * dz; idx[i] = first + i; }
@@ -414,9 +426,42 @@ int r3d_draw_stage(double perf, int sp, float energy) {
     if (!R.ready || !R.loaded || !SET.stage3d) return 0;
     return draw(perf, sp, energy);
 }
-void r3d_shutdown(void) { if (!R.ready) return; unload(); GL(glDeleteProgram)(R.prog); GL(glDeleteTextures)(1, &R.white); R.ready = 0; }
+void r3d_shutdown(void) { if (!R.ready) return; r3d_band_shutdown(); unload(); GL(glDeleteProgram)(R.prog); GL(glDeleteTextures)(1, &R.white); R.ready = 0; }
 
 /* ------------------------------------------------------------------ --r3dtest */
+int r3d_test_band; char r3d_test_song[64];
+static void band_test_select(void) {   /* --band [--song NAME]: the band that song would have (a boss song: the boss), its cues on a clock of its own */
+    if (A.lib) for (int i = 0; i < A.lib->nsongs; i++) if (!strcmp(A.lib->songs[i].name, r3d_test_song)) A.selSong = i;
+    if (!r3d_test_song[0]) A.selSong = -1; r3d_band_test_clock(0, r3d_test_song); Uint32 t0 = SDL_GetTicks(); r3d_band_select();
+    const r3d_bandstats *b = r3d_band_stats(); printf("band: %s / %s / %s / %s: %d points, %.1f MB on the GPU, %d animations (%.1f MB), %d bones a draw, loaded in %u ms\n",
+        b->who[0], b->who[1], b->who[2], b->who[3], b->verts, b->vram / 1048576.0, b->clips, b->animBytes / 1048576.0, b->pal, SDL_GetTicks() - t0);
+}
+static void look_at(float *m, const float e[3], const float at[3]) {
+    float f[3] = { at[0] - e[0], at[1] - e[1], at[2] - e[2] }, l = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]); for (int i = 0; i < 3; i++) f[i] /= l;
+    float s[3] = { -f[2], 0, f[0] }; l = sqrtf(s[0] * s[0] + s[2] * s[2]); s[0] /= l; s[2] /= l; float u[3] = { s[1] * f[2] - s[2] * f[1], s[2] * f[0] - s[0] * f[2], s[0] * f[1] - s[1] * f[0] };
+    m[0] = s[0]; m[4] = s[1]; m[8] = s[2]; m[12] = -(s[0] * e[0] + s[1] * e[1] + s[2] * e[2]); m[1] = u[0]; m[5] = u[1]; m[9] = u[2]; m[13] = -(u[0] * e[0] + u[1] * e[1] + u[2] * e[2]);
+    m[2] = -f[0]; m[6] = -f[1]; m[10] = -f[2]; m[14] = f[0] * e[0] + f[1] * e[1] + f[2] * e[2]; m[3] = m[7] = m[11] = 0; m[15] = 1;
+}
+static void band_test_frames(SDL_Renderer *ren, const char *zone, const char *outdir, int W, int H, uint8_t *px) {
+    /* the song's clock from 0, a frame every 1/60 s; at two moments, a picture of each member from the front and one of the whole band */
+    static const double AT[3] = { 6000, 21000, 47000 }; static const char *RN[BAND_ROLES] = { "guitarist", "bassist", "drummer", "vocalist" }; double ms = 0, poseMs = 0, drawMs = 0; int nf = 0, maxDraws = 0, maxTris = 0;
+    for (int k = 0; k < 3; k++) {
+        for (; ms < AT[k]; ms += 1000.0 / 60) { r3d_band_test_clock(ms, r3d_test_song); camOver.on = 0; SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); GL(glFinish)(); const r3d_bandstats *b = r3d_band_stats(); poseMs += b->poseMs; drawMs += b->drawMs; nf++; if (b->draws > maxDraws) { maxDraws = b->draws; maxTris = b->tris; } }
+        float c[3] = { 0, 0, 0 }, fwd[3] = { 0, 0, 0 }; int n = 0;
+        for (int r = 0; r <= BAND_ROLES; r++) { float p[3], yaw; char path[700];
+            if (r < BAND_ROLES) { if (!r3d_band_where(r, p, &yaw)) continue; c[0] += p[0]; c[1] += p[1]; c[2] += p[2]; fwd[0] += sinf(yaw); fwd[2] += cosf(yaw); n++;
+                float d = r == BAND_DRUMMER ? 3.6f : 2.6f, e[3] = { p[0] + sinf(yaw) * d, p[1] + 1.35f, p[2] + cosf(yaw) * d }, at[3] = { p[0], p[1] + 1.0f, p[2] }; look_at(camOver.view, e, at); camOver.fov = 50;
+                snprintf(path, sizeof path, "%s/%s_band_%s_%d.bmp", outdir && *outdir ? outdir : ".", zone, RN[r], k); }
+            else { if (!n) break; for (int i = 0; i < 3; i++) c[i] /= n; float L = sqrtf(fwd[0] * fwd[0] + fwd[2] * fwd[2]); if (L < 1e-3f) { fwd[2] = 1; L = 1; } float e[3] = { c[0] + fwd[0] / L * 7.5f, c[1] + 2.4f, c[2] + fwd[2] / L * 7.5f }, at[3] = { c[0], c[1] + 1.0f, c[2] };
+                look_at(camOver.view, e, at); camOver.fov = 72; snprintf(path, sizeof path, "%s/%s_band_all_%d.bmp", outdir && *outdir ? outdir : ".", zone, k); }
+            camOver.on = 1; SDL_SetRenderDrawColor(ren, 18, 16, 24, 255); SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); GL(glFinish)();
+            GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1); GL(glReadPixels)(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px);
+            for (int y = 0; y < H / 2; y++) for (int x = 0; x < W * 4; x++) { uint8_t t = px[(size_t)y * W * 4 + x]; px[(size_t)y * W * 4 + x] = px[(size_t)(H - 1 - y) * W * 4 + x]; px[(size_t)(H - 1 - y) * W * 4 + x] = t; }
+            SDL_Surface *sf = SDL_CreateRGBSurfaceFrom(px, W, H, 32, W * 4, 0x000000FF, 0x0000FF00, 0x00FF0000, 0); SDL_SaveBMP(sf, path); SDL_FreeSurface(sf);
+            const r3d_bandstats *b = r3d_band_stats(); printf("  band %s at %.1f s: %d draws, %d triangles -> %s\n", r < BAND_ROLES ? RN[r] : "all", ms / 1000, b->draws, b->tris, path); } }
+    camOver.on = 0;
+    printf("band over %d frames: %.3f ms/frame animating + skinning matrices, %.3f ms/frame submitting (host CPU); up to %d draws, %d triangles a frame\n", nf, poseMs / nf, drawMs / nf, maxDraws, maxTris);
+}
 int r3d_test(const char *zone, const char *outdir, int W, int H) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);   /* as main() asks for the game's window */
@@ -425,6 +470,7 @@ int r3d_test(const char *zone, const char *outdir, int W, int H) {
     SDL_RendererInfo ri; SDL_GetRendererInfo(ren, &ri); printf("renderer: %s\n", ri.name);
     if (r3d_init(ren)) { puts("r3d: no GL (see the log above)"); return 1; }
     if (load_zone(zone)) { printf("could not load %s\n", zone); return 1; }
+    if (r3d_test_band) band_test_select();
     printf("%s: %d meshes in %d batches, %d skipped, %d triangles, %d textures, %.1f MB on the GPU (%s), %d camera shots, loaded in %.0f ms\n", zone, R.meshes, R.nb, R.skipped, R.tris, R.textures, R.vram / 1048576.0, R.s3tc ? "DXT" : "decoded", R.nshots, R.loadMs);
     /* one picture per shot (the first few), read back from the window */
     uint8_t *px = malloc((size_t)W * H * 4); int nsave = R.nshots < 4 ? (R.nshots ? R.nshots : 1) : 4;
@@ -434,6 +480,7 @@ int r3d_test(const char *zone, const char *outdir, int W, int H) {
         for (int y = 0; y < H / 2; y++) for (int x = 0; x < W * 4; x++) { uint8_t t = px[(size_t)y * W * 4 + x]; px[(size_t)y * W * 4 + x] = px[(size_t)(H - 1 - y) * W * 4 + x]; px[(size_t)(H - 1 - y) * W * 4 + x] = t; }
         SDL_Surface *sf = SDL_CreateRGBSurfaceFrom(px, W, H, 32, W * 4, 0x000000FF, 0x0000FF00, 0x00FF0000, 0); char p[700]; snprintf(p, sizeof p, "%s/%s_%d.bmp", outdir && *outdir ? outdir : ".", zone, s); SDL_SaveBMP(sf, p); SDL_FreeSurface(sf);
         printf("  shot %d: %d draw calls, %d triangles -> %s\n", s, R.drawCalls, R.drawnTris, p); SDL_RenderPresent(ren); }
+    if (r3d_test_band) band_test_frames(ren, zone, outdir, W, H, px);
     /* timing: frames across all the shots, the GPU made to finish each */
     int N = 120; Uint64 f0 = SDL_GetPerformanceCounter(); long calls = 0;
     for (int f = 0; f < N; f++) { SDL_RenderClear(ren); draw(f * 1000.0 / 60 * 7, 0, 0.5f); R.flush(ren); GL(glFinish)(); calls += R.drawCalls; }
