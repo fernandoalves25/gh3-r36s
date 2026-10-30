@@ -17,6 +17,8 @@
 #include "orig_loading.h"
 #include "original.h"
 #include "orig_results.h"
+#include "original.h"
+#include "orig_options.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -244,6 +246,7 @@ static void opt_change(int i, int d) {
     case OPT_FPS: SET.showFps = !SET.showFps; break; case OPT_UNLOCK: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break; case OPT_INTRO: SET.introMovies = !SET.introMovies; break; case OPT_STAGE3D: SET.stage3d = !SET.stage3d; break; }
 }
 static void draw_options(double now) {
+    if (SET.theme == 2 && orig_ready() && orig_options_draw(now, CAT_LABEL, CAT_HELP, CAT_ITEMS, CAT_N, OPT_LABEL, OPT_HELP, opt_value, cat_off)) return;
     if (A.optionsFrom == SC_PAUSE) { hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 0, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail, NULL }; render_game(&A.S.run, now, &hi); ui_dim(A.W, A.H, 200); } else render_backdrop(now, SET.stageFx);
     int W = A.W, H = A.H; char v[40];
     if (A.optCat < 0) {   /* the categories, as the game's Options menu lists them */
@@ -279,6 +282,7 @@ static void draw_toprock(double now) {
 /* ------------------------------------------------------------------ controls */
 #define CTL_ROWS (ACT_N + 2)   /* profile, actions, reset */
 static void draw_controls(double now) {
+    if (SET.theme == 2 && orig_ready() && orig_controls_draw(now)) return;
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; char b[80];
     ui_header(W, "CONTROLES", "A: trocar   X: apagar   ← →: coluna");
     gfx_text(200, 62, 1, "1º", C_LINE); gfx_text(345, 62, 1, "2º", C_LINE); gfx_text(490, 62, 1, "3º", C_LINE);
@@ -337,6 +341,7 @@ static void draw_results(double now) {
     static const char *bt[2] = { "A", "← →" }, *tx[2] = { "Confirmar", "Escolher" }; ui_hints(H - 22, W, bt, tx, 2);
 }
 static void draw_calib(double now) {
+    if (SET.theme == 2 && orig_ready() && orig_calib_draw(now)) return;
     int W = A.W, H = A.H; char b[120]; double raw = audio_song_ms(); int med = A.calN >= 4 ? app_calib_result() : SET.offsetMs;
     render_calib(raw - med, 500, now, A.calN, A.calLastDiff, A.calLastTapAt);
     ui_header(W, "CALIBRAR ATRASO", NULL);
