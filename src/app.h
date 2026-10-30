@@ -72,6 +72,7 @@ void app_play_movie(const char *name, int returnScreen);   /* full screen; A/B/S
 int app_movie_exists(const char *name);
 /* screens.c */
 void screens_enter(int screen, double now);   /* goes to a screen as the menus do (the set list: its preview, the unlock message, a pending cutscene) */
+void screens_mode_go(double now);             /* Career / Quickplay chosen and the rocker picked (charsel.c): the career's first movie, then the set list */
 void screens_build_rows(void);              /* the rows of the set list's tab A.slTab (every set when -1) */
 int screens_set_tab(int tab);               /* turns the set list to that tab (its first song chosen); 0 when the tab has no songs */
 int screens_tab_of(int tier);               /* the tab a set is on: 0 Setlist, 1 Bonus, 2 Downloads */

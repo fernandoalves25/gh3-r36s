@@ -25,6 +25,7 @@
 #include "practice.h"
 #include "stretch.h"
 #include "store.h"
+#include "charsel.h"
 #include "movie.h"
 #include "battle.h"
 #include "cheats.h"
@@ -312,7 +313,7 @@ void app_guitar_lick(void) { if (!nLicks || !SET.menuMusic) return; lickWanted =
 static int menu_music_wanted(void) {
     if (!SET.menuMusic || !bankFound || !nMenu || !audio_has_device()) return 0;
     if (A.screen == SC_SETLIST && prevWant >= 0) return 0;
-    switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: case SC_STORE: return 1;
+    switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: case SC_STORE: case SC_CHARSEL: return 1;
         case SC_OPTIONS: case SC_CONTROLS: case SC_CHEATS: return A.optionsFrom != SC_PAUSE; case SC_TUTORIAL: return !tutorial_busy(); default: return 0; }
 }
 static void preview_tick(void) {
@@ -521,7 +522,8 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
       { int c1 = A.cursor; screens_event(IN_R, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads_quick"); A.mode = MODE_CAREER;
         screens_event(IN_L, 0); A.cursor = c1; } A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
       store_open(0); store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store"); store_event(IN_OK, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_buy"); store_event(IN_BACK, 0);
-      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); screens_set_tab(0); A.cursor = c0; A.scroll = 0; }
+      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); screens_set_tab(0); A.cursor = c0; A.scroll = 0;
+      charsel_screens(save_named); }   /* the character hub, its lists, the store's rockers / guitars / finishes */
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     loading_start(-500); A.screen = SC_LOADING; gfx_begin(); screens_draw(0); gfx_end(); save_named("loading");   /* the loading screen, its spinner half a second in */
@@ -553,6 +555,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.S.run.autoPlay = 0; app_finish_song(perf);
     for (double rt = 0; rt <= 1.06; rt += 1.0 / 60) { A.resultsAt = perf - rt * 1000; gfx_begin(); screens_draw(perf); gfx_end(); } save_named("results_reveal");   /* the third star landing, its sparks flying */
     A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
+    { char was[24]; snprintf(was, sizeof was, "%s", SET.rocker); snprintf(SET.rocker, sizeof SET.rocker, "Midori"); gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rocker"); snprintf(SET.rocker, sizeof SET.rocker, "%s", was); }   /* another rocker on the cover */
     A.resultsAt = perf - 500; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rock");
     A.resultsAt = perf - 1550; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_burst"); A.resultsAt = perf - 3000;   /* and bursting apart */   /* the letters shaking over the landing page */
     { gh3_run *r = &A.S.run; int mode = A.mode, row = A.resRow, rec = A.newRecord;   /* in memory only: some notes missed, then practice, a new record, a failed run */
