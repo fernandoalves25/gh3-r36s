@@ -12,4 +12,5 @@ int font_count(void);                                /* glyphs in the atlas */
 int font_next(const char **s);                       /* decodes one UTF-8 char from *s (advancing it) to a glyph index */
 const uint16_t *font_glyph(int idx);                 /* 5 columns, bit r = row r (0 = top) */
 int font_strlen(const char *s);                      /* glyphs in a UTF-8 string */
+int font_index(uint32_t cp);                         /* a code point's glyph, -1 when the font lacks it (it would draw '?') */
 #endif

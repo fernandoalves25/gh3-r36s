@@ -122,4 +122,5 @@ int font_next(const char **s) {
     else { cp = '?'; n = 1; }
     *s += n; return index_of(cp);
 }
+int font_index(uint32_t cp) { int i = index_of(cp); return i != '?' - 32 || cp == '?' ? i : -1; }
 int font_strlen(const char *s) { int n = 0; while (*s) { font_next(&s); n++; } return n; }

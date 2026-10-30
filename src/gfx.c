@@ -83,14 +83,22 @@ void gfx_sprite_draw(gfx_sprite *s, float cx, float cy, float scale, uint32_t ti
 void gfx_sprite_at(gfx_sprite *s, float x, float y, float scale, uint32_t tint, float alpha) { gfx_blit(s, 0, 0, s->w, s->h, x, y, s->w * scale, s->h * scale, tint, alpha); }
 
 /* ---- text ---- */
-int gfx_text_w(const char *s, int scale) { int n = font_strlen(s); return n ? (n * FONT_ADV - 1) * scale : 0; }
-void gfx_text(int x, int y, int scale, const char *s, uint32_t c) {
+static const gfx_face *face;
+void gfx_text_face(const gfx_face *f) { face = f; }
+#define FACE (face && face->on())
+int gfx_pix_w(const char *s, int scale) { int n = font_strlen(s); return n ? (n * FONT_ADV - 1) * scale : 0; }
+void gfx_pix_text(int x, int y, int scale, const char *s, uint32_t c) {
     float a = (c >> 24) / 255.0f; uint32_t tint = c & 0xFFFFFF;
     while (*s) { int g = font_next(&s); if (g) gfx_blit(font, g * FONT_ADV, 0, FONT_W, FONT_H, (float)x, (float)y, (float)(FONT_W * scale), (float)(FONT_H * scale), tint, a); x += FONT_ADV * scale; }
 }
+int gfx_pix_glyph(float x, float y, float w, float h, uint32_t cp, uint32_t c) {
+    int g = font_index(cp); if (g < 0) return -1; if (g) gfx_blit(font, g * FONT_ADV, 0, FONT_W, FONT_H, x, y, w, h, c & 0xFFFFFF, (c >> 24) / 255.0f); return 0;
+}
+int gfx_text_w(const char *s, int scale) { return FACE ? face->w(s, scale) : gfx_pix_w(s, scale); }
+void gfx_text(int x, int y, int scale, const char *s, uint32_t c) { if (FACE) face->draw(x, y, scale, s, c); else gfx_pix_text(x, y, scale, s, c); }
 void gfx_text_center(int cx, int y, int scale, const char *s, uint32_t c) { gfx_text(cx - gfx_text_w(s, scale) / 2, y, scale, s, c); }
 void gfx_text_right(int rx, int y, int scale, const char *s, uint32_t c) { gfx_text(rx - gfx_text_w(s, scale), y, scale, s, c); }
-void gfx_text_sh(int x, int y, int scale, const char *s, uint32_t c, uint32_t shadow) { int d = scale > 1 ? scale / 2 + 1 : 1; gfx_text(x + d, y + d, scale, s, shadow); gfx_text(x, y, scale, s, c); }
+void gfx_text_sh(int x, int y, int scale, const char *s, uint32_t c, uint32_t shadow) { int d = FACE ? (scale > 2 ? 2 : 1) : scale > 1 ? scale / 2 + 1 : 1; gfx_text(x + d, y + d, scale, s, shadow); gfx_text(x, y, scale, s, c); }
 void gfx_text_sh_center(int cx, int y, int scale, const char *s, uint32_t c, uint32_t shadow) { gfx_text_sh(cx - gfx_text_w(s, scale) / 2, y, scale, s, c, shadow); }
 void gfx_text_sh_right(int rx, int y, int scale, const char *s, uint32_t c, uint32_t shadow) { gfx_text_sh(rx - gfx_text_w(s, scale), y, scale, s, c, shadow); }
 void gfx_text_title(int x, int y, int scale, const char *s, uint32_t c, uint32_t edge, int depth) {

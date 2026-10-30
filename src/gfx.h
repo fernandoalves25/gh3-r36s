@@ -34,4 +34,11 @@ void gfx_text_sh_center(int cx, int y, int scale, const char *s, uint32_t c, uin
 void gfx_text_sh_right(int rx, int y, int scale, const char *s, uint32_t c, uint32_t shadow);
 void gfx_text_title(int x, int y, int scale, const char *s, uint32_t c, uint32_t edge, int depth); /* outlined and extruded, for titles */
 int gfx_text_box(int x, int y, int w, int scale, const char *s, uint32_t c);                   /* word-wrapped; returns the height used */
+/* another face for all of the above (the game's own fonts in the Original look, orig_font.c): while on() says so, w() measures
+ * and draw() draws in the pixel font's place, on the same 11-row cell; shadows step 1 px (2 from scale 3) */
+typedef struct { int (*on)(void); int (*w)(const char *s, int scale); void (*draw)(int x, int y, int scale, const char *s, uint32_t c); } gfx_face;
+void gfx_text_face(const gfx_face *f);
+int gfx_pix_w(const char *s, int scale);                                                       /* the pixel font alone */
+void gfx_pix_text(int x, int y, int scale, const char *s, uint32_t c);
+int gfx_pix_glyph(float x, float y, float w, float h, uint32_t cp, uint32_t c);               /* one code point's 5 x 11 cell stretched to w x h; -1 when the font lacks it */
 #endif
