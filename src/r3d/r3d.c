@@ -56,7 +56,7 @@ typedef struct { uint32_t key; int clamp, max; GLuint id; } texref;
 typedef struct { int first, count; float c[3], r; } part;   /* a mesh inside a batch: its indices and bounding sphere */
 typedef struct {
     uint32_t mat; int smapped; GLuint vbo, lvbo, ibo, tex, smap; int nidx, nvert, blend /* 0 solid, 1 added, 2 see-through */, board, colA;
-    float colour[4], alphaRef, tile, anim[4], wibU[4], wibV[4], wibR[3]; int wib, hasAnim, crowd /* 1 + the crowd kind its cards show (r3d_crowd.c), 0 */, lighter /* the crowd's lighters: shown while they are up */; float amb[3], centre[3], radius; part *p; int np; float order;
+    float colour[4], alphaRef, tile, anim[4], wibU[4], wibV[4], wibR[3]; int wib, hasAnim, crowd /* 1 + the crowd kind its cards show (r3d_crowd.c), 0 */, lighter /* 1 + the crowd's lighter group: shown while they are up, swayed by its script */; float amb[3], centre[3], radius; part *p; int np; float order;
     vtx *v; lightvtx *lv; uint16_t *i; int capV, capI; double ambSum[3]; float bmin[3], bmax[3];   /* build-time only */
 } batch;
 typedef struct { float pos[3], q[4], fov; } camend;
@@ -404,7 +404,7 @@ static int load_zone(const char *zone) {
     r3d_texent *tents; int nt = r3d_texbank_read(te->data, te->len, &tents); cache_open(zone, te->data, te->len, tents, nt);
     r3d_venueqb vq; r3d_venueqb_read(ents, ne, &vq);
     r3d_band_zone(zone, ents, ne, vq.lights, vq.nlights);   /* where the band stands, its lights */
-    r3d_crowd_zone(zone);   /* the crowd's kinds: the figures painted on its cards */
+    r3d_crowd_zone(zone, ents, ne, &vq);   /* the crowd's kinds: the figures painted on its cards; its lights, the lighters' sway */
     r3d_lights_load(zone, ents, ne, &vq);   /* the venue's light show (presets, mapping, pyro): first, the bake keeps for each point the lights the show moves most there */
     lightset L = { NULL, 0, { 0 } }; int roomLit = 0;   /* the lights that fall on the room: not the ones kept for the band or the crowd */
     for (int i = 0; i < vq.nlights && L.n < 32; i++) if (!vq.lights[i].band) { L.l = realloc(L.l, (L.n + 1) * sizeof *L.l); L.l[L.n++] = vq.lights[i]; if (vq.lights[i].kind != L_AMBIENT) roomLit = 1; }
@@ -433,9 +433,9 @@ static int load_zone(const char *zone) {
         if (getenv("R3D_DEBUG")) { const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[pic]) e = &tents[k]; r3d_look lk = e ? r3d_tex_look(te->data + e->off, e->size) : (r3d_look){ 0 };
             printf("mesh %3d sector %08x mat %08x tpl %08x tf %02x blend %u aref %u ntex %d pic %08x(%dx%d avg %.0f,%.0f,%.0f%s) tris %5d at %.1f %.1f %.1f r %.1f%s\n", me->n, me->sector, m->key, m->template, tf, m->blend, m->alphaRef, m->ntex, m->tex[pic], lk.w, lk.h, lk.r, lk.g, lk.b, lk.flat ? " flat" : "", me->ntri, me->centre[0], me->centre[1], me->centre[2], me->radius, me->sector && r3d_venueqb_object(&vq, me->sector) ? " (object)" : ""); }
         /* the batch of this material (and whether its parts carry a light map) */
-        batch *b = NULL; for (int i = 0; i < R.nb; i++) if (R.b[i].mat == m->key && R.b[i].crowd == ck + 1 && R.b[i].lighter == (lg > 0) && R.b[i].smapped == (smap != 0) && R.b[i].nvert + me->nvert <= 65535) { b = &R.b[i]; break; }
+        batch *b = NULL; for (int i = 0; i < R.nb; i++) if (R.b[i].mat == m->key && R.b[i].crowd == ck + 1 && R.b[i].lighter == lg && R.b[i].smapped == (smap != 0) && R.b[i].nvert + me->nvert <= 65535) { b = &R.b[i]; break; }
         if (!b) { R.b = realloc(R.b, (R.nb + 1) * sizeof *R.b); b = &R.b[R.nb++]; memset(b, 0, sizeof *b); b->mat = m->key; b->smapped = smap != 0; b->tex = tex; b->smap = smap ? smap : R.white;
-            b->blend = m->blend == 1 ? 1 : m->blend ? 2 : 0; b->board = board; b->crowd = ck + 1; b->lighter = lg > 0; b->colA = lit ? 0 : 1; b->tile = 1;
+            b->blend = m->blend == 1 ? 1 : m->blend ? 2 : 0; b->board = board; b->crowd = ck + 1; b->lighter = lg; b->colA = lit ? 0 : 1; b->tile = 1;
             int at = m->nprops >= 8 && m->props[1] == 0 && m->props[2] == 0 && m->props[3] == 0 ? 4 : 0; for (int i = 0; i < 4; i++) b->colour[i] = m->nprops >= at + 4 ? fminf(8, fmaxf(0, m->props[at + i])) : 1;
             b->alphaRef = m->alphaRef > 0 ? m->alphaRef / 255.0f : b->blend == 2 ? 0.02f : 0;
             if ((tf & TPL_ANIM) && m->nvsp >= 3 && m->vsp[0] >= 1 && m->vsp[1] >= 1) { b->hasAnim = 1; for (int i = 0; i < 4; i++) b->anim[i] = i < m->nvsp ? m->vsp[i] : 0; }
@@ -607,9 +607,11 @@ static void draw_batch(const batch *b, const r3d_prog *P, const cullctx *cc) {
     GL(glActiveTexture)(GL_TEXTURE1); GL(glBindTexture)(GL_TEXTURE_2D, b->smap); GL(glActiveTexture)(GL_TEXTURE0); GL(glBindTexture)(GL_TEXTURE_2D, b->tex);
     GL(glUniform1f)(P->uBoard, (float)b->board); GL(glUniform4f)(P->uAnim, b->hasAnim ? b->anim[0] : 0, b->anim[1], b->anim[2], b->anim[3]);
     GL(glUniform1f)(P->uWib, (float)b->wib); if (b->wib) { GL(glUniform4f)(P->uWibU, b->wibU[0], b->wibU[1], b->wibU[2], b->wibU[3]); GL(glUniform4f)(P->uWibV, b->wibV[0], b->wibV[1], b->wibV[2], b->wibV[3]); GL(glUniform3f)(P->uWibR, b->wibR[0], b->wibR[1], b->wibR[2]); }
+    float sw[3], sv[16]; int moved = b->lighter && r3d_crowd_sway(b->lighter, sw); if (moved) { memcpy(sv, cc->view, 64); for (int c = 0; c < 3; c++) sv[12 + c] += cc->view[c] * sw[0] + cc->view[4 + c] * sw[1] + cc->view[8 + c] * sw[2]; GL(glUniformMatrix4fv)(P->uView, 1, GL_FALSE, sv); }   /* a lighter group, over by its sway */
     GL(glUniform4f)(P->uColour, b->colour[0], b->colour[1], b->colour[2], b->colour[3]); r3d_lights_batch(P == &R.P[1], !b->colA, b->amb); GL(glUniform1f)(P->uAlphaRef, b->alphaRef); GL(glUniform1f)(P->uColA, (float)b->colA); GL(glUniform1f)(P->uTile, b->tile);
     if (b->blend == 1) { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_ONE, GL_ONE); GL(glDepthMask)(GL_FALSE); } else if (b->blend == 2) { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); GL(glDepthMask)(GL_FALSE); } else { GL(glDisable)(GL_BLEND); GL(glDepthMask)(GL_TRUE); }
     for (int r = 0; r < nr; r++) { GL(glDrawElements)(GL_TRIANGLES, run[r][1] - run[r][0], GL_UNSIGNED_SHORT, (void *)(size_t)(run[r][0] * 2)); R.drawCalls++; R.drawnTris += (run[r][1] - run[r][0]) / 3; }
+    if (moved) GL(glUniformMatrix4fv)(P->uView, 1, GL_FALSE, cc->view);
 }
 
 /* ---- the framebuffer the venue is drawn into below Alta ---- */

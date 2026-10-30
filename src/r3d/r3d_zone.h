@@ -35,9 +35,9 @@ r3d_look r3d_tex_look(const uint8_t *b, size_t n);
 /* ---- the venue's script data (.qb entries of the zone pak) ---- */
 typedef struct { float pos[3], quat[3], fov; uint32_t lock; } r3d_camend;          /* quat: x y z (w is worked out); lock: 0 fixed in the room, else the band member followed */
 typedef struct { uint32_t list, type, name; r3d_camend a, b; int hasB; float orbit; } r3d_shot; /* list: the section it came from (zone_cameras, zone_cameras_pan…); type/name: the shot's Type and NAME keys a song's cue may ask for (0 none); orbit in degrees */
-typedef struct { uint32_t key; float pos[3], angles[3]; int shown; } r3d_object;   /* a levelobject: where a movable part stands and how it is turned */
+typedef struct { uint32_t key, script; float pos[3], angles[3]; int shown; } r3d_object;   /* a levelobject: where a movable part stands and how it is turned; script: its TriggerScript (0 none) */
 enum { L_AMBIENT = 0, L_POINT, L_DIR, L_SPOT };
-typedef struct { uint32_t key; int kind, band; float pos[3], dir[3], colour[3], intensity, near, far; } r3d_light;   /* key: its NAME (the light show names lights by it); band: a light kept for the band or the crowd */
+typedef struct { uint32_t key; int kind, band, crowd; float pos[3], dir[3], colour[3], intensity, near, far; } r3d_light;   /* key: its NAME (the light show names lights by it); band: a light kept for the band or the crowd (not the room's); crowd: lightgroup $crowd, the lights of the crowd's figures */
 typedef struct { r3d_shot *shots; int nshots; uint32_t *hidden; int nhidden; r3d_object *objects; int nobjects; r3d_light *lights; int nlights; } r3d_venueqb;
 void r3d_venueqb_read(const gh3_pakent *ents, int n, r3d_venueqb *out);
 void r3d_venueqb_free(r3d_venueqb *v);

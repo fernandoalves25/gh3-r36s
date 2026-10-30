@@ -143,7 +143,8 @@ Kinds (0xd2bf3d04): 0x7eccc7e6 = single static; 0x607ca4eb = lerp cam1->cam2; 0x
   prison 4, video 6; dive/wikker: no pyro script. => burst of a few hundred additive quads per cue; trivial.
 - Venue "moving things" (L7036 `venueMotion`): per-object qb scripts (`obj_rotx/y/z speed angle`, `obj_movetorelpos`, `wait`, begin/repeat) for lanterns/imps/etc, plus PULSE events
   (`venue_pulsegreen|red|yellow|blue|orange|any|drumleft|drumright|drumboth`): object scale x1.12 (x1.1 for drums) for 0.1 s when a note of that colour is hit / the kick lands. Loop count ~ tens per venue. Optional.
-- Crowd lighters: `crowd_startlighters` / `crowd_stoplighters` performance events show/hide `<zone>_lighter_geo01..24` and sway them `y += .1*sin(1.3t + 1.7i)`.
+- Crowd lighters: `crowd_startlighters` / `crowd_stoplighters` performance events show/hide `<zone>_lighter_geo01..24` (while the crowd's mood is not BAD); each group
+  sways by its own TriggerScript, obj_movetorelpos (+-0.2/0.3, 0, 0) at speed 0.2 and back (band.md section 7; the browser port's `.1*sin` was a stand-in).
 - Glow/bloom (L6912): materials with `glow & 1` rendered alone (everything else black) at 1/4 res, 3-tap-pair gaussian 2 passes, added with k = 1.1. Flares + signs. Skip or fake with additive billboards.
 - Stage floor / geometry: `.scn` (0x2c3b5adc) + `.tex` (0x8bfa5e8e, "facecaa7" container) pick the entry whose `nameKey == qbkey("z_<v>")`. JS `readScene` L976, `decodeDDS` L935. The repo has NO scn/tex reader yet.
 
