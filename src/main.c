@@ -143,11 +143,12 @@ static int judge_test(void) {
         { "wrong frets, fixed after 60 ms", "bad, mute", 0, 0, { { 2990, 2, 1 }, { 3050, 1, 0 } } },
         { "x2 streak lost on wrong frets", "lose2, bad, mute", 0, 1, { { 2990, 2, 1 } } },
         { "x4 streak lost passively", "lose4, mute", 0, 3, { { 0, 0, 0 } } },
-        { "free tap: right frets", "unmute", 0, 0, { { 2990, 1, 0 } }, 1 },
-        { "free tap: wrong frets pressed", "bad, mute", 0, 0, { { 2990, 2, 0 }, { 3060, 0, 0 } }, 1 },
-        { "free tap: wrong frets held", "bad, mute", 0, 0, { { 2500, 4, 0 } }, 1 },
-        { "free tap: nothing pressed", "mute only", 0, 0, { { 0, 0, 0 } }, 1 },
-        { "free tap: frets with no note", "mute only", 0, 0, { { 2000, 2, 0 }, { 2100, 0, 0 } }, 1 } };
+        { "pad: right button on the note", "unmute", 0, 0, { { 2990, 1, 0 } }, 1 },
+        { "pad: wrong button on the note", "bad, mute", 0, 0, { { 2990, 2, 0 }, { 3060, 0, 0 } }, 1 },
+        { "pad: wrong, right one in 20 ms", "unmute", 0, 0, { { 2990, 2, 0 }, { 3010, 1, 0 } }, 1 },
+        { "pad: button with no note near", "bad, mute", 0, 0, { { 2000, 2, 0 }, { 2100, 0, 0 } }, 1 },
+        { "pad: button pressed too early", "bad, mute", 0, 0, { { 2700, 1, 0 }, { 2800, 0, 0 } }, 1 },
+        { "pad: nothing pressed", "mute only", 0, 0, { { 0, 0, 0 } }, 1 } };
     int fails = 0;
     for (size_t c = 0; c < sizeof C / sizeof C[0]; c++) {
         const jcase *k = &C[c]; int warm = k->warm ? k->warm * 10 + 1 : 0; gh3_note N[40]; int nn = 0; memset(N, 0, sizeof N);

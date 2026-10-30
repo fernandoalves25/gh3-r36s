@@ -202,7 +202,7 @@ static const char *OPT_HELP[OPT_N] = {
     "As músicas do menu do próprio jogo tocam nos menus.", "Na lista de músicas, toca um trecho da música selecionada no lugar da música do menu.",
     "Compensa o atraso do som do aparelho, em milissegundos. Se as notas passam pela linha antes de você ouvir, aumente. O melhor é medir em Calibrar atraso.",
     "Espelha a pista para quem toca com a mão esquerda: o verde fica à direita.",
-    "Normal: palhete com o direcional como no jogo. Toque livre: a nota toca assim que os trastes certos estão apertados.",
+    "Normal: palhete com o direcional, como na guitarra. Toque livre: como o GH3 no controle comum do PS2, apertar o botão do traste já é a palhetada.",
     "Troque os botões de cada traste, da palhetada, do star power e da alavanca.",
     "Pixel art: o visual retrô desenhado pixel a pixel. HD suave: formas lisas com antialiasing. Original: a arte 2D do próprio jogo (precisa de DATA/ZONES/global.pak.xen e global.pab.xen).", "Plateia, luzes e feixes atrás da pista. Desligue se o aparelho engasgar.",
     "Quanto mais escuro o palco atrás da pista, mais fácil enxergar as notas.", "Quadros por segundo no alto da tela.",

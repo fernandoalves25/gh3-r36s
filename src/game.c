@@ -30,9 +30,9 @@ void game_new(gh3_run *r, gh3_chart *chart, const gh3_tuning *tn, int diff, cons
         double gap = i + 1 < r->nnotes ? (r->notes[i + 1].t - n->t) * split : 1e18;
         n->lateW = fmin(tn->late, gap); n->hamLateW = fmin(tn->hamLate, gap); }
     for (int i = 0; i < chart->nphrases; i++) { chart->phrases[i].hit = 0; chart->phrases[i].failed = 0; chart->phrases[i].done = 0; }
-    r->health = 1; r->tapWrong = -1; r->hamUntil = -1e9; r->spFlash = r->missFlash = r->spAt = r->spOffAt = r->spReadyAt = r->streakAt = -1e9; r->whamMoveAt = -1e9;
+    r->health = 1; r->hamUntil = -1e9; r->spFlash = r->missFlash = r->spAt = r->spOffAt = r->spReadyAt = r->streakAt = -1e9; r->whamMoveAt = -1e9;
     for (int f = 0; f < 5; f++) r->flash[f] = -1e9;
-    r->autoPlay = o->autoPlay; r->noStrum = !o->autoPlay && o->noStrum; r->tapArmed = 1; r->noFail = o->noFail || o->autoPlay; r->silent = o->silent; r->bass = o->bass;
+    r->autoPlay = o->autoPlay; r->noStrum = !o->autoPlay && o->noStrum; r->noFail = o->noFail || o->autoPlay; r->silent = o->silent; r->bass = o->bass;
     r->endMs = o->endMs; r->botRelease = -1;
     double speed = o->speed > 0 ? o->speed : 100;
     r->lookahead = r->d.lookahead * 1000 * HYPER[o->hyper >= 0 && o->hyper < 6 ? o->hyper : 0] * 100 / speed;
@@ -95,19 +95,10 @@ static int tryHammer(gh3_run *r, double t, double perf) {
         if (n->hopo && n->mask == top && t >= n->t - r->tn->hamEarly && t < n->t + n->hamLateW) { if (top < r->chain) r->pulls++; else r->hammers++; playAt(r, i, t, 1, perf); return 1; } }
     return 0;
 }
-static int tryTap(gh3_run *r, double t, double perf) {
-    if (!r->tapArmed || !r->held || r->finished) return 0;
-    for (int i = r->idx; i < r->nnotes; i++) { gh3_note *n = &r->notes[i];
-        if (n->t - r->tn->early > t) break;
-        if (n->hit || n->missed || t > n->t + n->lateW) continue;
-        if (matches(r->held, n)) { playAt(r, i, t, 0, perf); r->tapArmed = 0; return 1; }
-        if (n->n > 1 && !(r->held & ~n->mask)) break; }
-    return 0;
-}
 static int firstInReach(gh3_run *r, double t) { for (int i = r->idx; i < r->nnotes; i++) { gh3_note *n = &r->notes[i]; if (n->t - r->tn->early > t) break; if (!n->hit && !n->missed && t <= n->t + n->lateW) return i; } return -1; }
-static void onFretChange(gh3_run *r, double t, double perf) {
+static void strumAt(gh3_run *r, double t, double perf);
+static void onFretChange(gh3_run *r, double t, double perf, int pressed) {
     if (r->autoPlay || r->finished) return;
-    if (r->noStrum) { r->tapArmed = 1; if (!tryTap(r, t, perf) && r->held) { int i = firstInReach(r, t); if (i >= 0) r->tapWrong = i; } return; }   /* free tap: a press is the strum */
     if (r->hasPending) {
         if (t - r->pending > r->tn->strumBefore + INPUT_SLOP) wrongStrum(r, perf);
         else if (r->held) for (int i = r->idx; i < r->nnotes; i++) { gh3_note *n = &r->notes[i];
@@ -115,6 +106,7 @@ static void onFretChange(gh3_run *r, double t, double perf) {
             if (n->hit || n->missed || t > n->t + n->lateW) continue;
             if (matches(r->held, n)) { playAt(r, i, t, 0, perf); return; } }
     }
+    if (r->noStrum && pressed) { strumAt(r, t, perf); return; }   /* the controller's play (Toque livre): a fret button pressed is the strum */
     tryHammer(r, t, perf);
 }
 void game_set_frets(gh3_run *r, int held, double t, double perf) {
@@ -122,10 +114,10 @@ void game_set_frets(gh3_run *r, int held, double t, double perf) {
     if (held == r->held) return;
     if (r->nhist == 16) { memmove(r->hist, r->hist + 1, 15 * sizeof r->hist[0]); r->nhist = 15; }
     r->hist[r->nhist].held = r->held; r->hist[r->nhist].until = t; r->nhist++;
-    r->held = held; onFretChange(r, t, perf);
+    int pressed = held & ~r->held; r->held = held; onFretChange(r, t, perf, pressed);
 }
-void game_strum(gh3_run *r, double t, double perf) {
-    if (r->autoPlay || r->finished || r->noStrum) return;
+void game_strum(gh3_run *r, double t, double perf) { if (!r->autoPlay && !r->finished && !r->noStrum) strumAt(r, t, perf); }
+static void strumAt(gh3_run *r, double t, double perf) {
     int hamOpen = t < r->hamUntil;
     int shapes[18]; int ns = 0; shapes[ns++] = r->held; double lim = t - r->tn->formBefore - INPUT_SLOP;
     for (int i = r->nhist - 1; i >= 0 && r->hist[i].until >= lim; i--) shapes[ns++] = r->hist[i].held;
@@ -151,9 +143,8 @@ void game_step(gh3_run *r, double t, double perf) {
         while (r->botIdx < r->nnotes && r->notes[r->botIdx].t <= t) { gh3_note *n = &r->notes[r->botIdx++]; if (n->hit || n->missed) continue; if ((n->bflags & BN_BOTMISS) || (r->battle && ((bside_t *)r->battle)->cpu && (n->mask & ((bside_t *)r->battle)->mask))) { missNote(r, n, perf, 0); continue; } /* (a boss under attack misses some, and those on a fret out of play) */ r->held = n->mask; r->botRelease = n->t + fmax(90, n->sus); hitNote(r, n, t, 0, perf, 0); }
         if (!r->spOn && r->sp >= 0.5) starOn(r, perf);
     } else if (r->hasPending && t - r->pending > r->tn->strumBefore + INPUT_SLOP) wrongStrum(r, perf);
-    for (gh3_note *n = nextNote(r); n && t > n->t + n->lateW + (r->autoPlay ? 0 : MISS_HOLD); n = nextNote(r)) { int bum = r->hasPending && n == &r->notes[r->pendNote]; if (bum) r->hasPending = 0;
-        if (r->noStrum && (r->held || (r->tapWrong >= 0 && n == &r->notes[r->tapWrong]))) bum = 1;   /* free tap: the wrong frets pressed at it, or held as it passed */ missNote(r, n, perf, bum); }   /* passed unplayed: silent, unless it was strummed at on the wrong frets */
-    if (!r->autoPlay) { if (r->noStrum) tryTap(r, t, perf); else tryHammer(r, t, perf); }
+    for (gh3_note *n = nextNote(r); n && t > n->t + n->lateW + (r->autoPlay ? 0 : MISS_HOLD); n = nextNote(r)) { int bum = r->hasPending && n == &r->notes[r->pendNote]; if (bum) r->hasPending = 0; missNote(r, n, perf, bum); }   /* passed unplayed: silent, unless it was strummed at on the wrong frets */
+    if (!r->autoPlay) tryHammer(r, t, perf);
     double bp = gh3_beatpos(r->chart->fretbars, r->chart->nfret, t); double db = r->hasLastBeat ? fmax(0, bp - r->lastBeat) : 0; r->lastBeat = bp; r->hasLastBeat = 1;
     if (r->sus) { gh3_note *s = r->sus; double endT = s->t + s->sus, upTo = fmin(t, endT);
         if (upTo > s->t) { double b = gh3_beatpos(r->chart->fretbars, r->chart->nfret, upTo); if (b > s->beat) { r->score += 25.0 * s->n * game_mult(r) * (b - s->beat); if (s->star >= 0 && !r->chart->phrases[s->star].failed && perf - r->whamMoveAt < WHAMMY_KEEP) addStar(r, (b - s->beat) / 30, perf); s->beat = b; } }

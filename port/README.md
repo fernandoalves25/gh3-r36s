@@ -133,7 +133,7 @@ Organizadas como no jogo:
 
 - **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
 - **Calibrar atraso**: a medição descrita acima.
-- **Controle**: canhoto (lefty flip), palhetada normal ou toque livre (a nota toca ao segurar os trastes), botões.
+- **Controle**: canhoto (lefty flip), palhetada normal (o direcional, como na guitarra) ou toque livre (como o GH3 no controle comum do PS2: apertar o botão do traste já é a palhetada, com as mesmas regras e o mesmo som de nota errada), botões.
 - **Vídeo**: palco 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
 
 O visual é o do próprio jogo, lido de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os trastes, as chamas, a pista com
