@@ -75,8 +75,10 @@ static void doubles(bside_t *v, double a, double b) {   /* Double Notes: each si
 }
 static void addfx(bside_t *v, double kind, double until) { if (v->nfx == 8) { memmove(v->fx, v->fx + 1, 7 * sizeof v->fx[0]); v->nfx = 7; } v->fx[v->nfx].a = kind; v->fx[v->nfx].b = until; v->nfx++; }
 static void hit(bside_t *v, int pi, double t, double perf, bside_t *a, double drainMs) {
-    const gh3_battledata *BT = BTL.BT; const gh3_powerup *p = pu(pi); static const gh3_powerup DEATH = { 0, PU_DEATH, "", "", 0, 0, 5000, 0, 0, 0, { 0 }, { 0 }, { 0 } };
-    if (!p) p = &DEATH; int d = v->diff, id = p->id; double drain = drainMs > 0 ? drainMs : p->drain + BT->offset[d], from = t + v->r->lookahead, to = from + drain;
+    const gh3_powerup *p = pu(pi); static const gh3_powerup DEATH = { 0, PU_DEATH, "", "", 0, 0, 5000, 0, 0, 0, { 0 }, { 0 }, { 0 } };
+    /* bossbattle_trigger_on passes the power-up's own drain_time: battle_<diff>_drain_offset is added only by the two
+     * player battle_trigger_on */
+    if (!p) p = &DEATH; int d = v->diff, id = p->id; double drain = drainMs > 0 ? drainMs : p->drain, from = t + v->r->lookahead, to = from + drain;
     const char *label = pi >= 0 ? battle_pu_title(pi) : PU_PT[PU_DEATH];
     if (id == PU_DIFFUP && (d == 3 || !v->hasUp)) { id = PU_DOUBLE; label = PU_PT[PU_DOUBLE]; }   /* battle_up_difficulty: against an expert it is Double Notes */
     double miss = BTL.boss->miss[d];
@@ -114,7 +116,7 @@ int battle_frets(gh3_run *r, int held) {
 }
 static int under(const bside_t *s, double t) {
     for (int i = 0; i < s->nwins; i++) if (t >= s->wins[i].a && t < s->wins[i].b) return 1;
-    return (!s->cpu && s->mask) || (s->death && t >= s->deathFrom);
+    return s->mask || (s->death && t >= s->deathFrom);
 }
 void battle_judge(gh3_run *r, gh3_note *n, int hit) {   /* a note played or missed: the meters move only while under attack */
     bside_t *s = r->battle; if (!s || !BTL.on || BTL.over || BTL.won) return;
@@ -179,7 +181,7 @@ void battle_mark_misses(gh3_run *r, int pct) { for (int i = 0; i < r->nnotes; i+
 void battle_tick(double perf) {
     if (!BTL.on || BTL.over) return;
     bside_t *me = &BTL.me, *cpu = &BTL.cpu; double t = me->r->now, dts = BTL.hasLastT ? fmax(0, t - BTL.lastT) : 0; BTL.lastT = t; BTL.hasLastT = 1;
-    game_step(cpu->r, t, perf);
+    cpu->mask = block(cpu); game_step(cpu->r, t, perf);   /* the boss's frets out of play too: the whammy and broken string scripts block his buttons as they do the player's (that is the whammy's damage on him: no_ai_damage) */
     { const gh3_songdata *sd = &A.S.sd; uint32_t K = gh3_qbkey("boss_battle_begin_deathlick"); int dl = -1; for (int i = 0; i < BTL.BT->npu; i++) if (BTL.BT->pu[i].id == PU_DEATH) dl = i;
       while (BTL.cue < sd->ncues && sd->cues[BTL.cue].t <= t) { const gh3_cue *c = &sd->cues[BTL.cue++]; if (c->scr == K) hit(me, dl, c->t, perf, cpu, 5000); } }   /* the song's last cue: his Death Drain on the player */
     for (int k = 0; k < 2; k++) { bside_t *s = k ? cpu : me; int aut = s->cpu || s->r->autoPlay; const gh3_boss *b = BTL.boss; int d = s->diff;
@@ -192,7 +194,7 @@ void battle_tick(double perf) {
         { int anyBroken = 0; for (int f = 0; f < 5; f++) if (s->broken[f]) anyBroken = 1; for (int i = 0; i < s->nfx; i++) if (s->fx[i].a == 1 && !anyBroken) s->fx[i].b = t;   /* a mended string ends its sound */
           int was = s->nfx, n = 0; for (int i = 0; i < s->nfx; i++) if (s->fx[i].b > t) s->fx[n++] = s->fx[i]; s->nfx = n; if (n < was && !n && !anyBroken && !s->whammy) fx_over(s); }
         if (!aut && s->whammy > 0) { double w = s->r->whammy; if (w >= 0.5 && !s->wUp) { s->wUp = 1; if (!--s->whammy) fx_over(s); } else if (w < 0.25) s->wUp = 0; }
-        if (!s->cpu) { int m = block(s); if (m != s->mask) { s->mask = m; if (!aut) game_set_frets(s->r, s->raw, t, perf); } } }
+        { int m = block(s); if (m != s->mask) { s->mask = m; if (!aut) game_set_frets(s->r, s->raw, t, perf); } } }
     if (cpu->r->health <= 0 && !BTL.won) { cpu->r->health = 0; BTL.won = 1; me->r->finished = 1; }
 }
 
