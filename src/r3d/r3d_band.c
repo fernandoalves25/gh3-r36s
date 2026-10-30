@@ -13,6 +13,7 @@
  *   draw:  one draw per mesh (split when a mesh needs more bones than the shader's palette holds), skinned on the GPU
  *          with up to three bones a point, lit by one key light and the ambient of the venue's band lights. */
 #include "r3d_band.h"
+#include "r3d_lights.h"
 #include "r3d_gl.h"
 #include "r3d_skin.h"
 #include "app.h"
@@ -349,10 +350,13 @@ void r3d_band_zone(const char *zone, const gh3_pakent *ents, int n, const r3d_li
     SDL_Log("band: %s: places %s%s%s%s, %d waypoints, %d band lights", zone, Z.role[0].has ? "G" : "-", Z.role[1].has ? "B" : "-", Z.role[2].has ? "D" : "-", Z.role[3].has ? "V" : "-", Z.npts, Z.nlights);
     place_all();
 }
-/* one key light and the ambient at the member's chest, from the venue's band lights (as light_at does for the room) */
+/* one key light and the ambient at the member's chest, from the venue's band lights (as light_at does for the room), as the light show has
+ * them now (r3d_lights_get: the presets' colour and strength, cross-faded as the room's, the strobe's flash), else as the venue sets them.
+ * Every frame (r3d_band_draw): the show moves them and the member walks */
 static void light_member(member *m) {
     float P[3] = { m->pos[0], m->pos[1] + 1.2f, m->pos[2] }, amb[3] = { 0, 0, 0 }, best = -1, key[3] = { 0, 0, 0 }, dir[3] = { 0, 1, 0 }, fill[3] = { 0, 0, 0 };
-    for (int i = 0; i < Z.nlights; i++) { const r3d_light *l = &Z.lights[i]; float dx = l->pos[0] - P[0], dy = l->pos[1] - P[1], dz = l->pos[2] - P[2], dd = sqrtf(dx * dx + dy * dy + dz * dz);
+    for (int i = 0; i < Z.nlights; i++) { r3d_light lv = Z.lights[i]; const r3d_light *l = &lv; float sv[6]; if (r3d_lights_get(lv.key, sv)) { memcpy(lv.colour, sv, 12); lv.intensity = sv[3]; lv.far = sv[4]; lv.near = sv[5]; }
+        float dx = l->pos[0] - P[0], dy = l->pos[1] - P[1], dz = l->pos[2] - P[2], dd = sqrtf(dx * dx + dy * dy + dz * dz);
         float far = l->far > 0.01f ? l->far : 0.01f, nr = l->near < far * 0.999f ? (l->near > 0 ? l->near : 0) : far * 0.999f, att = (far - dd) / (far - nr); if (att > 1) att = 1; if (att <= 0) continue;
         float k = l->intensity * att, c[3] = { l->colour[0] * k, l->colour[1] * k, l->colour[2] * k };
         if (l->kind == L_AMBIENT) { for (int j = 0; j < 3; j++) amb[j] += c[j]; continue; }
@@ -623,6 +627,7 @@ int r3d_band_draw(const float *view, const float *proj, double perf, int sp, flo
     for (int pass = 0; pass < 2; pass++) {
         if (pass == 0) { GL(glDisable)(GL_BLEND); GL(glDepthMask)(GL_TRUE); } else { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_ONE, GL_ONE); GL(glDepthMask)(GL_FALSE); }
         for (int r = 0; r < BAND_ROLES; r++) { if (!vis[r]) continue; member *m = &M[r];
+            if (!pass) light_member(m);
             GL(glUniform3f)(G.uLdir, m->ldir[0], m->ldir[1], m->ldir[2]); GL(glUniform3f)(G.uLcol, m->lcol[0], m->lcol[1], m->lcol[2]); GL(glUniform3f)(G.uAmb, m->amb[0], m->amb[1], m->amb[2]);
             draw_model(m, &m->body, pass); draw_model(m, &m->inst, pass); } }
     GL(glDisable)(GL_BLEND); GL(glDepthMask)(GL_TRUE);

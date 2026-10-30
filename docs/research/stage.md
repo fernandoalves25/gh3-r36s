@@ -75,6 +75,9 @@ State: `mood`(init intro) `level`(0..2) `pi`(preset index) `blendT`(0.15) `over`
   A beam that was dark (density < .002) snaps to its new position/direction instead of swinging.
 - Rock-meter level change -> `apply(0.5)`.
 - Strobe: PORT softens it to `flick = 0.72 + 0.28*cos(t*2pi*2.5)` multiplying all non-ambient light intensity, beam power and flares. The game's own is a hard flash several times/s (not measured).
+  The songs toggle note 60 every ~58 ms through a run (beforeiforget: 15155-16268 ms). The native port (r3d_lights.c) flashes on an on-toggle:
+  x1.7 and 45% toward white for 34 ms, down to x0.3 over 70 ms, x0.3 until the next; flashes at least 200 ms apart (every other on-toggle, 4.3/s);
+  a strobe mood with no toggles flashes on the beat.
 - No-song idle (menus): verse presets, `pi++` every 8 beats, blend 0.8 s.
 - Not done by PORT: FAIL / WIN moods exist in the mapping (`FAIL.Default`, `WIN.Default`) - used by the game at song end; PORT only switches camera lists there.
 

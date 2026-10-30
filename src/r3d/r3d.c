@@ -46,14 +46,16 @@ int r3d_gl_load(void) {
 #define RUN_GAP 96           /* parts of a batch drawn in one call across a gap of up to this many hidden indices */
 #define PERF_MS 10000        /* the timings line in the log, while a song plays */
 
-/* ---- one vertex: 48 bytes (r3d_vtx) ---- */
+/* ---- one vertex: 48 bytes (r3d_vtx), and beside it in a buffer of its own the room lights that fall on it (8 bytes) ---- */
 typedef r3d_vtx vtx;
+typedef struct { uint8_t li[4], lw[4]; } lightvtx;   /* the four room lights (r3d_lights.c's slots) that give the point most, and each one's share of its colour x intensity (n.l and reach, /255) */
+#define NATTR 8              /* the venue's vertex arrays: r3d_vtx's six, then lightvtx's two */
 typedef struct { uint32_t key; int clamp, max; GLuint id; } texref;
 typedef struct { int first, count; float c[3], r; } part;   /* a mesh inside a batch: its indices and bounding sphere */
 typedef struct {
-    uint32_t mat; int smapped; GLuint vbo, ibo, tex, smap; int nidx, nvert, blend /* 0 solid, 1 added, 2 see-through */, board, colA;
+    uint32_t mat; int smapped; GLuint vbo, lvbo, ibo, tex, smap; int nidx, nvert, blend /* 0 solid, 1 added, 2 see-through */, board, colA;
     float colour[4], alphaRef, tile, anim[4], wibU[4], wibV[4], wibR[3]; int wib, hasAnim; float amb[3], centre[3], radius; part *p; int np; float order;
-    vtx *v; uint16_t *i; int capV, capI; double ambSum[3]; float bmin[3], bmax[3];   /* build-time only */
+    vtx *v; lightvtx *lv; uint16_t *i; int capV, capI; double ambSum[3]; float bmin[3], bmax[3];   /* build-time only */
 } batch;
 typedef struct { float pos[3], q[4], fov; } camend;
 typedef struct { uint32_t list, type, name; camend a, b; int hasB; float orbit; int who; } shot;   /* who: the band member the shot follows (BAND_*), -1 fixed in the room */
@@ -66,7 +68,7 @@ typedef struct {
     /* the framebuffer the venue is drawn into below Alta, and the program that stretches it */
     GLuint fbo, fboTex, fboDepth, blitProg, blitVbo; GLint bPos, bTex; int fw, fh, fboBad, res;
     /* optional GL: timer queries (GL_EXT_disjoint_timer_query, or desktop GL 3.3), framebuffer discard */
-    void (*genQ)(GLsizei, GLuint *); void (*beginQ)(GLenum, GLuint); void (*endQ)(GLenum); void (*getQ)(GLuint, GLenum, GLuint *); void (*discard)(GLenum, GLsizei, const GLenum *);
+    void (*genQ)(GLsizei, GLuint *); void (*beginQ)(GLenum, GLuint); void (*endQ)(GLenum); void (*getQ)(GLuint, GLenum, GLuint *); void (*discard)(GLenum, GLsizei, const GLenum *); void (*attrib4f)(GLuint, GLfloat, GLfloat, GLfloat, GLfloat);
     GLuint q[4]; int qBusy[4], qi, timer, disjoint;
     perfwin pw;
     /* counts, for --r3dtest and the log */
@@ -114,8 +116,9 @@ static int sphere_in(const float pl[6][4], const float c[3], float rad) {
 /* ------------------------------------------------------------------ shaders */
 static const char *VS =
     "uniform mat4 uProj; uniform mat4 uView; uniform float uBoard; uniform vec4 uAnim; uniform vec4 uWibU; uniform vec4 uWibV; uniform vec3 uWibR; uniform float uWib; uniform float uTime;\n"
-    "uniform vec3 uBake; uniform float uDyn; uniform vec4 uLP[4]; uniform vec4 uLC[4]; uniform vec4 uLD[4];\n"   /* the light show (r3d_lights.c): the baked light scaled, plus four lights' changes (pos far / rgb near / dir isSpot) */
-    "attribute vec3 aPos; attribute vec3 aCtr; attribute vec4 aCol; attribute vec4 aLit; attribute vec2 aUv; attribute vec2 aUv2;\n"
+    "uniform float uDyn; uniform vec3 uRL[32]; uniform vec3 uKnee;\n"   /* the light show (r3d_lights.c): what each room light gives now against the bake; the knee (from, span, the batch's own ambient) */
+    "#ifdef GL_ES\nuniform mediump vec3 uAmb;\n#else\nuniform vec3 uAmb;\n#endif\n"   /* (the fragment shader's, at its precision) */
+    "attribute vec3 aPos; attribute vec3 aCtr; attribute vec4 aCol; attribute vec4 aLit; attribute vec2 aUv; attribute vec2 aUv2; attribute vec4 aLI; attribute vec4 aLW;\n"   /* aLI/aLW: the point's four room lights and their shares (lightvtx) */
     "varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vLit;\n"
     "void main() {\n"
     "  vec4 vp;\n"
@@ -127,9 +130,9 @@ static const char *VS =
     "  if (uWib > 0.5) { float su = uTime * uWibU.x + uWibU.z * sin(uWibU.y * uTime + uWibU.w), sv = uTime * uWibV.x + uWibV.z * sin(uWibV.y * uTime + uWibV.w), ra = uTime * uWibR.x;\n"   /* one that scrolls, sways and turns */
     "    vec2 c0 = aUv - uWibR.yz; uv = vec2(c0.x * cos(ra) + c0.y * sin(ra), c0.y * cos(ra) - c0.x * sin(ra)) + uWibR.yz + vec2(mod(su, 8.0), mod(sv, 8.0)); }\n"
     "  vUv = uv; vUv2 = aUv2; vCol = aCol; vec3 lit = aLit.rgb * 4.0;\n"
-    "  if (uDyn > 0.5) { vec3 dl = vec3(0.0); for (int k = 0; k < 4; k++) { vec3 d = uLP[k].xyz - aCtr; float dd = length(d), att = clamp((uLP[k].w - dd) / max(uLP[k].w - uLC[k].w, 0.01), 0.0, 1.0);\n"
-    "      dl += uLC[k].rgb * att * mix(1.0, 0.25 + 0.75 * smoothstep(0.2, 0.8, dot(d, -uLD[k].xyz) / max(dd, 0.001)), uLD[k].w); }\n"
-    "    lit = max(lit * uBake + dl, 0.0); }\n"
+    "  if (uDyn > 0.5) lit = max(lit + uRL[int(aLI.x)] * aLW.x + uRL[int(aLI.y)] * aLW.y + uRL[int(aLI.z)] * aLW.z + uRL[int(aLI.w)] * aLW.w, 0.0);\n"
+    "  vec3 tot = lit + uAmb; float mx = max(max(tot.r, tot.g), tot.b), k = max(uKnee.x, max(max(aLit.r, aLit.g), aLit.b) * 4.0 + uKnee.z), o = mx - k;\n"
+    "  if (o > 0.0) vCol.rgb *= (k + o / (1.0 + o / uKnee.y)) / mx;\n"   /* what the show adds past the point's own light (or the knee) rolls off, at most uKnee.y more, its colour kept: through vCol, nothing more for the fragment shader */
     "  vLit = lit;\n"
     "}\n";
 /* mediump for the colour sums (half the work on Mali), highp kept for the texture coordinates (tiled and scrolled ones go past 8) */
@@ -154,7 +157,7 @@ static GLuint shader(GLenum kind, const char *pre, const char *src) {
 static GLuint link(const char *vsrc, const char *pre, const char *fsrc) {
     GLuint vs = shader(GL_VERTEX_SHADER, "", vsrc), fs = shader(GL_FRAGMENT_SHADER, pre, fsrc); if (!vs || !fs) return 0;
     GLuint p = GL(glCreateProgram)(); GL(glAttachShader)(p, vs); GL(glAttachShader)(p, fs);
-    static const char *ATTR[6] = { "aPos", "aCtr", "aCol", "aLit", "aUv", "aUv2" }; for (int i = 0; i < 6; i++) GL(glBindAttribLocation)(p, i, ATTR[i]); GL(glBindAttribLocation)(p, 0, "aP");   /* the same slots in both venue programs */
+    static const char *ATTR[NATTR] = { "aPos", "aCtr", "aCol", "aLit", "aUv", "aUv2", "aLI", "aLW" }; for (int i = 0; i < NATTR; i++) GL(glBindAttribLocation)(p, i, ATTR[i]); GL(glBindAttribLocation)(p, 0, "aP");   /* the same slots in both venue programs */
     GL(glLinkProgram)(p); GL(glDeleteShader)(vs); GL(glDeleteShader)(fs);
     GLint ok = 0; GL(glGetProgramiv)(p, GL_LINK_STATUS, &ok); if (!ok) { char log[1024]; GL(glGetProgramInfoLog)(p, sizeof log, NULL, log); SDL_Log("r3d: link: %s", log); GL(glDeleteProgram)(p); return 0; }
     return p;
@@ -199,6 +202,7 @@ int r3d_init(SDL_Renderer *ren) {
         R.endQ = (void (*)(GLenum))proc(es ? "glEndQueryEXT" : "glEndQuery", NULL); R.getQ = (void (*)(GLuint, GLenum, GLuint *))proc(es ? "glGetQueryObjectuivEXT" : "glGetQueryObjectuiv", NULL);
         if (R.genQ && R.beginQ && R.endQ && R.getQ) { R.genQ(4, R.q); R.timer = 1; R.disjoint = es; } }
     if (es ? strstr(ext, "GL_EXT_discard_framebuffer") != NULL : strstr(ext, "GL_ARB_invalidate_subdata") != NULL) R.discard = (void (*)(GLenum, GLsizei, const GLenum *))proc(es ? "glDiscardFramebufferEXT" : "glInvalidateFramebuffer", NULL);
+    R.attrib4f = (void (*)(GLuint, GLfloat, GLfloat, GLfloat, GLfloat))proc("glVertexAttrib4f", NULL);
     GL(glGenTextures)(1, &R.white); GL(glBindTexture)(GL_TEXTURE_2D, R.white); uint8_t px[4] = { 255, 255, 255, 255 }; GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
     GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); GL(glBindTexture)(GL_TEXTURE_2D, 0);
     R.P[0].white = R.P[1].white = R.white;
@@ -345,21 +349,26 @@ static GLuint tex_get(const uint8_t *bank, size_t bankLen, const r3d_texent *ent
 }
 
 /* ------------------------------------------------------------------ lights, baked per vertex at load */
-typedef struct { r3d_light *l; int n; } lightset;
+static uint8_t q8(float v, float scale) { float x = v * scale; return (uint8_t)(x < 0 ? 0 : x > 255 ? 255 : x + 0.5f); }
+typedef struct { r3d_light *l; int n; float peak[64]; } lightset;   /* peak: the most each light ever gives (r3d_lights_room) */
 /* the game's sum, as the browser port does it per part: the strongest light falling on the point lights it by n.l, the
- * others softly from their side (half-Lambert), each faded between its attenstart and attenend; ambient apart */
-static void light_at(const lightset *L, const float p[3], const float n[3], float lit[3], float amb[3]) {
-    lit[0] = lit[1] = lit[2] = amb[0] = amb[1] = amb[2] = 0; int hasN = n[0] * n[0] + n[1] * n[1] + n[2] * n[2] > 1e-8f; float best = -1; int bi = -1;
-    float k[64], d[64][3];
+ * others softly from their side (half-Lambert), each faded between its attenstart and attenend; ambient apart. And for the
+ * light show, the four lights that can change the point most (by the strongest any preset makes them) and each one's share */
+static void light_at(const lightset *L, const float p[3], const float n[3], float lit[3], float amb[3], lightvtx *o) {
+    lit[0] = lit[1] = lit[2] = amb[0] = amb[1] = amb[2] = 0; memset(o, 0, sizeof *o); int hasN = n[0] * n[0] + n[1] * n[1] + n[2] * n[2] > 1e-8f; float best = -1; int bi = -1;
+    float k[64], at[64], d[64][3], pot[4] = { 0, 0, 0, 0 }; int top[4] = { -1, -1, -1, -1 };
     for (int i = 0; i < L->n && i < 64; i++) { const r3d_light *l = &L->l[i]; float dx = l->pos[0] - p[0], dy = l->pos[1] - p[1], dz = l->pos[2] - p[2], dd = sqrtf(dx * dx + dy * dy + dz * dz);
         float far = l->far > 0.01f ? l->far : 0.01f, near = l->near < far * 0.999f ? (l->near > 0 ? l->near : 0) : far * 0.999f, att = (far - dd) / (far - near); if (att > 1) att = 1; if (att <= 0) { k[i] = 0; continue; }
-        k[i] = l->intensity * att;
+        k[i] = l->intensity * att; at[i] = att;
         if (l->kind == L_AMBIENT) { for (int c = 0; c < 3; c++) amb[c] += l->colour[c] * k[i]; k[i] = 0; continue; }
         if (l->kind == L_DIR) { d[i][0] = -l->dir[0]; d[i][1] = -l->dir[1]; d[i][2] = -l->dir[2]; } else { float q = dd > 1e-4f ? dd : 1; d[i][0] = dx / q; d[i][1] = dy / q; d[i][2] = dz / q; }
-        float w = fmaxf(l->colour[0], fmaxf(l->colour[1], l->colour[2])) * k[i]; if (w > best) { best = w; bi = i; } }
+        float w = fmaxf(l->colour[0], fmaxf(l->colour[1], l->colour[2])) * k[i]; if (w > best) { best = w; bi = i; }
+        float pw = att * L->peak[i]; if (pw <= 1e-4f || i >= 32) continue;   /* the shader knows 32 (uRL) */
+        for (int t = 0; t < 4; t++) if (pw > pot[t]) { for (int j = 3; j > t; j--) { pot[j] = pot[j - 1]; top[j] = top[j - 1]; } pot[t] = pw; top[t] = i; break; } }
     for (int i = 0; i < L->n && i < 64; i++) { if (k[i] <= 0) continue; float ndl = hasN ? n[0] * d[i][0] + n[1] * d[i][1] + n[2] * d[i][2] : 0;
         float f = i == bi ? (hasN ? fmaxf(ndl, 0) : 0.5f) : (hasN ? 0.5f * (1 + ndl) : 0.5f) * 0.6f;
-        for (int c = 0; c < 3; c++) lit[c] += L->l[i].colour[c] * k[i] * f; }
+        for (int c = 0; c < 3; c++) lit[c] += L->l[i].colour[c] * k[i] * f;
+        for (int t = 0; t < 4; t++) if (top[t] == i) { o->li[t] = (uint8_t)i; o->lw[t] = q8(at[i] * f, 255); } }
 }
 static void default_lights(lightset *L) {
     static r3d_light def[2]; def[0].kind = L_AMBIENT; def[0].colour[0] = 135 / 255.0f; def[0].colour[1] = 130 / 255.0f; def[0].colour[2] = 125 / 255.0f; def[0].intensity = 1; def[0].near = 1e5f; def[0].far = 1e6f;
@@ -369,12 +378,11 @@ static void default_lights(lightset *L) {
 
 /* ------------------------------------------------------------------ building the batches */
 static void unload(void) {
-    for (int i = 0; i < R.nb; i++) { GL(glDeleteBuffers)(1, &R.b[i].vbo); GL(glDeleteBuffers)(1, &R.b[i].ibo); free(R.b[i].v); free(R.b[i].i); free(R.b[i].p); }
+    for (int i = 0; i < R.nb; i++) { GL(glDeleteBuffers)(1, &R.b[i].vbo); GL(glDeleteBuffers)(1, &R.b[i].lvbo); GL(glDeleteBuffers)(1, &R.b[i].ibo); free(R.b[i].v); free(R.b[i].lv); free(R.b[i].i); free(R.b[i].p); }
     for (int i = 0; i < R.ntex; i++) if (R.tex[i].id) GL(glDeleteTextures)(1, &R.tex[i].id);
     free(R.b); free(R.tex); free(R.shots); free(R.order); R.b = NULL; R.tex = NULL; R.shots = NULL; R.order = NULL; R.nb = R.ntex = R.nshots = R.ngen = 0; R.loaded = 0; R.zone[0] = 0;
     R.meshes = R.skipped = R.tris = R.textures = R.nEtc = R.n16 = R.nDxt = 0; R.vram = R.texBytes = 0; R.texMs = 0; R.sortedSeq = -0x7fffffff; r3d_lights_unload();   /* sortedSeq: no shot id (-1 is the first general shot's) */
 }
-static uint8_t q8(float v, float scale) { float x = v * scale; return (uint8_t)(x < 0 ? 0 : x > 255 ? 255 : x + 0.5f); }
 static void euler_xyz(const float a[3], float m[9]) {   /* three.js rotation.set(x, y, z), order XYZ: Rx * Ry * Rz */
     float cx = cosf(a[0]), sx = sinf(a[0]), cy = cosf(a[1]), sy = sinf(a[1]), cz = cosf(a[2]), sz = sinf(a[2]);
     m[0] = cy * cz; m[1] = -cy * sz; m[2] = sy; m[3] = cx * sz + sx * sy * cz; m[4] = cx * cz - sx * sy * sz; m[5] = -sx * cy; m[6] = sx * sz - cx * sy * cz; m[7] = sx * cz + cx * sy * sz; m[8] = cx * cy;
@@ -393,9 +401,11 @@ static int load_zone(const char *zone) {
     r3d_texent *tents; int nt = r3d_texbank_read(te->data, te->len, &tents); cache_open(zone, te->data, te->len, tents, nt);
     r3d_venueqb vq; r3d_venueqb_read(ents, ne, &vq);
     r3d_band_zone(zone, ents, ne, vq.lights, vq.nlights);   /* where the band stands, its lights */
-    lightset L = { NULL, 0 }; int roomLit = 0;   /* the lights that fall on the room: not the ones kept for the band or the crowd */
+    r3d_lights_load(zone, ents, ne, &vq);   /* the venue's light show (presets, mapping, pyro): first, the bake keeps for each point the lights the show moves most there */
+    lightset L = { NULL, 0, { 0 } }; int roomLit = 0;   /* the lights that fall on the room: not the ones kept for the band or the crowd */
     for (int i = 0; i < vq.nlights && L.n < 32; i++) if (!vq.lights[i].band) { L.l = realloc(L.l, (L.n + 1) * sizeof *L.l); L.l[L.n++] = vq.lights[i]; if (vq.lights[i].kind != L_AMBIENT) roomLit = 1; }
     if (!roomLit) default_lights(&L);   /* a venue with no lights of its own: the game's default daylight */
+    r3d_lights_room(L.l, L.n, L.peak);
     const gh3_zonecrowd *crowd = A.lib ? gh3_library_crowd(A.lib, zone) : NULL; int panels = 0;
     for (int mi = 0; mi < sc.nmeshes; mi++) {
         const r3d_mesh *me = &sc.meshes[mi]; if (me->nvert > 65535) { R.skipped++; continue; }
@@ -428,7 +438,7 @@ static int load_zone(const char *zone) {
             for (int i = 0; i < 3; i++) { b->bmin[i] = 1e30f; b->bmax[i] = -1e30f; } }
         /* where the part stands: a movable object's parts are stored about its own centre */
         float rot[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, tr[3] = { 0, 0, 0 }; const r3d_object *ob = me->sector ? r3d_venueqb_object(&vq, me->sector) : NULL; if (ob) { euler_xyz(ob->angles, rot); memcpy(tr, ob->pos, 12); }
-        if (b->nvert + me->nvert > b->capV) { b->capV = (b->nvert + me->nvert) * 2; if (b->capV > 65535) b->capV = 65535; b->v = realloc(b->v, (size_t)b->capV * sizeof *b->v); }
+        if (b->nvert + me->nvert > b->capV) { b->capV = (b->nvert + me->nvert) * 2; if (b->capV > 65535) b->capV = 65535; b->v = realloc(b->v, (size_t)b->capV * sizeof *b->v); b->lv = realloc(b->lv, (size_t)b->capV * sizeof *b->lv); }
         if (b->nidx + me->ntri * 3 > b->capI) { b->capI = (b->nidx + me->ntri * 3) * 2; b->i = realloc(b->i, (size_t)b->capI * sizeof *b->i); }
         float pmin[3] = { 1e30f, 1e30f, 1e30f }, pmax[3] = { -1e30f, -1e30f, -1e30f };   /* the part's bounds (a card's: its centre and how far its corners reach) */
         for (int v = 0; v < me->nvert; v++) { vtx *o = &b->v[b->nvert + v]; const float *p = me->pos + v * 3, *nn = me->nrm + v * 3; float wp[3], wn[3], wc[3];
@@ -437,7 +447,8 @@ static int load_zone(const char *zone) {
             else memcpy(wc, wp, 12);
             memcpy(o->pos, wp, 12); memcpy(o->ctr, wc, 12); memcpy(o->col, me->col + v * 4, 4);
             o->uv[0] = me->uv[v * 2]; o->uv[1] = me->uv[v * 2 + 1]; const float *u2 = me->uvLast ? me->uvLast : me->uv2 ? me->uv2 : me->uv; o->uv2[0] = u2[v * 2]; o->uv2[1] = u2[v * 2 + 1];
-            float lt[3], am[3]; if (lit) light_at(&L, wp, board ? (float[3]){ 0, 0, 0 } : wn, lt, am); else if (amb) { lt[0] = lt[1] = lt[2] = 0; light_at(&L, wp, wn, (float[3]){ 0 }, am); } else { lt[0] = lt[1] = lt[2] = 1; am[0] = am[1] = am[2] = 0; }
+            float lt[3], am[3]; lightvtx *lo = &b->lv[b->nvert + v]; memset(lo, 0, sizeof *lo);
+            if (lit) light_at(&L, wp, board ? (float[3]){ 0, 0, 0 } : wn, lt, am, lo); else if (amb) { lt[0] = lt[1] = lt[2] = 0; light_at(&L, wp, wn, (float[3]){ 0 }, am, lo); memset(lo, 0, sizeof *lo); } else { lt[0] = lt[1] = lt[2] = 1; am[0] = am[1] = am[2] = 0; }
             for (int c = 0; c < 3; c++) { o->lit[c] = q8(lt[c], 255 / 4.0f); b->ambSum[c] += am[c]; } o->lit[3] = 255;
             float reach = board ? sqrtf((wp[0] - wc[0]) * (wp[0] - wc[0]) + (wp[1] - wc[1]) * (wp[1] - wc[1]) + (wp[2] - wc[2]) * (wp[2] - wc[2])) : 0;
             for (int c = 0; c < 3; c++) { float lo = wc[c] - reach, hi = wc[c] + reach; if (!board) lo = hi = wp[c]; if (lo < pmin[c]) pmin[c] = lo; if (hi > pmax[c]) pmax[c] = hi; if (lo < b->bmin[c]) b->bmin[c] = lo; if (hi > b->bmax[c]) b->bmax[c] = hi; } }
@@ -452,20 +463,21 @@ static int load_zone(const char *zone) {
             && !memcmp(a->colour, c->colour, sizeof a->colour) && a->alphaRef == c->alphaRef && a->tile == c->tile && !memcmp(a->anim, c->anim, sizeof a->anim) && !memcmp(a->wibU, c->wibU, sizeof a->wibU) && !memcmp(a->wibV, c->wibV, sizeof a->wibV) && !memcmp(a->wibR, c->wibR, sizeof a->wibR);
         for (int k = 0; k < 3 && same; k++) if (fabs(a->ambSum[k] / a->nvert - c->ambSum[k] / c->nvert) > 1 / 64.0) same = 0;
         if (!same || a->nvert + c->nvert > 65535) continue;
-        a->v = realloc(a->v, (size_t)(a->nvert + c->nvert) * sizeof *a->v); memcpy(a->v + a->nvert, c->v, (size_t)c->nvert * sizeof *c->v);
+        a->v = realloc(a->v, (size_t)(a->nvert + c->nvert) * sizeof *a->v); memcpy(a->v + a->nvert, c->v, (size_t)c->nvert * sizeof *c->v); a->lv = realloc(a->lv, (size_t)(a->nvert + c->nvert) * sizeof *a->lv); memcpy(a->lv + a->nvert, c->lv, (size_t)c->nvert * sizeof *c->lv);
         a->i = realloc(a->i, (size_t)(a->nidx + c->nidx) * 2); for (int k = 0; k < c->nidx; k++) a->i[a->nidx + k] = (uint16_t)(c->i[k] + a->nvert);
         a->p = realloc(a->p, (size_t)(a->np + c->np) * sizeof *a->p); for (int k = 0; k < c->np; k++) { a->p[a->np + k] = c->p[k]; a->p[a->np + k].first += a->nidx; }
         for (int k = 0; k < 3; k++) { a->ambSum[k] += c->ambSum[k]; a->bmin[k] = fminf(a->bmin[k], c->bmin[k]); a->bmax[k] = fmaxf(a->bmax[k], c->bmax[k]); }
-        a->nvert += c->nvert; a->nidx += c->nidx; a->np += c->np; a->capV = a->nvert; a->capI = a->nidx; free(c->v); free(c->i); free(c->p);
+        a->nvert += c->nvert; a->nidx += c->nidx; a->np += c->np; a->capV = a->nvert; a->capI = a->nidx; free(c->v); free(c->lv); free(c->i); free(c->p);
         R.b[j] = R.b[--R.nb]; j--; merged++; }
     /* upload; the ambient of a batch is the mean over its points (the venues' ambient lights reach the whole room) */
     for (int i = 0; i < R.nb; i++) { batch *b = &R.b[i];
         GL(glGenBuffers)(1, &b->vbo); GL(glBindBuffer)(GL_ARRAY_BUFFER, b->vbo); GL(glBufferData)(GL_ARRAY_BUFFER, (GLsizeiptr)b->nvert * sizeof(vtx), b->v, GL_STATIC_DRAW);
+        GL(glGenBuffers)(1, &b->lvbo); GL(glBindBuffer)(GL_ARRAY_BUFFER, b->lvbo); GL(glBufferData)(GL_ARRAY_BUFFER, (GLsizeiptr)b->nvert * sizeof(lightvtx), b->lv, GL_STATIC_DRAW);
         GL(glGenBuffers)(1, &b->ibo); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, b->ibo); GL(glBufferData)(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)b->nidx * 2, b->i, GL_STATIC_DRAW);
-        R.vram += (size_t)b->nvert * sizeof(vtx) + (size_t)b->nidx * 2;
+        R.vram += (size_t)b->nvert * (sizeof(vtx) + sizeof(lightvtx)) + (size_t)b->nidx * 2;
         for (int c = 0; c < 3; c++) { b->amb[c] = (float)(b->ambSum[c] / b->nvert); b->centre[c] = (b->bmin[c] + b->bmax[c]) / 2; }
         float dx = b->bmax[0] - b->bmin[0], dy = b->bmax[1] - b->bmin[1], dz = b->bmax[2] - b->bmin[2]; b->radius = sqrtf(dx * dx + dy * dy + dz * dz) / 2;
-        free(b->v); free(b->i); b->v = NULL; b->i = NULL; }
+        free(b->v); free(b->lv); free(b->i); b->v = NULL; b->lv = NULL; b->i = NULL; }
     GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0);
     /* the solid batches first, then the solid ones with an alpha test (cut-outs: their own program, after the walls that hide them),
      * then the see-through ones; by texture inside each group (the first two are put near to far at each new shot, the last far to near each frame) */
@@ -485,7 +497,6 @@ static int load_zone(const char *zone) {
     SDL_Log("r3d: %s: %d meshes in %d batches (%d merged; %d skipped, %d crowd cards), %d triangles, %d textures (%d ETC1, %d 16-bit, %d DXT; %.1f MB; ETC1 cache %d found, %d made in %.0f ms), %.1f MB on the GPU, %d shots (%d general; %d lights, %d objects, %d hidden), %u ms",
         zone, R.meshes, R.nb, merged, R.skipped, panels, R.tris, R.textures, R.nEtc, R.n16, R.nDxt, R.texBytes / 1048576.0, cHits, cMiss, R.texMs, R.vram / 1048576.0, R.nshots, R.ngen, vq.nlights, vq.nobjects, vq.nhidden, SDL_GetTicks() - t0);
     R.loadMs = SDL_GetTicks() - t0; snprintf(R.zone, sizeof R.zone, "%s", zone); R.loaded = 1;
-    r3d_lights_load(zone, ents, ne, &vq);   /* the venue's light show: presets, mapping, pyro */
     free(L.l); r3d_venueqb_free(&vq); free(tents); r3d_scene_free(&sc); free(ents); free(pak); return 0;
 }
 const char *r3d_zone(void) { return R.zone; }
@@ -579,6 +590,7 @@ static void draw_batch(const batch *b, const r3d_prog *P, const cullctx *cc) {
         if (!sphere_in(cc->pl, p->c, p->r) || (z > p->r && p->r * cc->pxk < LOD_PX * z)) { R.culled++; continue; }
         if (nr && p->first - run[nr - 1][1] <= RUN_GAP && p->first >= run[nr - 1][1]) run[nr - 1][1] = p->first + p->count; else { run[nr][0] = p->first; run[nr][1] = p->first + p->count; nr++; } }
     if (!nr) return;
+    GL(glBindBuffer)(GL_ARRAY_BUFFER, b->lvbo); GL(glVertexAttribPointer)(6, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(lightvtx), (void *)0); GL(glVertexAttribPointer)(7, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(lightvtx), (void *)4);
     GL(glBindBuffer)(GL_ARRAY_BUFFER, b->vbo); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, b->ibo);
     GL(glVertexAttribPointer)(0, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)0); GL(glVertexAttribPointer)(1, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)12);
     GL(glVertexAttribPointer)(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)24); GL(glVertexAttribPointer)(3, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)28);
@@ -616,6 +628,12 @@ static void timer_poll(int i) {
     if (R.pw.t0) { R.pw.sumGpu += ns / 1e6; R.pw.nGpu++; }
 }
 
+/* the venue's light arrays (aLI, aLW) on for its batches, off for anything else: with its array off aLW reads 0, no share of any light, so
+ * a part drawn with r3d_program() and r3d_vtx alone keeps its own aLit under the show */
+static void light_arrays(int on) {
+    if (on) { GL(glEnableVertexAttribArray)(6); GL(glEnableVertexAttribArray)(7); return; }
+    GL(glDisableVertexAttribArray)(6); GL(glDisableVertexAttribArray)(7); if (R.attrib4f) R.attrib4f(7, 0, 0, 0, 0);
+}
 static int draw(double perf, int sp, float energy) {
     double t = perf / 1000; float view[16], proj[16], vp[16]; int shotId = 0; camera(t, view, proj, &shotId); mat_mul(proj, view, vp); r3d_lights_update(t);
     R.flush(R.ren); glstate st; state_save(&st); R.drawCalls = R.drawnTris = R.culled = 0;
@@ -630,7 +648,7 @@ static int draw(double perf, int sp, float energy) {
     for (int p = 0; p < 2; p++) { const r3d_prog *P = &R.P[p]; GL(glUseProgram)(P->prog); GL(glUniformMatrix4fv)(P->uProj, 1, GL_FALSE, proj); GL(glUniformMatrix4fv)(P->uView, 1, GL_FALSE, view);
         GL(glUniform1f)(P->uTime, (float)fmod(t, 4096)); GL(glUniform1i)(P->uMap, 0); GL(glUniform1i)(P->uSmap, 1); GL(glUniform3f)(P->uTint, tint[0], tint[1], tint[2]); r3d_lights_uniforms(p); }
     for (int i = 0; i < st.nattr; i++) GL(glDisableVertexAttribArray)(i);
-    for (int i = 0; i < 6; i++) GL(glEnableVertexAttribArray)(i);
+    for (int i = 0; i < NATTR; i++) GL(glEnableVertexAttribArray)(i);
     float cam[3] = { -(view[0] * view[12] + view[1] * view[13] + view[2] * view[14]), -(view[4] * view[12] + view[5] * view[13] + view[6] * view[14]), -(view[8] * view[12] + view[9] * view[13] + view[10] * view[14]) };
     memcpy(R.V.view, view, 64); memcpy(R.V.proj, proj, 64); memcpy(R.V.vp, vp, 64); memcpy(R.V.cam, cam, 12); memcpy(R.V.tint, tint, 12); R.V.t = t; R.V.w = fw; R.V.h = fh;
     cullctx cc; frustum(vp, cc.pl); memcpy(cc.view, view, 64); cc.pxk = proj[5] * R.H / 2;
@@ -641,12 +659,13 @@ static int draw(double perf, int sp, float energy) {
         for (int g = 0; g < 2; g++) { int lo = g ? g1 : 0, hi = g ? g2 : g1; for (int i = lo + 1; i < hi; i++) for (int j = i; j > lo && R.b[j].order < R.b[j - 1].order; j--) { batch t2 = R.b[j]; R.b[j] = R.b[j - 1]; R.b[j - 1] = t2; } } }
     GL(glUseProgram)(R.P[0].prog); for (int i = 0; i < g1; i++) draw_batch(&R.b[i], &R.P[0], &cc);
     GL(glUseProgram)(R.P[1].prog); for (int i = g1; i < g2; i++) draw_batch(&R.b[i], &R.P[1], &cc);
+    light_arrays(0);   /* what is drawn inside the pass besides the venue's batches sees the six arrays of r3d_vtx only */
     if (r3d_band_draw(view, proj, perf, sp, energy)) for (int i = 0; i < 6; i++) GL(glEnableVertexAttribArray)(i);   /* the band, after the solid parts, at the pass's size and depth; it leaves its own program and arrays: the venue's six again (the program is set per batch below) */
-    if (g2 < R.nb) {   /* the see-through parts, farthest first */
+    if (g2 < R.nb) { light_arrays(1);   /* the see-through parts, farthest first */
         static float *dist; static int *idx, cap; int n = R.nb - g2; if (n > cap) { cap = n; dist = realloc(dist, cap * sizeof *dist); idx = realloc(idx, cap * sizeof *idx); }
         for (int i = 0; i < n; i++) { const batch *b = &R.b[g2 + i]; float dx = b->centre[0] - cam[0], dy = b->centre[1] - cam[1], dz = b->centre[2] - cam[2]; dist[i] = dx * dx + dy * dy + dz * dz; idx[i] = g2 + i; }
         for (int i = 1; i < n; i++) for (int j = i; j > 0 && dist[idx[j] - g2] > dist[idx[j - 1] - g2]; j--) { int t2 = idx[j]; idx[j] = idx[j - 1]; idx[j - 1] = t2; }
-        int cur = -1; for (int i = 0; i < n; i++) { const batch *b = &R.b[idx[i]]; int p = b->alphaRef > 0; if (p != cur) { cur = p; GL(glUseProgram)(R.P[p].prog); } draw_batch(b, &R.P[p], &cc); } }
+        int cur = -1; for (int i = 0; i < n; i++) { const batch *b = &R.b[idx[i]]; int p = b->alphaRef > 0; if (p != cur) { cur = p; GL(glUseProgram)(R.P[p].prog); } draw_batch(b, &R.P[p], &cc); } light_arrays(0); }
     GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0); for (int i = 0; i < 6; i++) GL(glDisableVertexAttribArray)(i);
     r3d_lights_draw(vp, view);   /* beams, the housings' glow, pyro sparks: additive, depth tested against the venue and the band, at the pass's size */
     GL(glDepthMask)(GL_TRUE);
@@ -707,6 +726,12 @@ static void look_at(float *m, const float e[3], const float at[3]) {
     m[0] = s[0]; m[4] = s[1]; m[8] = s[2]; m[12] = -(s[0] * e[0] + s[1] * e[1] + s[2] * e[2]); m[1] = u[0]; m[5] = u[1]; m[9] = u[2]; m[13] = -(u[0] * e[0] + u[1] * e[1] + u[2] * e[2]);
     m[2] = -f[0]; m[6] = -f[1]; m[10] = -f[2]; m[14] = f[0] * e[0] + f[1] * e[1] + f[2] * e[2]; m[3] = m[7] = m[11] = 0; m[15] = 1;
 }
+static int band_front(float dist, float fov) {   /* camOver on the whole band from the front, dist away; 0 when nobody is on stage */
+    float c[3] = { 0, 0, 0 }, fwd[3] = { 0, 0, 0 }; int n = 0;
+    for (int r = 0; r < BAND_ROLES; r++) { float p[3], yaw; if (!r3d_band_where(r, p, &yaw)) continue; for (int i = 0; i < 3; i++) c[i] += p[i]; fwd[0] += sinf(yaw); fwd[2] += cosf(yaw); n++; }
+    if (!n) return 0; for (int i = 0; i < 3; i++) c[i] /= n; float L = sqrtf(fwd[0] * fwd[0] + fwd[2] * fwd[2]); if (L < 1e-3f) { fwd[2] = 1; L = 1; }
+    float e[3] = { c[0] + fwd[0] / L * dist, c[1] + 2.0f, c[2] + fwd[2] / L * dist }, at[3] = { c[0], c[1] + 1.0f, c[2] }; look_at(camOver.view, e, at); camOver.fov = fov; camOver.on = 1; camOver.seq++; return 1;
+}
 static void band_test_frames(SDL_Renderer *ren, const char *zone, const char *outdir, int W, int H, uint8_t *px) {
     /* the song's clock from 0, a frame every 1/60 s; at two moments, a picture of each member from the front and one of the whole band */
     static const double AT[3] = { 6000, 21000, 47000 }; static const char *RN[BAND_ROLES] = { "guitarist", "bassist", "drummer", "vocalist" }; double ms = 0, poseMs = 0, drawMs = 0; int nf = 0, maxDraws = 0, maxTris = 0;
@@ -752,19 +777,20 @@ int r3d_test(const char *zone, const char *outdir, int W, int H) {
     if (!*song && lib) for (int t = 0; t < lib->ntiers && !*song; t++) if (lib->shop.tierZone && !strcmp(lib->shop.tierZone[t], zone) && lib->tiers[t].nsongs) song = lib->songs[lib->tiers[t].songIdx[0]].name;
     if (*song && lib && lib->hasLightNotes) { char sn[96]; size_t len; snprintf(sn, sizeof sn, "%s_song.pak.xen", song); spak = app_read_data("songs", sn, &len);
         if (!spak || gh3_songpak_read(spak, len, song, &sd)) printf("light show: no song %s\n", song);
-        else { const char *what[9] = { "intro", "verse", "chorus", "solo", "strobe", "colour", "pyro", "chorus_poor", "off" }; double at[9]; uint32_t mk[5] = { gh3_qbkey("intro"), gh3_qbkey("verse"), gh3_qbkey("chorus"), gh3_qbkey("solo"), gh3_qbkey("strobe") };
-            for (int i = 0; i < 8; i++) at[i] = -1;
+        else { const char *what[10] = { "intro", "verse", "chorus", "solo", "strobe", "colour", "pyro", "chorus_poor", "flash", "off" }; double at[10]; uint32_t mk[5] = { gh3_qbkey("intro"), gh3_qbkey("verse"), gh3_qbkey("chorus"), gh3_qbkey("solo"), gh3_qbkey("strobe") };
+            for (int i = 0; i < 9; i++) at[i] = -1;
             for (int i = 0; i < sd.nlights; i++) { const gh3_lightnote *w = &lib->lightNote[sd.lights[i][1] & 127]; double t = sd.lights[i][0];
                 if (w->kind == LN_MOOD) for (int k = 0; k < 5; k++) if (w->mood == mk[k] && at[k] < 0) at[k] = t + 400;
                 if (w->kind == LN_COLOUR && w->rgb[0] >= 0 && at[5] < 0) at[5] = t + 600; if (w->kind == LN_PYRO && at[6] < 0) at[6] = t + 450; }
-            at[7] = at[2]; at[8] = 0; showAt = at[2] > 0 ? at[2] : at[1];
+            at[7] = at[2]; at[8] = at[4] > 0 ? at[4] - 390 : -1; at[9] = 0; showAt = at[2] > 0 ? at[2] : at[1];
             if (getenv("R3D_LDEBUG")) for (int i = 0; i < sd.nlights; i++) if (fabs(sd.lights[i][0] - at[4]) < 3000) printf("    cue %6d note %3d kind %d\n", sd.lights[i][0], sd.lights[i][1], lib->lightNote[sd.lights[i][1] & 127].kind);
             printf("light show: %s, %d cues\n", song, sd.nlights);
             SET.stage3d = 1;
-            for (int i = 0; i < 9; i++) { if (at[i] < 0) { printf("  %-11s: no cue\n", what[i]); continue; }
-                for (int c = 0; c < 3; c++) { r3d_lights_sim(NULL, 0, 0); SET.stageFx = i < 8; if (i < 8) r3d_lights_sim(&sd, at[i], i == 7 ? 0.3 : 1.6);   /* "off": Efeitos de palco off, the baked look */
-                    SDL_RenderClear(ren); draw((c * c + c) * SHOT_MS + SHOT_MS * 0.35, 0, 0.5f); R.flush(ren); GL(glFinish)();
-                    snprintf(nm, sizeof nm, "%s_show_%s_%d", zone, what[i], c); save_frame(outdir, nm, W, H, px);
+            for (int i = 0; i < 10; i++) { if (at[i] < 0) { printf("  %-11s: no cue\n", what[i]); continue; }
+                for (int c = 0; c < 4; c++) { r3d_lights_sim(NULL, 0, 0); SET.stageFx = i < 9; if (i < 9) r3d_lights_sim(&sd, at[i], i == 7 ? 0.3 : 1.6);   /* "off": Efeitos de palco off, the baked look */
+                    if (c == 3 && !(r3d_test_band && band_front(5.5f, 60))) break;   /* and the band from the front (--band), lit by the show */
+                    SDL_RenderClear(ren); draw((c * c + c) * SHOT_MS + SHOT_MS * 0.35, 0, 0.5f); R.flush(ren); GL(glFinish)(); camOver.on = 0;
+                    snprintf(nm, sizeof nm, c == 3 ? "%s_show_%s_band" : "%s_show_%s_%d", zone, what[i], c); save_frame(outdir, nm, W, H, px);
                     if (!c) printf("  %-11s at %6.0f ms: %s -> %s/%s.bmp\n", what[i], at[i], r3d_lights_info(), outdir && *outdir ? outdir : ".", nm); } } } }
     /* timing at each size, with the band (--band) and the light show (frozen at the first chorus) on as in a song: frames across all the shots, the GPU made to finish each, and the CPU time of the
      * venue's calls alone; then the show off at Média, to see what it costs. R3D_RES is set aside here (it would pin every size to one) */
