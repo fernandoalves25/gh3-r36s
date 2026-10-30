@@ -33,6 +33,9 @@ void audio_metronome(double periodMs, double leadMs); /* calibration: clicks at 
  * stays in song ms, running at audio_speed() of real time; audio_play's lead is in song ms too. */
 void audio_set_speed(double speed);
 double audio_speed(void);
+/* the next audio_play keeps the band and the other track at this level over the user's volume (audio_set_bus_gain sets
+ * the user's alone, so a volume changed from the pause leaves it); only that play: practice at full speed (vol=7) */
+void audio_set_band_level(double gain);
 /* practice below full speed, as the game: the next audio_play (when it is slowed) leaves out the band and the other track and
  * sets off these drum hits instead: { song ms, sfx_event_find index }, by time; n < 0: none (the band is heard, stretched) */
 void audio_practice_drums(const int (*hits)[2], int n);

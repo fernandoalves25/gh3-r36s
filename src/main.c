@@ -434,7 +434,7 @@ static void song_go(void) {
     if (A.mode == MODE_PRACTICE) { /* the notes outside the sections are gone (load_song); the clock runs at the speed chosen */
         double sp = practice_speed(), from, to, at, lead;
         practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, 1e12, &from, &to); practice_lead(from, sp, &at, &lead);
-        if (sp >= 1) { audio_set_bus_gain(BUS_BAND, SET.volMusic / 100.0 * PRACTICE_BAND_FULL); audio_set_bus_gain(BUS_OTHER, SET.volMusic / 100.0 * PRACTICE_BAND_FULL); }   /* set_band_volume vol=7 */
+        if (sp >= 1) audio_set_band_level(PRACTICE_BAND_FULL);   /* set_band_volume vol=7, kept through the pause's volumes and every restart (each comes back here) */
         int hits = practice_drums_start(at, to, sp); if (sp < 1) SDL_Log("practice x%.3f: %s, %d drum hits from %.0f to %.0f ms", sp, hits >= 0 ? "no band, the game's drum kit" : "no drum kit: the band, stretched", hits, at, to);   /* below: set_band_volume vol=0 and the kit */
         audio_set_speed(sp); audio_play(at, lead); sfx_song_begin(NULL, lead / sp); }   /* (no crowd in practice) */
     else { double from = cfg.playFrom, lead = 2600; cfg.playFrom = 0; battle_start(A.selSong, &from, &lead); audio_play(from, lead);   /* a boss song is a battle (or the devil's last part) */
@@ -634,7 +634,7 @@ int main(int argc, char **argv) {
                     printf("practice sections 3-4 (%.0f..%.0f ms) at 50%%: sound from %.0f ms after a %.0f ms count-in (song ms); %d of the song's %d notes, first %d last %d; run ends at %.0f ms, %d hits, %d misses\n",
                         from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses);
                     printf("judging windows at x%.3f: early %.1f late %.1f song ms (full speed %.0f / %.0f)\n", practice_speed(), r->tn->early, r->tn->late, lib.tuning.early, lib.tuning.late);
-                    bad += practice_drumtest(at, to, practice_speed(), lead); } } } return bad ? 1 : 0; }
+                    app_apply_volumes(); bad += practice_drumtest(at, to, practice_speed(), lead, app_apply_volumes); } } } return bad ? 1 : 0; }   /* (at the settings' volumes: the defaults under a fresh GH3_HOME) */
     if (moneyTest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); bank_index(); return store_selftest(&lib) ? 1 : 0; }
     if (cfg.movietest[0]) { SDL_Init(0); movie_test(); audio_close(); return 0; }
 #ifdef GH3_3D

@@ -30,11 +30,15 @@ static int ui_kind(int k) { return k == SFX_MOVE || k == SFX_OK || k == SFX_BACK
 #define VOICES 16
 
 typedef struct { uint32_t key; const uint8_t *data; uint32_t len; int fsb; int16_t *pcm; int frames, ch, hz; unsigned used; char name[40]; } clip_t;
-typedef struct { uint32_t key; int n, last; struct { int clip; float vol, pitch; } s[12]; } event_t;
+typedef struct { uint32_t key; int n, last; struct { int clip; float vol, pitch; } s[12]; int limit; float gain; double noRepeat, lastAt; } event_t;   /* limit > 0: an event of the practice kit (its own voices; sfx_event_rules) */
 typedef struct { const clip_t *c; double pos, step; float gain, target, gStep; int on, loop, bed, kind; double loopA, loopB; } voice_t;   /* pos < 0: frames still to wait */
 
 static uint8_t *bankBytes; static size_t bankLen; static clip_t *clips; static int nclips; static size_t pcmBytes; static unsigned useTick;
 static event_t *events; static int nevents; static int ready; static voice_t V[VOICES];
+/* the practice drum kit's own voices, so its long cymbals take none of the effects' (each drum is Instancelimit 1: at
+ * most one sounding, and the hit it cuts fading out) and a clock for NoRepeatFor (frames mixed while the song plays) */
+#define KIT_VOICES 20
+static voice_t KV[KIT_VOICES]; static double kitClock;
 static float bedBoost = 1, boostTarget = 1, boostStep = 0; static int songOnLast;
 
 static uint32_t be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
@@ -110,14 +114,15 @@ static int decode(clip_t *c) {
 static int event_decode(event_t *ev) { int ok = 0; for (int i = 0; i < ev->n; i++) ok |= decode(&clips[ev->s[i].clip]); return ok; }
 
 /* ---- the mixer */
-static voice_t *voice_new(void) { for (int v = 0; v < VOICES; v++) if (!V[v].on) return &V[v];
-    voice_t *o = NULL; for (int v = 0; v < VOICES; v++) if (!V[v].bed && !V[v].loop && (!o || V[v].pos > o->pos)) o = &V[v]; return o ? o : &V[0]; }
-static voice_t *start(const clip_t *c, float gain, float pitch, double delayMs, int loop, int bed, int kind) {   /* under the audio lock */
-    if (!c || !c->pcm) return NULL; voice_t *v = voice_new(); memset(v, 0, sizeof *v); v->c = c; v->step = (double)c->hz / 44100.0 * (pitch > 0 ? pitch / 100 : 1);
+static voice_t *voice_new(voice_t *P, int n) { for (int v = 0; v < n; v++) if (!P[v].on) return &P[v];
+    voice_t *o = NULL; for (int v = 0; v < n; v++) if (!P[v].bed && !P[v].loop && (!o || P[v].pos > o->pos)) o = &P[v]; return o ? o : &P[0]; }
+static voice_t *start_in(voice_t *P, int np, const clip_t *c, float gain, float pitch, double delayMs, int loop, int bed, int kind) {   /* under the audio lock */
+    if (!c || !c->pcm) return NULL; voice_t *v = voice_new(P, np); memset(v, 0, sizeof *v); v->c = c; v->step = (double)c->hz / 44100.0 * (pitch > 0 ? pitch / 100 : 1);
     v->pos = -delayMs / 1000.0 * 44100; v->gain = v->target = gain > 4 ? 4 : gain; v->loop = loop; v->bed = bed; v->kind = kind;
     if (loop) { double trim = c->hz * 0.06; v->loopA = trim; v->loopB = c->frames - 1 - trim; if (v->loopB <= v->loopA + 1) { v->loopA = 0; v->loopB = c->frames - 1; } if (bed) v->pos = v->loopA + (rand() / (RAND_MAX + 1.0)) * fmax(0, v->loopB - v->loopA - c->hz); }
     v->on = 1; return v;
 }
+static voice_t *start(const clip_t *c, float gain, float pitch, double delayMs, int loop, int bed, int kind) { return start_in(V, VOICES, c, gain, pitch, delayMs, loop, bed, kind); }
 static voice_t *play_event(event_t *ev, double delayMs, float level, int bed) {   /* one of the event's files, not the one before */
     if (!ev || !ev->n) return NULL; int i = ev->n > 1 ? rand() % ev->n : 0; if (ev->n > 1 && i == ev->last) i = (i + 1) % ev->n; ev->last = i;
     return start(&clips[ev->s[i].clip], ev->s[i].vol / 100 * level, ev->s[i].pitch, delayMs, 0, bed, -1);
@@ -181,7 +186,18 @@ int sfx_play(int kind) {
 }
 int sfx_event_find(uint32_t cont) { event_t *e = ready ? event_of(cont) : NULL; return e ? (int)(e - events) : -1; }
 int sfx_event_prepare(int idx) { return ready && idx >= 0 && idx < nevents ? event_decode(&events[idx]) : 0; }
-void sfx_event_fire(int idx, float level) { if (ready && idx >= 0 && idx < nevents) play_event(&events[idx], 0, level, 0); }
+void sfx_event_rules(int idx, int limit, double noRepeatSec, double bussDb) { if (!ready || idx < 0 || idx >= nevents) return; event_t *e = &events[idx]; e->limit = limit > 0 ? limit : 1; e->noRepeat = noRepeatSec > 0 ? noRepeatSec * 44100 : 0; e->gain = (float)pow(10, bussDb / 20); e->lastAt = -1e18; }
+void sfx_event_fire(int idx, float level) {
+    if (!ready || idx < 0 || idx >= nevents) return; event_t *ev = &events[idx]; if (!ev->limit) { play_event(ev, 0, level, 0); return; }
+    if (kitClock - ev->lastAt < ev->noRepeat || !ev->n) return; ev->lastAt = kitClock;   /* NoRepeatFor: the same drum again too soon is not played */
+    int on = 0; voice_t *old = NULL; for (int v = 0; v < KIT_VOICES; v++) if (KV[v].on && KV[v].kind == idx && KV[v].target > 0) { on++; if (!old || KV[v].pos > old->pos) old = &KV[v]; }
+    if (on >= ev->limit && old) fade(old, 0, 0.004);   /* instancemanagement stop_oldest: the hit before is cut (in 4 ms, no click) */
+    int i = ev->n > 1 ? rand() % ev->n : 0; if (ev->n > 1 && i == ev->last) i = (i + 1) % ev->n; ev->last = i;
+    start_in(KV, KIT_VOICES, &clips[ev->s[i].clip], ev->s[i].vol / 100 * ev->gain * level, ev->s[i].pitch, 0, 0, 0, idx);
+}
+void sfx_kit_mix(float *l, float *r, float gain) { kitClock += 1; if (ready) for (int v = 0; v < KIT_VOICES; v++) if (KV[v].on) voice_mix(&KV[v], l, r, gain, 1); }
+void sfx_kit_cut(void) { for (int v = 0; v < KIT_VOICES; v++) KV[v].on = 0; kitClock = 0; for (int i = 0; i < nevents; i++) events[i].lastAt = -1e18; }
+int sfx_voices_on(int kit) { int n = 0; if (kit) { for (int v = 0; v < KIT_VOICES; v++) n += KV[v].on; } else for (int v = 0; v < VOICES; v++) n += V[v].on; return n; }
 void sfx_prepare(int kind) { if (!ready) return; event_t *e; for (int w = 0; w < 2 && (e = kind_event(kind, w)); w++) event_decode(e); }
 void sfx_loop(int kind, int on) {
     if (!ready) return; event_t *ev = kind_event(kind, 0); if (!ev) return; if (on) event_decode(ev);
@@ -250,7 +266,8 @@ static int show_clip(clip_t *c, float vol, float pitch) {
         printf(" %d Hz %dch %.2f s peak %.2f rms %.3f", c->hz, c->ch, c->frames / (double)c->hz, pk, n ? sqrt(sq / n) : 0); } else printf(" DECODE FAILED");
     if (vol != 100) printf(" vol %.0f", vol); if (pitch != 100) printf(" pitch %.0f", pitch); printf("\n"); return !ok;
 }
-void sfx_event_show(int idx) { if (!ready || idx < 0 || idx >= nevents) return; event_t *e = &events[idx]; for (int j = 0; j < e->n; j++) show_clip(&clips[e->s[j].clip], e->s[j].vol, e->s[j].pitch); }
+void sfx_event_show(int idx) { if (!ready || idx < 0 || idx >= nevents) return; event_t *e = &events[idx]; for (int j = 0; j < e->n; j++) show_clip(&clips[e->s[j].clip], e->s[j].vol, e->s[j].pitch);
+    if (e->limit) printf("      (Instancelimit %d stop_oldest, NoRepeatFor %.2f s, its buss x%.3f = %+.1f dB, on its own voices)\n", e->limit, e->noRepeat / 44100, e->gain, 20 * log10(e->gain)); }
 int sfx_selftest(void) {
     if (!ready) { puts("sfx: no ZONES/global_sfx.pak.xen or no global_sound_events table"); return 1; }
     int bad = 0, unnamed = 0; for (int i = 0; i < nclips; i++) if (!clips[i].name[0]) unnamed++;

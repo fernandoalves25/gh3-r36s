@@ -32,8 +32,13 @@ static int64_t metroFrames = 0;    /* > 0: the calibration metronome clicks ever
 static double rate = 1, rateNext = 1; static int stretching = 0; static stretch_t ST;
 /* and, as GH3 below full speed (set_band_volume vol=0; the drums section mapped through practice_notemapping), no band:
  * the game's drum kit is set off by the song's drum cues instead, on the very frame of the stretched song they fall on */
-#define DRUM_LEVEL 0.5f            /* the kit's vol=100, at the band's volume (the kick and the snare together peak at 0.93 of full scale: 0.7 clipped) */
+/* The kit is a sound effect: each drum's default_buss is its own (vol=-3, set on the event by sfx_event_rules) under
+ * User_Sfx, so it follows the effects' volume (and is silent at 0, as in GH3), while the band sits on User_Band. The
+ * effects' volume at its default stands for GH3's User_Sfx at 0 dB, the band's at 100%: there the kit is 3 dB under
+ * the band at full level and 1.9 dB over the band of full-speed practice (set_band_volume vol=7) */
+#define SFX_GAIN_DEFAULT 0.63f     /* audio_set_sfx_gain at the default effects volume (app_apply_volumes: 70% x 0.9) */
 static int (*drums)[2], ndrums, drumAt, drumsOn, drumsNext = 0, (*drumsPend)[2], ndrumsPend;
+static float bandLevel = 1, bandLevelNext = 1;   /* the band's level for this play only (practice at full speed: set_band_volume vol=7), over the user's volume */
 void (*audio_drum_hook)(int i, double songMs, int64_t frame);
 #define MV_N (1 << 15)             /* movie ring: 0.74 s of stereo frames; pushed and read under the device lock */
 static float mvBuf[MV_N * 2]; static int64_t mvW, mvR, mvCbR; static int mvOn;
@@ -114,7 +119,7 @@ static void st_src(void *ud, float *f) { /* the next frame of song for the stret
     for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on || (drumsOn && b != BUS_PLAYER) || !pull(s)) continue;   /* (the band not even decoded) */
         float sl, sr; if (s->channels >= 2) { sl = s->pcm[s->pcmPos] * (1.0f / 32768); sr = s->pcm[s->pcmPos + 1] * (1.0f / 32768); s->pcmPos += 2; } else { sl = sr = s->pcm[s->pcmPos++] * (1.0f / 32768); }
         s->produced++;
-        if (b == BUS_PLAYER) { f[0] = sl; f[1] = sr; } else { s->gain += (s->target - s->gain) * 0.002f; float g = s->level * s->gain * busGain[b]; f[2] += sl * g; f[3] += sr * g; } }
+        if (b == BUS_PLAYER) { f[0] = sl; f[1] = sr; } else { s->gain += (s->target - s->gain) * 0.002f; float g = s->level * s->gain * busGain[b] * bandLevel; f[2] += sl * g; f[3] += sr * g; } }
 }
 static void mix_stretched(float *l, float *r) {
     float f[ST_CH]; stretch_frame(&ST, f, st_src, NULL); stream_t *s = &S[BUS_PLAYER];
@@ -149,10 +154,10 @@ static void callback(void *ud, Uint8 *out, int len) {
                 s->gain += (s->target - s->gain) * 0.002f;
                 float sl, sr; if (!frame_of(s, &sl, &sr)) { if (preview && !loop && b == BUS_PLAYER) { running = 0; preview = 0; } continue; }
                 if (b == BUS_PLAYER && !preview) ps_process(&sl, &sr);
-                float g = s->level * s->gain * busGain[preview ? BUS_BAND : b]; l += sl * g; r += sr * g; s->produced++; }
+                float g = s->level * s->gain * busGain[preview ? BUS_BAND : b] * (b == BUS_PLAYER || preview ? 1 : bandLevel); l += sl * g; r += sr * g; s->produced++; }
             if (drumsOn && mixed >= 0) { double at = fromMs + mixed * rate / 44.1;   /* this frame's place in the song */
-                while (drumAt < ndrums && drums[drumAt][0] <= at) { float lv = DRUM_LEVEL * busGain[BUS_BAND] * fadeGain / (sfxGain > 0.05f ? sfxGain : 0.05f);   /* (sfx_mix scales by the effects' volume: the kit follows the band's) */
-                    sfx_event_fire(drums[drumAt][1], lv); if (audio_drum_hook) audio_drum_hook(drumAt, at, mixed); drumAt++; } }
+                while (drumAt < ndrums && drums[drumAt][0] <= at) { sfx_event_fire(drums[drumAt][1], 1 / SFX_GAIN_DEFAULT); if (audio_drum_hook) audio_drum_hook(drumAt, at, mixed); drumAt++; } }
+            if (drumsOn) sfx_kit_mix(&l, &r, sfxGain);   /* (on its own voices, at the effects' volume; with the song's fade and the master below) */
             if (fadeStep) { fadeGain -= fadeStep; if (fadeGain <= 0) { fadeGain = 0; if (preview) { running = 0; preview = 0; fadeStep = 0; } } }
             float g = master * fadeGain; l *= g; r *= g;
             if (metroFrames > 0 && mixed >= 0 && mixed % metroFrames == 0) { int k = (mixed / metroFrames) % 4 == 0 ? SFX_GO : SFX_TICK; if (!sfx_play(k)) voice_start(k); }   /* (prepared by audio_metronome: no decoding here) */
@@ -188,10 +193,11 @@ void audio_set_stream(int bus, const uint8_t *mp3, size_t size, double levelDb) 
     s->level = (float)pow(10, levelDb / 20); s->gain = s->target = 1;
     if (dev) SDL_UnlockAudioDevice(dev);
 }
-void audio_clear(void) { sfx_song_stop(); if (dev) SDL_LockAudioDevice(dev); running = 0; stretching = 0; rate = 1; drumsOn = 0; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0; for (int b = 0; b < BUS_N; b++) S[b].on = 0; if (dev) SDL_UnlockAudioDevice(dev); }
+void audio_clear(void) { sfx_song_stop(); if (dev) SDL_LockAudioDevice(dev); running = 0; stretching = 0; rate = 1; drumsOn = 0; sfx_kit_cut(); bandLevel = bandLevelNext = 1; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0; for (int b = 0; b < BUS_N; b++) S[b].on = 0; if (dev) SDL_UnlockAudioDevice(dev); }
 void audio_play(double from, double lead) {
     if (dev) SDL_LockAudioDevice(dev);
     rate = rateNext; rateNext = 1; stretching = rate < 0.999; if (stretching) stretch_init(&ST, rate); else rate = 1;
+    bandLevel = bandLevelNext; bandLevelNext = 1; sfx_kit_cut();
     drumsOn = stretching && drumsNext; drumsNext = 0; if (drumsOn) { void *old = drums; drums = drumsPend; ndrums = ndrumsPend; drumsPend = old; ndrumsPend = 0; drumAt = 0; while (drumAt < ndrums && drums[drumAt][0] < from) drumAt++; }
     fromMs = from; leadMs = lead; mixed = -(int64_t)(lead / rate / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0;
     for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue; mp3dec_init(&s->dec); s->pos = 0; s->pcmLen = s->pcmPos = 0; s->ended = 0; s->produced = 0; s->primed = 0; s->gain = s->target = 1; if (from > 0) skip_to(s, from); }
@@ -286,6 +292,7 @@ double audio_song_ms(void) {
     return est;
 }
 void audio_set_speed(double r) { rateNext = r > 0.2 && r < 1 ? r : 1; }
+void audio_set_band_level(double g) { bandLevelNext = (float)(g >= 0 ? g : 1); }
 void audio_practice_drums(const int (*hits)[2], int n) {
     int (*cp)[2] = n > 0 ? malloc((size_t)n * sizeof *cp) : NULL; if (cp) memcpy(cp, hits, (size_t)n * sizeof *cp); else if (n > 0) n = 0;
     if (dev) SDL_LockAudioDevice(dev); void *old = drumsPend; drumsPend = cp; ndrumsPend = n > 0 ? n : 0; drumsNext = n >= 0; if (dev) SDL_UnlockAudioDevice(dev); free(old);
