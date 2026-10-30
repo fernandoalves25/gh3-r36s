@@ -287,5 +287,14 @@ int sfx_selftest(void) {
         if (i % 40 == 0) sfx_play(SFX_BAD); if (i == 200) sfx_play(SFX_STREAK); if (i == 600) sfx_song_end(0);
         for (int k = 0; k < 512; k++) { float l = 0, rr = 0; sfx_mix(&l, &rr, 0.8f, 1); if (fabs(l) > peak) peak = fabs(l); n += l != 0; } }
     printf("mixer: %ld non-zero frames of %d, peak %.2f, %zu bytes of PCM decoded\n", n, 44100 * 12 / 512 * 512, peak, pcmBytes); if (!n) bad++;
-    sfx_song_stop(); printf("%d failures\n", bad); return bad;
+    sfx_song_stop();
+    /* and each kind alone through the output at the volumes set (the defaults): what the soft limit bends of it; the
+     * menu sounds must not reach it (their level unchanged) */
+    for (int v = 0; v < VOICES; v++) V[v].on = 0; printf("through the output (soft limit over 0.89):\n"); static float ob[512 * 2];
+    for (int k = 0; k < SFX_N; k++) { if (!kind_event(k, 0)) continue; audio_limit_stats(NULL, NULL, NULL); sfx_play(k); float pk = 0; int64_t over, clip; double sq = 0, lost;
+        for (int b = 0; b < 44100 * 6 / 512; b++) { int on = 0; for (int v = 0; v < VOICES; v++) on |= V[v].on; if (!on) break; audio_render(ob, 512); for (int i = 0; i < 1024; i++) { if (fabsf(ob[i]) > pk) pk = fabsf(ob[i]); sq += (double)ob[i] * ob[i]; } }
+        audio_limit_stats(&over, &clip, &lost); for (int v = 0; v < VOICES; v++) V[v].on = 0; double db = sq > 0 ? 10 * log10(sq / (sq + lost)) : 0;   /* its energy now against a hard clip's */
+        printf("   SFX_%-14s peak %.3f", KIND_NAME[k], pk); if (over) printf(", %lld samples bent (%lld of them over full scale, hard-clipped before), %+.2f dB of its energy", (long long)over, (long long)clip, db); printf("\n");
+        if (ui_kind(k) && db < -0.1) { printf("      A MENU SOUND IS QUIETER\n"); bad++; } }
+    printf("%d failures\n", bad); return bad;
 }

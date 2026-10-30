@@ -140,6 +140,19 @@ static void voice_start(int kind) {
     if (slot < 0) { int oldest = 0; for (int v = 1; v < VOICES; v++) if (voices[v].t > voices[oldest].t) oldest = v; slot = oldest; }
     voices[slot].kind = kind; voices[slot].on = 1; voices[slot].t = 0; voices[slot].lp = 0; voices[slot].noise = (unsigned)SDL_GetTicks() * 2654435761u + (unsigned)slot;
 }
+/* ---- the output: GH3 mixes under its Master buss (Default_BussSet vol=-2.5), so a kick and a snare together (the
+ * practice kit) or a loud band never reach full scale there. The port keeps every level as it is and instead bends the
+ * last 1 dB softly: below KNEE (-1 dBFS) nothing changes; above, x/(1+x) toward full scale, slope 1 at the knee, never
+ * reaching it (one divide, only for the rare samples over the knee). Counts for the tests: samples over the knee, over
+ * full scale (what a hard clip would have cut), and the energy taken against a hard clip */
+#define KNEE 0.89f
+static int64_t limOver, limClip; static double limLost;
+static inline float limit(float x) {
+    float a = fabsf(x); if (a <= KNEE) return x;
+    float u = (a - KNEE) * (1.0f / (1 - KNEE)), y = KNEE + (1 - KNEE) * u / (1 + u), h = a < 1 ? a : 1;
+    limOver++; limClip += a > 1; limLost += (double)h * h - (double)y * y; return x < 0 ? -y : y;
+}
+void audio_limit_stats(int64_t *over, int64_t *clip, double *lostSq) { if (over) *over = limOver; if (clip) *clip = limClip; if (lostSq) *lostSq = limLost; limOver = limClip = 0; limLost = 0; }
 static void callback(void *ud, Uint8 *out, int len) {
     (void)ud; float *o = (float *)out; int frames = len / (int)(sizeof(float) * 2);
     bendCur += (bendTarget - bendCur) * 0.35f; bendRatio = powf(2.0f, -BEND_SEMIS * bendCur / 12.0f);
@@ -169,7 +182,7 @@ static void callback(void *ud, Uint8 *out, int len) {
         fx *= sfxGain * master; l += fx; r += fx;
         sfx_mix(&l, &r, sfxGain * master, running && !paused);   /* the game's own effects and the crowd (sfx.c) */
         if (mvOn && mvR < mvW) { const float *m = &mvBuf[(mvR & (MV_N - 1)) * 2]; l += m[0] * mvG; r += m[1] * mvG; mvR++; }
-        o[i * 2] = l > 1 ? 1 : l < -1 ? -1 : l; o[i * 2 + 1] = r > 1 ? 1 : r < -1 ? -1 : r;
+        o[i * 2] = limit(l); o[i * 2 + 1] = limit(r);
     }
 }
 int audio_open(void) {

@@ -624,7 +624,7 @@ int main(int argc, char **argv) {
     if (cfg.frames > 0) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
     if (cfg.screens) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
     if (cfg.menutest) { SDL_Init(0); menu_selftest(); return 0; }
-    if (cfg.sfxtest) { SDL_Init(0); return sfx_selftest() ? 1 : 0; }
+    if (cfg.sfxtest) { SDL_Init(0); app_apply_volumes(); return sfx_selftest() ? 1 : 0; }   /* (the output part at the settings' volumes) */
     if (judgeTest) return judge_test() ? 1 : 0;   /* --judgetest: overstrum, wrong frets, a passed note, a hit: the sounds each makes */   /* --sfxtest: the game's sound effects, listed and decoded */
     if (cfg.stretchtest) { SDL_Init(0); int bad = stretch_selftest(); if (*cfg.song && A.libOk) { int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i;   /* and a song through the mixer at each speed */
             char e[300]; if (si < 0) puts("song not found"); else if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { practice_bench(A.S.durationMs);

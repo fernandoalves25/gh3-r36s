@@ -42,6 +42,9 @@ void audio_practice_drums(const int (*hits)[2], int n);
 int audio_drums_on(void);
 extern void (*audio_drum_hook)(int i, double songMs, int64_t frame);   /* tests: each hit as the mixer sets it off */
 void audio_render(float *out, int frames);        /* tests: mixes stereo frames without a device */
+/* tests: since the last call, output samples bent by the soft limit (over -1 dBFS), those a hard clip would have cut
+ * (over full scale), and the sum of squares lost against a hard clip (hard-clipped energy = output's + lostSq); resets */
+void audio_limit_stats(int64_t *over, int64_t *clip, double *lostSq);
 /* effects */
 void audio_sfx(int kind);
 void audio_sfx_loop(int kind, int on);            /* a looping effect (the battle heartbeat) on or off */
