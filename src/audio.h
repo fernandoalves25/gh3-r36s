@@ -6,7 +6,11 @@
 #include <stdint.h>
 #include <stddef.h>
 enum { BUS_PLAYER = 0, BUS_BAND = 1, BUS_OTHER = 2, BUS_N = 3 };
-enum { SFX_MOVE, SFX_OK, SFX_BACK, SFX_BAD, SFX_BAD_BASS, SFX_READY, SFX_STAR_ON, SFX_STAR_OFF, SFX_STREAK, SFX_DING, SFX_FANFARE, SFX_TICK, SFX_GO, SFX_FAIL, SFX_LOSE, SFX_N };
+/* the effects: the game's own sounds through sfx.c, the synthesized ones when the bank is missing. SFX_LOSE is the
+ * 2x multiplier lost, LOSE3 / LOSE4 the others; the ATK_ kinds are in PU_* order (battle.h) */
+enum { SFX_MOVE, SFX_OK, SFX_BACK, SFX_BAD, SFX_BAD_BASS, SFX_READY, SFX_STAR_ON, SFX_STAR_OFF, SFX_STREAK, SFX_DING, SFX_FANFARE, SFX_TICK, SFX_GO, SFX_FAIL, SFX_LOSE,
+    SFX_LOSE3, SFX_LOSE4, SFX_STREAK100, SFX_AWARDED, SFX_ROCK, SFX_CASH, SFX_WHOOSH, SFX_INTRO, SFX_HIGHWAY, SFX_WIN_P1, SFX_WIN_P2,
+    SFX_ATK_LIGHTNING, SFX_ATK_DIFFUP, SFX_ATK_DOUBLE, SFX_ATK_STEAL, SFX_ATK_LEFTY, SFX_ATK_STRING, SFX_ATK_WHAMMY, SFX_ATK_DEATH, SFX_ATK_OVER, SFX_BATTLE_AWARD, SFX_SUDDEN_DEATH, SFX_DEVIL_DIE, SFX_HEARTBEAT, SFX_N };
 int audio_open(void);
 void audio_close(void);
 int audio_has_device(void);
@@ -32,7 +36,10 @@ double audio_speed(void);
 void audio_render(float *out, int frames);        /* tests: mixes stereo frames without a device */
 /* effects */
 void audio_sfx(int kind);
+void audio_sfx_loop(int kind, int on);            /* a looping effect (the battle heartbeat) on or off */
 void audio_set_sfx_gain(double gain);
+void audio_lock(void);                            /* the device lock, for sfx.c's voices (no-ops without a device) */
+void audio_unlock(void);
 /* previews and the menu music: one stream, faded in and out, on the player bus at the band volume (the song clock is
  * not used meanwhile); a looping preview repeats, a menu track stops at its end and audio_preview_on() turns 0 */
 void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping);

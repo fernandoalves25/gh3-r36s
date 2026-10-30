@@ -53,7 +53,7 @@ static void hitNote(gh3_run *r, gh3_note *n, double t, int hammered, double perf
     r->score += 50.0 * n->n * game_mult(r);
     r->health = fmin(2, r->health + (r->spOn && r->d.star ? r->d.star : r->d.good));
     if (n->sus) { r->sus = n; n->beat = gh3_beatpos(r->chart->fretbars, r->chart->nfret, n->t); } else if (r->sus && r->sus != n) r->sus = NULL;
-    if (n->star >= 0) { gh3_phrase *p = &r->chart->phrases[n->star]; p->hit++; if (!p->failed && !p->done && p->hit >= p->total) { p->done = 1; if (r->battle) battle_award(r, n, perf); else if (addStar(r, 0.25, perf)) r->spFlash = perf; } }
+    if (n->star >= 0) { gh3_phrase *p = &r->chart->phrases[n->star]; p->hit++; if (!p->failed && !p->done && p->hit >= p->total) { p->done = 1; if (r->battle) battle_award(r, n, perf); else if (addStar(r, 0.25, perf)) { r->spFlash = perf; sfx(r, "awarded"); } } }
     if (r->battle) battle_judge(r, n, 1);
     r->chain = skipped ? 0 : n->mask; r->hasPending = 0;
     r->nhist = 0;
