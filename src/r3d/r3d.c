@@ -14,6 +14,7 @@
 #include "r3d_zone.h"
 #include "r3d_lights.h"
 #include "r3d_band.h"
+#include "r3d_crowd.h"
 #include "app.h"
 #include "settings.h"
 #include "battle.h"
@@ -53,7 +54,7 @@ typedef struct { uint32_t key; int clamp, max; GLuint id; } texref;
 typedef struct { int first, count; float c[3], r; } part;   /* a mesh inside a batch: its indices and bounding sphere */
 typedef struct {
     uint32_t mat; int smapped; GLuint vbo, ibo, tex, smap; int nidx, nvert, blend /* 0 solid, 1 added, 2 see-through */, board, colA;
-    float colour[4], alphaRef, tile, anim[4], wibU[4], wibV[4], wibR[3]; int wib, hasAnim; float amb[3], centre[3], radius; part *p; int np; float order;
+    float colour[4], alphaRef, tile, anim[4], wibU[4], wibV[4], wibR[3]; int wib, hasAnim, crowd /* 1 + the crowd kind its cards show (r3d_crowd.c), 0 */, lighter /* the crowd's lighters: shown while they are up */; float amb[3], centre[3], radius; part *p; int np; float order;
     vtx *v; uint16_t *i; int capV, capI; double ambSum[3]; float bmin[3], bmax[3];   /* build-time only */
 } batch;
 typedef struct { float pos[3], q[4], fov; } camend;
@@ -187,6 +188,7 @@ int r3d_init(SDL_Renderer *ren) {
     if (r3d_gl_load()) return -1;
     if (build_program()) return -1;
     if (r3d_band_init()) SDL_Log("r3d: no band (skinning shader)");   /* the venue still shows without it */
+    if (r3d_crowd_init()) SDL_Log("r3d: no crowd (figure shader)");
     const char *ext = (const char *)GL(glGetString)(GL_EXTENSIONS); if (!ext) ext = "";
     const char *ver = (const char *)GL(glGetString)(GL_VERSION); int es = ver && strstr(ver, "ES") != NULL;
     R.s3tc = strstr(ext, "GL_EXT_texture_compression_s3tc") != NULL || (strstr(ext, "GL_EXT_texture_compression_dxt1") && strstr(ext, "GL_ANGLE_texture_compression_dxt"));
@@ -373,7 +375,7 @@ static void unload(void) {
     for (int i = 0; i < R.nb; i++) { GL(glDeleteBuffers)(1, &R.b[i].vbo); GL(glDeleteBuffers)(1, &R.b[i].ibo); free(R.b[i].v); free(R.b[i].i); free(R.b[i].p); }
     for (int i = 0; i < R.ntex; i++) if (R.tex[i].id) GL(glDeleteTextures)(1, &R.tex[i].id);
     free(R.b); free(R.tex); free(R.shots); free(R.order); R.b = NULL; R.tex = NULL; R.shots = NULL; R.order = NULL; R.nb = R.ntex = R.nshots = R.ngen = 0; R.loaded = 0; R.zone[0] = 0;
-    R.meshes = R.skipped = R.tris = R.textures = R.nEtc = R.n16 = R.nDxt = 0; R.vram = R.texBytes = 0; R.texMs = 0; R.sortedSeq = -0x7fffffff; r3d_lights_unload();   /* sortedSeq: no shot id (-1 is the first general shot's) */
+    R.meshes = R.skipped = R.tris = R.textures = R.nEtc = R.n16 = R.nDxt = 0; R.vram = R.texBytes = 0; R.texMs = 0; R.sortedSeq = -0x7fffffff; r3d_lights_unload(); r3d_crowd_unload();   /* sortedSeq: no shot id (-1 is the first general shot's) */
 }
 static uint8_t q8(float v, float scale) { float x = v * scale; return (uint8_t)(x < 0 ? 0 : x > 255 ? 255 : x + 0.5f); }
 static void euler_xyz(const float a[3], float m[9]) {   /* three.js rotation.set(x, y, z), order XYZ: Rx * Ry * Rz */
@@ -394,6 +396,7 @@ static int load_zone(const char *zone) {
     r3d_texent *tents; int nt = r3d_texbank_read(te->data, te->len, &tents); cache_open(zone, te->data, te->len, tents, nt);
     r3d_venueqb vq; r3d_venueqb_read(ents, ne, &vq);
     r3d_band_zone(zone, ents, ne, vq.lights, vq.nlights);   /* where the band stands, its lights */
+    r3d_crowd_zone(zone);   /* the crowd's kinds: the figures painted on its cards */
     lightset L = { NULL, 0 }; int roomLit = 0;   /* the lights that fall on the room: not the ones kept for the band or the crowd */
     for (int i = 0; i < vq.nlights && L.n < 32; i++) if (!vq.lights[i].band) { L.l = realloc(L.l, (L.n + 1) * sizeof *L.l); L.l[L.n++] = vq.lights[i]; if (vq.lights[i].kind != L_AMBIENT) roomLit = 1; }
     if (!roomLit) default_lights(&L);   /* a venue with no lights of its own: the game's default daylight */
@@ -401,29 +404,32 @@ static int load_zone(const char *zone) {
     for (int mi = 0; mi < sc.nmeshes; mi++) {
         const r3d_mesh *me = &sc.meshes[mi]; if (me->nvert > 65535) { R.skipped++; continue; }
         { const char *sk = getenv("R3D_SKIP"); if (sk) { int hit = 0; for (const char *q = sk; *q; ) { if (atoi(q) == me->n) hit = 1; while (*q && *q != ',') q++; if (*q) q++; } if (hit) continue; } }   /* R3D_SKIP=3,16: parts left out, to tell what is what */
-        if (me->sector && r3d_venueqb_hidden(&vq, me->sector)) continue;   /* a part the venue's scripts put up later (or never) */
+        int lg = r3d_crowd_lighter(me->sector);   /* the crowd's lighters (<zone>_lighter_geoNN): put up by the song's crowd_startlighters */
+        if (me->sector && r3d_venueqb_hidden(&vq, me->sector) && !lg) continue;   /* a part the venue's scripts put up later (or never) */
         const r3d_mat *m = r3d_scene_mat(&sc, me->mat); if (!m || !m->ntex) { R.skipped++; continue; }
-        { int isPanel = 0; if (crowd) for (int i = 0; i < m->ntex && !isPanel; i++) for (int k = 0; k < crowd->n; k++) if (crowd->tex[k] == m->tex[i]) isPanel = 1; if (isPanel) { panels++; continue; } }   /* a crowd stand-in card: the game paints a moving figure on it; here there is no crowd yet */
+        int ck = -1; { int isPanel = 0; uint32_t pk = 0; if (crowd) for (int i = 0; i < m->ntex && !isPanel; i++) for (int k = 0; k < crowd->n; k++) if (crowd->tex[k] == m->tex[i]) { isPanel = 1; pk = m->tex[i]; }
+          if (isPanel) { panels++; ck = r3d_crowd_card(pk, me->pos, me->nrm, me->nvert); if (ck < 0) continue; } }   /* a crowd card: it wears the picture the crowd's figure of its kind is drawn into (r3d_crowd.c); none: left out */
         /* which texture is the picture, and which the baked light (venueSlots) */
-        int n = m->ntex, light = n >= 2 ? n - 1 : -1, pic = r3d_diffuse_slot(m->template);
-        if (pic < 0 || pic >= n) { pic = -1; for (int i = 0; i < n && pic < 0; i++) { if (i == light) continue; const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[i]) e = &tents[k];
+        int n = m->ntex, light = n >= 2 ? n - 1 : -1, pic = ck >= 0 ? 0 : r3d_diffuse_slot(m->template);
+        if (ck < 0 && (pic < 0 || pic >= n)) { pic = -1; for (int i = 0; i < n && pic < 0; i++) { if (i == light) continue; const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[i]) e = &tents[k];
                 if (!e) continue; r3d_look lk = r3d_tex_look(te->data + e->off, e->size); if (!lk.normal && !(lk.flat && lk.w <= 32)) pic = i; }
             if (pic < 0) { pic = 0; const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[0]) e = &tents[k]; r3d_look lk = e ? r3d_tex_look(te->data + e->off, e->size) : (r3d_look){ 0 };
                 if (e && lk.flat && lk.w <= 32) { R.skipped++; continue; } } }   /* a part with only a flat filler for a picture: a stand-in (the grey figure on the dive bar's stage), not scenery */
         int tf = r3d_template_flags(m->template), unlit = tf & TPL_UNLIT, amb = tf & TPL_AMB, lit = !unlit && !amb, board = tf & TPL_BOARD;
-        int smapOk = 0; if (lit && light >= 0 && (me->uvLast || me->uv2) && m->tex[light] != m->tex[pic]) { const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[light]) e = &tents[k]; if (e && e->w > 32) smapOk = 1; }
+        int smapOk = 0; if (ck < 0 && lit && light >= 0 && (me->uvLast || me->uv2) && m->tex[light] != m->tex[pic]) { const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[light]) e = &tents[k]; if (e && e->w > 32) smapOk = 1; }
         int sign = unlit || m->blend == 1;   /* signs, neon and glows: fine lines that are the room's focus */
-        GLuint tex = tex_get(te->data, te->len, tents, nt, m->tex[pic], m->clamp[pic < 3 ? pic : 3], sign); if (!tex) { R.skipped++; continue; }   /* a screen or sign whose picture the game makes while it runs */
+        GLuint tex = ck >= 0 ? r3d_crowd_tex(ck) : tex_get(te->data, te->len, tents, nt, m->tex[pic], m->clamp[pic < 3 ? pic : 3], sign); if (!tex) { R.skipped++; continue; }   /* a screen or sign whose picture the game makes while it runs */
         GLuint smap = smapOk ? tex_get(te->data, te->len, tents, nt, m->tex[light], 3, 0) : 0;
         if (getenv("R3D_DEBUG")) { const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[pic]) e = &tents[k]; r3d_look lk = e ? r3d_tex_look(te->data + e->off, e->size) : (r3d_look){ 0 };
             printf("mesh %3d sector %08x mat %08x tpl %08x tf %02x blend %u aref %u ntex %d pic %08x(%dx%d avg %.0f,%.0f,%.0f%s) tris %5d at %.1f %.1f %.1f r %.1f%s\n", me->n, me->sector, m->key, m->template, tf, m->blend, m->alphaRef, m->ntex, m->tex[pic], lk.w, lk.h, lk.r, lk.g, lk.b, lk.flat ? " flat" : "", me->ntri, me->centre[0], me->centre[1], me->centre[2], me->radius, me->sector && r3d_venueqb_object(&vq, me->sector) ? " (object)" : ""); }
         /* the batch of this material (and whether its parts carry a light map) */
-        batch *b = NULL; for (int i = 0; i < R.nb; i++) if (R.b[i].mat == m->key && R.b[i].smapped == (smap != 0) && R.b[i].nvert + me->nvert <= 65535) { b = &R.b[i]; break; }
+        batch *b = NULL; for (int i = 0; i < R.nb; i++) if (R.b[i].mat == m->key && R.b[i].crowd == ck + 1 && R.b[i].lighter == (lg > 0) && R.b[i].smapped == (smap != 0) && R.b[i].nvert + me->nvert <= 65535) { b = &R.b[i]; break; }
         if (!b) { R.b = realloc(R.b, (R.nb + 1) * sizeof *R.b); b = &R.b[R.nb++]; memset(b, 0, sizeof *b); b->mat = m->key; b->smapped = smap != 0; b->tex = tex; b->smap = smap ? smap : R.white;
-            b->blend = m->blend == 1 ? 1 : m->blend ? 2 : 0; b->board = board; b->colA = lit ? 0 : 1; b->tile = 1;
+            b->blend = m->blend == 1 ? 1 : m->blend ? 2 : 0; b->board = board; b->crowd = ck + 1; b->lighter = lg > 0; b->colA = lit ? 0 : 1; b->tile = 1;
             int at = m->nprops >= 8 && m->props[1] == 0 && m->props[2] == 0 && m->props[3] == 0 ? 4 : 0; for (int i = 0; i < 4; i++) b->colour[i] = m->nprops >= at + 4 ? fminf(8, fmaxf(0, m->props[at + i])) : 1;
             b->alphaRef = m->alphaRef > 0 ? m->alphaRef / 255.0f : b->blend == 2 ? 0.02f : 0;
             if ((tf & TPL_ANIM) && m->nvsp >= 3 && m->vsp[0] >= 1 && m->vsp[1] >= 1) { b->hasAnim = 1; for (int i = 0; i < 4; i++) b->anim[i] = i < m->nvsp ? m->vsp[i] : 0; }
+            if (ck >= 0) { b->hasAnim = 1; r3d_crowd_cell(ck, b->anim); }   /* its kind's cell of the crowd's atlas */
             if (tf & TPL_WIB) { int any = 0; for (int i = 0; i < 11 && i < m->nvsp; i++) if (m->vsp[i]) any = 1; if (m->nvsp >= 11 && any) { b->wib = 1; memcpy(b->wibU, m->vsp, 16); memcpy(b->wibV, m->vsp + 4, 16); memcpy(b->wibR, m->vsp + 8, 12); }
                 if (m->nprops >= 6 && m->props[4]) b->tile = m->props[4]; }
             for (int i = 0; i < 3; i++) { b->bmin[i] = 1e30f; b->bmax[i] = -1e30f; } }
@@ -449,7 +455,7 @@ static int load_zone(const char *zone) {
     }
     /* batches of different materials that draw the same (same pictures and numbers, ambient within 1/64) become one: fewer calls */
     int merged = 0;
-    for (int i = 0; i < R.nb; i++) for (int j = i + 1; j < R.nb; j++) { batch *a = &R.b[i], *c = &R.b[j]; int same = a->tex == c->tex && a->smap == c->smap && a->blend == c->blend && a->board == c->board && a->colA == c->colA && a->wib == c->wib && a->hasAnim == c->hasAnim
+    for (int i = 0; i < R.nb; i++) for (int j = i + 1; j < R.nb; j++) { batch *a = &R.b[i], *c = &R.b[j]; int same = a->tex == c->tex && a->smap == c->smap && a->blend == c->blend && a->board == c->board && a->colA == c->colA && a->wib == c->wib && a->hasAnim == c->hasAnim && a->crowd == c->crowd && a->lighter == c->lighter
             && !memcmp(a->colour, c->colour, sizeof a->colour) && a->alphaRef == c->alphaRef && a->tile == c->tile && !memcmp(a->anim, c->anim, sizeof a->anim) && !memcmp(a->wibU, c->wibU, sizeof a->wibU) && !memcmp(a->wibV, c->wibV, sizeof a->wibV) && !memcmp(a->wibR, c->wibR, sizeof a->wibR);
         for (int k = 0; k < 3 && same; k++) if (fabs(a->ambSum[k] / a->nvert - c->ambSum[k] / c->nvert) > 1 / 64.0) same = 0;
         if (!same || a->nvert + c->nvert > 65535) continue;
@@ -494,6 +500,7 @@ void r3d_select(const char *zone) {
     if (!R.ready) return; if (!zone || strncmp(zone, "z_", 2)) zone = "z_dive";
     if (!R.loaded || strcmp(R.zone, zone)) load_zone(zone);
     r3d_band_select();   /* who plays this song (a boss battle has the boss on stage) */
+    r3d_crowd_select();   /* when the song has the crowd's lighters up */
 }
 
 /* ------------------------------------------------------------------ drawing */
@@ -573,13 +580,14 @@ static void camera(double t, float *view, float *proj, int *shotId) {   /* shotI
 /* one batch: the runs of its parts that are in view and not under a pixel, each run one call (small hidden gaps drawn through) */
 typedef struct { float pl[6][4], view[16], pxk; } cullctx;
 static void draw_batch(const batch *b, const r3d_prog *P, const cullctx *cc) {
+    if ((b->crowd && !r3d_crowd_shown(b->crowd - 1)) || (b->lighter && !r3d_crowd_lighters())) return;   /* Efeitos de palco off, or its figure not drawn yet */
     if (!sphere_in(cc->pl, b->centre, b->radius)) { R.culled += b->np; return; }
     static int (*run)[2], cap; if (b->np > cap) { cap = b->np; run = realloc(run, (size_t)cap * sizeof *run); } int nr = 0;
     for (int k = 0; k < b->np; k++) { const part *p = &b->p[k];
         float z = -(cc->view[2] * p->c[0] + cc->view[6] * p->c[1] + cc->view[10] * p->c[2] + cc->view[14]);   /* how far in front of the camera */
         if (!sphere_in(cc->pl, p->c, p->r) || (z > p->r && p->r * cc->pxk < LOD_PX * z)) { R.culled++; continue; }
         if (nr && p->first - run[nr - 1][1] <= RUN_GAP && p->first >= run[nr - 1][1]) run[nr - 1][1] = p->first + p->count; else { run[nr][0] = p->first; run[nr][1] = p->first + p->count; nr++; } }
-    if (!nr) return;
+    if (!nr) return; if (b->crowd) r3d_crowd_seen(b->crowd - 1);   /* on screen: its figure keeps moving */
     GL(glBindBuffer)(GL_ARRAY_BUFFER, b->vbo); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, b->ibo);
     GL(glVertexAttribPointer)(0, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)0); GL(glVertexAttribPointer)(1, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)12);
     GL(glVertexAttribPointer)(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)24); GL(glVertexAttribPointer)(3, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)28);
@@ -620,6 +628,7 @@ static void timer_poll(int i) {
 static int draw(double perf, int sp, float energy) {
     double t = perf / 1000; float view[16], proj[16], vp[16]; int shotId = 0; camera(t, view, proj, &shotId); mat_mul(proj, view, vp); r3d_lights_update(t);
     R.flush(R.ren); glstate st; state_save(&st); R.drawCalls = R.drawnTris = R.culled = 0;
+    r3d_crowd_update(perf, sp); R.drawCalls += r3d_crowd_stats()->draws;   /* the crowd's figures due a redraw, into their own pictures, before the venue's pass */
     int res = res_mode(), fw = R.W, fh = R.H; if (res && R.blitProg) { float k = res == 2 ? 0.5f : 0.75f; fw = ((int)(R.W * k + 0.5f) + 1) & ~1; fh = ((int)(R.H * k + 0.5f) + 1) & ~1; }
     int off = (fw != R.W || fh != R.H) && fbo_ready(fw, fh); if (!off) { fw = R.W; fh = R.H; }
     int qi = -1; if (R.timer) { for (int i = 0; i < 4; i++) timer_poll(i); if (!R.qBusy[R.qi]) { qi = R.qi; R.beginQ(GL_TIME_ELAPSED_EXT, R.q[qi]); } }
@@ -683,7 +692,7 @@ int r3d_draw_stage(double perf, int sp, float energy) {
     Uint64 c0 = SDL_GetPerformanceCounter(); int r = draw(perf, sp, energy); perf_frame(c0); return r;
 }
 void r3d_shutdown(void) {
-    if (!R.ready) return; r3d_band_shutdown(); unload(); r3d_lights_shutdown(); for (int p = 0; p < 2; p++) GL(glDeleteProgram)(R.P[p].prog); GL(glDeleteTextures)(1, &R.white);
+    if (!R.ready) return; r3d_band_shutdown(); unload(); r3d_crowd_shutdown(); r3d_lights_shutdown(); for (int p = 0; p < 2; p++) GL(glDeleteProgram)(R.P[p].prog); GL(glDeleteTextures)(1, &R.white);
     if (R.blitProg) { GL(glDeleteProgram)(R.blitProg); GL(glDeleteBuffers)(1, &R.blitVbo); }
     if (R.fbo) { GL(glDeleteFramebuffers)(1, &R.fbo); GL(glDeleteTextures)(1, &R.fboTex); GL(glDeleteRenderbuffers)(1, &R.fboDepth); }
     R.ready = 0;
@@ -748,6 +757,7 @@ int r3d_test(const char *zone, const char *outdir, int W, int H) {
     if (r3d_init(ren)) { puts("r3d: no GL (see the log above)"); return 1; }
     if (load_zone(zone)) { printf("could not load %s\n", zone); return 1; }
     if (r3d_test_band) band_test_select();
+    r3d_crowd_test(zone, outdir);   /* the crowd's figures in each mood, and their cost */
     printf("%s: %d meshes in %d batches, %d skipped, %d triangles, %d textures (%d ETC1, %d 16-bit, %d DXT; %.1f MB of textures, %.0f ms encoding ETC1, up to %d px), %.1f MB on the GPU, %d camera shots, loaded in %.0f ms\n",
         zone, R.meshes, R.nb, R.skipped, R.tris, R.textures, R.nEtc, R.n16, R.nDxt, R.texBytes / 1048576.0, R.texMs, R.texMax, R.vram / 1048576.0, R.nshots, R.loadMs);
     uint8_t *px = malloc((size_t)W * H * 4); int nsave = R.nshots < 4 ? (R.nshots ? R.nshots : 1) : 4, keep = SET.stage3dRes; char nm[96];

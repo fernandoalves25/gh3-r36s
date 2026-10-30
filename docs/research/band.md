@@ -299,6 +299,11 @@ Camera shots can be locked to a role (`lockto`), orbiting its holder; not part o
 - lighting of the figures: ambient = sum of the venue's crowd-group ambient lights, key = other crowd-group lights (fallback 0.45 / 0.55).
 - lighters: `crowd_startlighters` event shows a lighter mesh group swaying 0.1*sin. Not needed.
 - Port tip: ~6 FBO textures of 128x256 re-skinned at 15-30 Hz is cheap (a ped is <=1.2k verts); or pre-bake a few frames per ped.
+- C port (src/r3d/r3d_crowd.c): the cards are template a17d40ed (unlit + camera-facing board, alpha ref 100), 1.15x2.58 (dive),
+  1.0x2.58 (budokan), 1.0x1.87 (prison) quads, hundreds per kind, vertex colours 57-165 (drawn x1.6). Every kind is a 128x256 cell
+  of one 512x512 atlas redrawn in one pass at 15 Hz (only kinds on screen) + one mipmap build; the venue batch picks its cell
+  with uAnim (fps 0). Lighter groups `<zone>_lighter_geo01..24` exist in budokan, prison, wikker (hidden by the venue's
+  scripts); 34 songs cue crowd_startlighters (paintitblack, citiesonflame, thrufireandflames, ...).
 
 ## 8. Shadows / lights (js bandShadows 6828)
 Planar projected shadow: the band's skinned meshes are drawn a second time through a matrix that flattens every vertex along the venue's shadow direction (`venueShadow` 1195: shadow-casting band light dir, else straight down) onto y = holder.y + 0.012 with black, opacity `shadowDark` (0.35 from script `tod_manager_create_perm_lights` setdynamicshadowintensity), stencil NotEqual-1 so overlapping triangles do not double-darken. Cost = a second skinned draw of the whole band (can reuse the skinned vertex buffer on CPU skinning, or run the skin shader with the projection matrix on the GPU).
