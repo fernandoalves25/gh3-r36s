@@ -11,7 +11,8 @@
  *     guitars for sale and the finishes for sale cost what the store's lists say ($200 to $10.000; a finish $250-$500,
  *     sold once the guitar is yours). "The rocker's own" plays the profile's guitar. Guitars with no file on disk can be
  *     bought and chosen; the 3D stage then puts the rocker's own guitar in their hands.
- * The choice is kept in gh3.cfg (roqueiro / visual / guitarra); the 3D band (r3d_band.c) and the results' magazine
+ * The stories and the outfit, style and finish names are shown in Portuguese (charsel_pt.c), the data's English where
+ * it has none. The choice is kept in gh3.cfg (roqueiro / visual / guitarra); the 3D band (r3d_band.c) and the results' magazine
  * cover (orig_results.c) use it. */
 #include "charsel.h"
 #include "app.h"
@@ -59,6 +60,8 @@ static void maker_line(const cs_guitar *g, char *out, size_t n) {   /* "Gibson C
     const char *ln = strcmp(g->line, g->finish) ? g->line : ""; snprintf(out, n, "%s%s%s", strncmp(ln, g->maker, strlen(g->maker)) || !*g->maker ? g->maker : "", *ln && strncmp(ln, g->maker, strlen(g->maker)) ? " " : "", ln);
 }
 static void trim(const char *s, char *out, size_t n) { while (*s == ' ') s++; snprintf(out, n, "%s", s); size_t L = strlen(out); while (L && out[L - 1] == ' ') out[--L] = 0; }
+static void say(int kind, char *s, size_t n) { const char *pt = charsel_pt_name(kind, s); if (pt != s) snprintf(s, n, "%s", pt); }   /* a name in Portuguese, in place */
+static const char *blurb_of(const char *pt, const qbv *v) { return pt ? pt : clean(v); }   /* the Portuguese story, else the data's English */
 static void money(int n, char *out, size_t cap) {   /* $10.000 */
     char raw[24]; snprintf(raw, sizeof raw, "%d", n < 0 ? 0 : n); int L = (int)strlen(raw), o = 0; out[o++] = '$';
     for (int i = 0; i < L && o + 1 < (int)cap; i++) { out[o++] = raw[i]; int left = L - 1 - i; if (left && left % 3 == 0 && o + 1 < (int)cap) out[o++] = '.'; } out[o] = 0;
@@ -73,7 +76,8 @@ static void read_outfits(int ri, const qbv *prof, const qbv *bodies) {
         char tag[16]; snprintf(tag, sizeof tag, "_0%ds%d", o, s);   /* the outfit whose style ids say it ("axel_01s1"): its name and that style's */
         if (outs && outs->kind == QB_ARRAY) for (int k = 0; k < outs->narr; k++) { const qbv *ids = qb_getk(outs->arr[k], K_STYLEIDS), *sty = qb_get(outs->arr[k], "styles"); if (!ids || ids->kind != QB_ARRAY) continue;
             for (int j = 0; j < ids->narr; j++) if (strstr(qb_str(ids->arr[j]), tag)) { trim(qb_str(qb_get(outs->arr[k], "name")), c->oname, sizeof c->oname); if (sty && sty->kind == QB_ARRAY && j < sty->narr) trim(qb_str(sty->arr[j]), c->sname, sizeof c->sname); } }
-        if (!c->oname[0]) snprintf(c->oname, sizeof c->oname, o == 1 ? "Visual de sempre" : "Visual %d", o); if (!c->sname[0]) snprintf(c->sname, sizeof c->sname, "cor %d", s); }
+        if (!c->oname[0]) snprintf(c->oname, sizeof c->oname, o == 1 ? "Visual de sempre" : "Visual %d", o); if (!c->sname[0]) snprintf(c->sname, sizeof c->sname, "cor %d", s);
+        say(CS_PT_OUTFIT, c->oname, sizeof c->oname); say(CS_PT_STYLE, c->sname, sizeof c->sname); }
 }
 const cs_data *charsel_data(void) {
     if (built || !A.lib) return &D; built = 1; memset(&D, 0, sizeof D);
@@ -82,7 +86,7 @@ const cs_data *charsel_data(void) {
     for (int i = 0; i < mp->narr && D.nr < (int)(sizeof D.r / sizeof *D.r); i++) { const qbv *st = mp->arr[i]; const char *nm = qb_str(qb_get(st, "name"));
         if (!qb_keyof(qb_get(st, "type"), &k) || k != KG || !*nm || !strncasecmp(nm, "boneman", 7)) continue;
         cs_rocker *r = &D.r[D.nr]; memset(r, 0, sizeof *r); snprintf(r->name, sizeof r->name, "%s", nm); trim(qb_str(qb_get(st, "fullname")), r->full, sizeof r->full); if (!r->full[0]) snprintf(r->full, sizeof r->full, "%s", nm);
-        r->blurb = clean(qb_get(st, "blurb"));
+        r->blurb = blurb_of(charsel_pt_rocker(nm), qb_get(st, "blurb"));
         qb_keyof(qb_get(qb_get(st, "musician_body"), "desc_id"), &r->body); qb_keyof(qb_get(qb_get(st, "musician_instrument"), "desc_id"), &r->inst);
         const qbv *d = by_desc(mb, r->body); if (d) { base_of(qb_str(qb_get(d, "pak")), r->pak, sizeof r->pak); base_of(qb_str(qb_get(d, "anims_pak")), r->anims, sizeof r->anims); } r->hasPak = on_disk(r->pak);
         const qbv *sl = gh3_library_section(A.lib, L_ROCKERS); uint32_t nk = gh3_qbkey(nm);   /* for sale: by the rocker named, or its body */
@@ -95,7 +99,9 @@ const cs_data *charsel_data(void) {
         for (int i = 0; i < mi->narr && D.ng < (int)(sizeof D.g / sizeof *D.g); i++) { const qbv *e = mi->arr[i]; if (!qb_keyof(qb_get(e, "type"), &k) || k != KGT || strcmp(qb_str(qb_get(e, "name")), D.m[m].name)) continue;
             cs_guitar *g = &D.g[D.ng]; memset(g, 0, sizeof *g); if (!qb_keyof(qb_get(e, "desc_id"), &g->id)) continue; g->model = m;
             trim(qb_str(qb_get(e, "finish")), g->finish, sizeof g->finish); trim(qb_str(qb_getk(e, K_LINE)), g->line, sizeof g->line); trim(qb_str(qb_getk(e, K_MAKER)), g->maker, sizeof g->maker);
-            g->blurb = clean(qb_get(e, "blurb")); base_of(qb_str(qb_get(e, "pak")), g->pak, sizeof g->pak); g->hasPak = on_disk(g->pak);
+            int same = !strcmp(g->line, g->finish); say(CS_PT_FINISH, g->finish, sizeof g->finish); say(CS_PT_MAKER, g->maker, sizeof g->maker);   /* (a line that repeats the finish stays the same) */
+            if (same) memcpy(g->line, g->finish, sizeof g->line); else say(CS_PT_LINE, g->line, sizeof g->line);
+            g->blurb = blurb_of(charsel_pt_guitar(g->id), qb_get(e, "blurb")); base_of(qb_str(qb_get(e, "pak")), g->pak, sizeof g->pak); g->hasPak = on_disk(g->pak);
             g->deflt = listed(L_DEFAULT, g->id, NULL); g->cat = listed(L_GUITARS, g->id, &g->price) || listed(L_SPECIAL, g->id, &g->price) ? CS_GUITARS : listed(L_FINISHES, g->id, &g->price) ? CS_FINISHES : -1;
             D.ng++; D.m[m].n++; } }
     char tm[40]; for (int m = 0; m < D.nm; m++) { trim(D.m[m].name, tm, sizeof tm); snprintf(D.m[m].name, sizeof D.m[m].name, "%s", tm); }   /* "  Les Paul  " (the game tells its Les Pauls apart by spaces) */
@@ -103,6 +109,9 @@ const cs_data *charsel_data(void) {
     if (getenv("GH3_CHARSEL_LOG")) { printf("charsel: %d rockers, %d outfits, %d guitars, %d finishes\n", D.nr, D.no, D.nm, D.ng);
         for (int i = 0; i < D.nr; i++) printf("  rocker %-8s %-14s body %-10s %s%s price %d\n", D.r[i].name, D.r[i].full, D.r[i].pak, D.r[i].hasPak ? "on disk" : "MISSING", D.r[i].secret ? ", secret" : "", D.r[i].price);
         for (int i = 0; i < D.ng; i++) printf("  guitar %-12s %-22s %-14s %-10s %s%s %s $%d\n", D.m[D.g[i].model].name, D.g[i].finish, D.g[i].line, D.g[i].pak, D.g[i].hasPak ? "on disk" : "-", D.g[i].deflt ? " default" : "", D.g[i].cat == CS_GUITARS ? "guitar" : D.g[i].cat == CS_FINISHES ? "finish" : "unsold", D.g[i].price); }
+    if (getenv("GH3_CHARSEL_LOG")) { int n = 0; for (int i = 0; i < D.nr; i++) if (!charsel_pt_rocker(D.r[i].name)) { printf("  no Portuguese story: rocker %s\n", D.r[i].name); n++; }   /* charsel_pt.c: what is still shown in English */
+        for (int i = 0; i < D.ng; i++) if (!charsel_pt_guitar(D.g[i].id) && D.g[i].blurb) { printf("  no Portuguese story: guitar %08x %s %s\n", D.g[i].id, D.m[D.g[i].model].name, D.g[i].finish); n++; }
+        printf("charsel: %d stories in English\n", n); }
     return &D;
 }
 
