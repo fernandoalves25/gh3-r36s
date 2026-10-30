@@ -24,9 +24,11 @@ void practice_bench(double durationMs) {
     printf("the song through the mixer (three MP3 streams, %.1f s of song):\n", durationMs / 1000);
     for (int k = 0; k <= PRACTICE_SPEEDS; k++) { int bend = k == PRACTICE_SPEEDS; double sp = PRACTICE_SPEED[bend ? PRACTICE_SPEEDS - 1 : k];   /* the last run: slowest with the whammy held down */
         audio_set_speed(sp); audio_play(0, 0); audio_set_bend(bend ? 1 : 0);
-        int64_t frames = (int64_t)((durationMs / sp / 1000 + 1.5) * 44100), last = 0, o = 0; double t0 = now_ms();
-        while (o < frames) { audio_render(buf, BLK); for (int i = 0; i < BLK; i++) if (fabsf(buf[2 * i]) > 1e-4f || fabsf(buf[2 * i + 1]) > 1e-4f) last = o + i; o += BLK; }
-        double ms = now_ms() - t0, heard = (last + 1) / 44100.0, perSec = ms / heard; audio_set_bend(0); audio_stop();
+        int64_t frames = (int64_t)((durationMs / sp / 1000 + 1.5) * 44100), last = 0, o = 0, over, hard, full = 0; double t0 = now_ms(), sq = 0, lost; audio_limit_stats(NULL, NULL, NULL);
+        while (o < frames) { audio_render(buf, BLK); for (int i = 0; i < BLK; i++) { if (fabsf(buf[2 * i]) > 1e-4f || fabsf(buf[2 * i + 1]) > 1e-4f) last = o + i; if (!k) { sq += (double)buf[2 * i] * buf[2 * i] + (double)buf[2 * i + 1] * buf[2 * i + 1]; full += (fabsf(buf[2 * i]) >= 0.999f) + (fabsf(buf[2 * i + 1]) >= 0.999f); } } o += BLK; }
+        double ms = now_ms() - t0, heard = (last + 1) / 44100.0, perSec = ms / heard; audio_set_bend(0); audio_stop(); audio_limit_stats(&over, &hard, &lost);
+        if (k == 0) printf("  the whole song at full volume: %lld samples over full scale (a hard clip's), now %lld at full scale; %lld bent by the soft limit; rms %.4f hard-clipped, %.4f now\n",
+            (long long)hard, (long long)full, (long long)over, sqrt((sq + lost) / (2.0 * o)), sqrt(sq / (2.0 * o)));
         if (k == 0) base = perSec;   /* full speed: decoding (and mixing) alone, which slows with the song: x speed per second heard */
         printf("  %-12s x%.3f%s: sound lasts %.2f s (want %.2f), %.2f ms of CPU per second heard, of which the stretch ~%.2f\n",
             PRACTICE_SPEED_NAME[bend ? PRACTICE_SPEEDS - 1 : k], sp, bend ? " + whammy" : "", heard, durationMs / sp / 1000, perSec, k ? perSec - base * sp : 0); }
@@ -111,7 +113,8 @@ int practice_drum_cue(int i, int *t, int *note) { if (i < 0 || i >= ncue) return
 enum { HMAX = 8192 };
 static int hitN; static double hitSong[HMAX]; static int64_t hitFrame[HMAX];
 static void drum_hook(int i, double songMs, int64_t frame) { (void)i; if (hitN < HMAX) { hitSong[hitN] = songMs; hitFrame[hitN] = frame; hitN++; } }
-typedef struct { double sq, peak, half[2][2]; int64_t n, clip; float *env; int nenv, kitV, fxV; } pass_t;   /* env: the peak of each ms; half: sq and n of each half; the most voices sounding at once */
+typedef struct { double sq, peak, half[2][2], lost; int64_t n, clip, over, hard; float *env; int nenv, kitV, fxV; } pass_t;   /* env: the peak of each ms; half: sq and n of each half; the most voices sounding at once; over / hard / lost: audio_limit_stats */
+static double hard_rms(const pass_t *P) { return P->n ? sqrt((P->sq + P->lost) / P->n) : 0; }   /* what a hard clip would have given */
 static double rms(const double *h) { return h[1] > 0 ? sqrt(h[0] / h[1]) : 0; }
 /* band: the play's band level (audio_set_band_level); mid: called halfway through (the pause's volumes applied) */
 static void pass(double at, double to, double sp, double lead, int drums, int player, double band, void (*mid)(void), pass_t *P) {
@@ -119,8 +122,9 @@ static void pass(double at, double to, double sp, double lead, int drums, int pl
     int64_t lf = (int64_t)(lead / sp / 1000.0 * 44100), frames = lf + (int64_t)((to - at) / sp / 1000.0 * 44100), midAt = lf + (frames - lf) / 2;
     P->nenv = (int)(frames / BLK) + 1; P->env = calloc(P->nenv, sizeof *P->env);
     if (drums) practice_drums_start(at, to, sp); else audio_practice_drums(NULL, -1);
-    audio_set_speed(sp); audio_set_band_level(band); hitN = 0; audio_play(at, lead); audio_mute(BUS_PLAYER, !player);
+    audio_set_speed(sp); audio_set_band_level(band); hitN = 0; audio_play(at, lead); audio_mute(BUS_PLAYER, !player); audio_limit_stats(NULL, NULL, NULL);
     for (int64_t o = 0, b = 0; o < frames; o += BLK, b++) { if (mid && o <= midAt && o + BLK > midAt) mid(); audio_render(buf, BLK); float pk = 0;
+        { int64_t ov, cl; double lo; audio_limit_stats(&ov, &cl, &lo); P->over += ov; P->hard += cl; if (o >= lf + 8820) P->lost += lo; }
         for (int i = 0; i < BLK * 2; i++) { float v = fabsf(buf[i]); if (v > pk) pk = v; if (v >= 0.999f) P->clip++; if (o + i / 2 >= lf + 8820) { double q = (double)buf[i] * buf[i]; P->sq += q; P->n++; int h = o + i / 2 >= midAt + 8820 ? 1 : o + i / 2 < midAt ? 0 : -1; if (h >= 0) { P->half[h][0] += q; P->half[h][1]++; } } }   /* (rms after the first 0.2 s: the player's track fading out) */
         if (pk > P->peak) P->peak = pk; P->env[b] = pk; int kv = sfx_voices_on(1), fv = sfx_voices_on(0); if (kv > P->kitV) P->kitV = kv; if (fv > P->fxV) P->fxV = fv; }
     audio_stop(); audio_mute(BUS_PLAYER, 0);
@@ -147,6 +151,9 @@ int practice_drumtest(double at, double to, double sp, double lead, void (*volum
         kr, kitP.peak, (long long)kitP.clip, br, bandP.peak, (long long)bandP.clip, kr > 0 && br > 0 ? 20 * log10(kr / br) : 0);
     printf("        the band of full-speed practice (x%.3f) rms %.3f peak %.2f: kit %+.1f dB against it\n", PRACTICE_BAND_FULL, fr, fullP.peak, kr > 0 && fr > 0 ? 20 * log10(kr / fr) : 0);
     printf("        kit + player's track rms %.3f peak %.2f, %lld of %lld samples clipped; band + player's track (before) rms %.3f, %lld clipped\n", ar, allP.peak, (long long)allP.clip, (long long)allP.n, orr, (long long)oldP.clip);
+    const pass_t *LP[4] = { &kitP, &allP, &oldP, &fullP }; const char *LN[4] = { "the kit alone", "kit + player's track", "band + player's track (stretched)", "full-speed practice band" };
+    printf("the output's soft limit (over %.2f, -1 dBFS):\n", 0.89);
+    for (int i = 0; i < 4; i++) { const pass_t *p = LP[i]; printf("   %-34s %6lld samples over full scale (a hard clip's), now %lld at full scale; %6lld bent; rms %.4f hard-clipped, %.4f now (%+.2f dB)\n", LN[i], (long long)p->hard, (long long)p->clip, (long long)p->over, hard_rms(p), p->n ? sqrt(p->sq / p->n) : 0, hard_rms(p) > 0 && p->sq > 0 ? 20 * log10(sqrt(p->sq / p->n) / hard_rms(p)) : 0); if (p->clip) bad++; }
     double h0 = rms(unitP.half[0]) > 0 ? rms(fullP.half[0]) / rms(unitP.half[0]) : 0, h1 = rms(unitP.half[1]) > 0 ? rms(fullP.half[1]) / rms(unitP.half[1]) : 0;
     printf("full-speed practice band: x%.3f of the band at 100%% before the volumes are applied, x%.3f after (want x%.3f both)\n", h0, h1, PRACTICE_BAND_FULL);
     printf("voices: the kit used at most %d of its own 20, the effects' voices at most %d while it played\n", kitP.kitV, kitP.fxV);
