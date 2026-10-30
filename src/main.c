@@ -126,6 +126,8 @@ static void sfx_hook(const char *name) {
     else if (!strncmp(name, "streak", 6)) audio_sfx(!strcmp(name, "streak100") ? SFX_STREAK100 : SFX_STREAK); else if (!strncmp(name, "lose", 4)) audio_sfx(name[4] == '4' ? SFX_LOSE4 : name[4] == '3' ? SFX_LOSE3 : SFX_LOSE);   /* lose2..4: the multiplier lost */
 }
 static void mute_hook(int m) { audio_mute(BUS_PLAYER, m); }
+static double practice_speed(void) { return PRACTICE_SPEED[A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0]; }   /* the game's current_speedfactor */
+static int practicePlay;   /* load_song for a practice played at practice_speed() (not the tutorials, which are MODE_PRACTICE at full speed) */
 /* --judgetest: the judging on a made-up chart, input simulated, and which sounds each case makes (no audio device) */
 static double jtT; static char jtLog[160];
 static void jt_sfx(const char *n) { size_t l = strlen(jtLog); snprintf(jtLog + l, sizeof jtLog - l, " %s@%.0f", n, jtT); }
@@ -175,6 +177,17 @@ static int judge_test(void) {
         if (!ok) fails++;
         printf("%-32s expect %-26s got%s | hits %d misses %d overstrums %d %s\n", k->name, e, jtLog[0] ? jtLog : " (nothing)", r.hits - warm, r.misses, r.overstrums, ok ? "ok" : "FAIL");
         jtLog[0] = 0; }
+    { /* practice: the windows times current_speedfactor (script 0xd8eeddfa), a strum just inside and just outside each edge */
+        static const int32_t FB2[] = { 0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000 };
+        for (int k = 0; k < PRACTICE_SPEEDS; k++) { double sp = PRACTICE_SPEED[k]; const gh3_tuning *pt = practice_tuning(&tn, sp); double E = tn.early * sp, L = tn.late * sp;
+            const struct { const char *name; double at; int hit; } P[4] = { { "early edge, inside", 3000 - E + 0.5, 1 }, { "early edge, outside", 3000 - E - 0.5, 0 }, { "late edge, inside", 3000 + L - 0.5, 1 }, { "late edge, outside", 3000 + L + 0.5, 0 } };
+            printf("practice x%.3f: windows %.1f / %.1f song ms (= %.0f / %.0f ms of real time)\n", sp, pt->early, pt->late, pt->early / sp, pt->late / sp); if (fabs(pt->early - E) > 1e-9 || fabs(pt->late - L) > 1e-9) fails++;
+            for (int c = 0; c < 4; c++) { gh3_note N[2]; memset(N, 0, sizeof N); N[0].t = 3000; N[0].mask = 1; N[0].n = 1; N[0].star = -1; N[1].t = 3600; N[1].mask = 2; N[1].n = 1; N[1].star = -1;
+                gh3_chart ch; memset(&ch, 0, sizeof ch); ch.notes = N; ch.nnotes = 2; ch.fretbars = FB2; ch.nfret = sizeof FB2 / sizeof FB2[0]; ch.end = 5000;
+                gh3_runopts o; memset(&o, 0, sizeof o); o.endMs = 5000; o.speed = 100; o.noFail = 1; gh3_run r; game_new(&r, &ch, practice_tuning(&tn, sp), 3, &o); gh3_sfx_hook = jt_sfx; gh3_mute_hook = jt_mute;
+                int done = 0; for (double t = 0; t < 3300; t += 1000.0 / 240) { if (!done && t + 1000.0 / 240 > P[c].at) { game_step(&r, t, t); game_set_frets(&r, 1, P[c].at, P[c].at); game_strum(&r, P[c].at, P[c].at); done = 1; continue; } game_step(&r, t, t); }
+                int ok = P[c].hit ? r.hits == 1 && !r.overstrums : r.hits == 0 && r.overstrums == 1; if (!ok) fails++;
+                printf("   %-20s strum at %7.1f: hits %d overstrums %d misses %d %s\n", P[c].name, P[c].at, r.hits, r.overstrums, r.misses, ok ? "ok" : "FAIL"); jtLog[0] = 0; } } }
     gh3_sfx_hook = sfx_hook; gh3_mute_hook = mute_hook;
     printf("%d failures\n", fails); return fails;
 }
@@ -214,9 +227,11 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
         double from, to; practice_range(&S->sd, A.practiceSec, A.practiceEnd, endMs, &from, &to); gh3_chart *c = &S->chart; int k = 0;
         for (int i = 0; i < c->nnotes; i++) if (c->notes[i].t >= from - 1 && c->notes[i].t < to) { c->notes[k] = c->notes[i]; c->notes[k].star = -1; k++; }
         if (!k) { snprintf(err, errCap, "Esse trecho não tem notas nesta parte"); return -1; }
-        c->nnotes = k; if (to + 120 < endMs) endMs = to + 120; }
+        c->nnotes = k; if (to + 120 < endMs) endMs = to + 120;
+        if (practicePlay && practice_speed() < 1) practice_drums_load(S->pakBytes, len, S->sd.name); }   /* below full speed: the song's drum cues for the game's kit */
     o.endMs = endMs; o.speed = 100;
-    game_new(&S->run, &S->chart, cheats_tuning(&lib.tuning, A.mode), diff, &o);
+    const gh3_tuning *tn = cheats_tuning(&lib.tuning, A.mode); if (practicePlay && A.mode == MODE_PRACTICE) tn = practice_tuning(tn, practice_speed());   /* the windows times the speed, after the cheats (as the game's song setup) */
+    game_new(&S->run, &S->chart, tn, diff, &o);
     S->loaded = 1; return 0;
 }
 const char *app_section_at(double t) {
@@ -390,7 +405,8 @@ static int song_load(void) {   /* the blocking part: the set's venue (3D build),
 #ifdef GH3_3D
     r3d_select(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "");   /* the set's venue (levelzones); a bonus song with none gets the default */
 #endif
-    if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
+    practicePlay = A.mode == MODE_PRACTICE; int bad = load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err); practicePlay = 0;
+    if (bad) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
     { Uint32 t0 = SDL_GetTicks(); sfx_song_prepare(A.mode != MODE_PRACTICE && A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : ""); static int once; if (!once) { once = 1; SDL_Log("sfx: the song's sounds decoded in %u ms (behind the loading screen)", SDL_GetTicks() - t0); } }
     return 0;
 }
@@ -404,8 +420,11 @@ void app_begin_song(void) {
 static void song_go(void) {
     app_apply_volumes();
     if (A.mode == MODE_PRACTICE) { /* the notes outside the sections are gone (load_song); the clock runs at the speed chosen */
-        double sp = PRACTICE_SPEED[A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0], from, to, at, lead;
-        practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, 1e12, &from, &to); practice_lead(from, sp, &at, &lead); audio_set_speed(sp); audio_play(at, lead); sfx_song_begin(NULL, lead / sp); }   /* (no crowd in practice) */
+        double sp = practice_speed(), from, to, at, lead;
+        practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, 1e12, &from, &to); practice_lead(from, sp, &at, &lead);
+        if (sp >= 1) { audio_set_bus_gain(BUS_BAND, SET.volMusic / 100.0 * PRACTICE_BAND_FULL); audio_set_bus_gain(BUS_OTHER, SET.volMusic / 100.0 * PRACTICE_BAND_FULL); }   /* set_band_volume vol=7 */
+        int hits = practice_drums_start(at, to, sp); if (sp < 1) SDL_Log("practice x%.3f: %s, %d drum hits from %.0f to %.0f ms", sp, hits >= 0 ? "no band, the game's drum kit" : "no drum kit: the band, stretched", hits, at, to);   /* below: set_band_volume vol=0 and the kit */
+        audio_set_speed(sp); audio_play(at, lead); sfx_song_begin(NULL, lead / sp); }   /* (no crowd in practice) */
     else { double from = 0, lead = 2600; battle_start(A.selSong, &from, &lead); audio_play(from, lead);   /* a boss song is a battle (or the devil's last part) */
         sfx_song_begin(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "", lead); }   /* the venue's crowd, the highway's rise and the intro kick */
     input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
@@ -567,6 +586,7 @@ int main(int argc, char **argv) {
     { size_t pl, bl; uint8_t *pak = read_data("pak", "qb.pak.xen", &pl), *pab = read_data("pak", "qb.pab.xen", &bl);
       if (pak && pab && gh3_library_read(pak, pl, pab, bl, &lib) == 0) A.libOk = 1; else snprintf(libErr, sizeof libErr, "Não consegui ler PAK/qb.pak.xen + qb.pab.xen em %s. Copie a pasta DATA do jogo (PAK, SONGS e MUSIC) para ports/gh3/DATA.", cfg.data);
       { size_t sl; uint8_t *sb = read_data("zones", "global_sfx.pak.xen", &sl); sfx_init(pak, pl, pab, bl, sb, sl); }   /* the game's sound effects (sfx keeps the bank) */
+      practice_init(pak, pl, pab, bl);   /* practice_notemapping: the drum kit of slowed practice */
       free(pak); free(pab); }
     A.lib = &lib; A.autoPlay = cfg.autoPlay; A.selDiff = 1;
     if (A.libOk) store_load(&lib);
@@ -579,11 +599,13 @@ int main(int argc, char **argv) {
     if (judgeTest) return judge_test() ? 1 : 0;   /* --judgetest: overstrum, wrong frets, a passed note, a hit: the sounds each makes */   /* --sfxtest: the game's sound effects, listed and decoded */
     if (cfg.stretchtest) { SDL_Init(0); int bad = stretch_selftest(); if (*cfg.song && A.libOk) { int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i;   /* and a song through the mixer at each speed */
             char e[300]; if (si < 0) puts("song not found"); else if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { practice_bench(A.S.durationMs);
-                A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 4; int all = A.S.chart.nnotes; double from, to, at, lead;   /* and a practice run of sections 3 to 4 played by the bot */
-                if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { gh3_run *r = &A.S.run; practice_range(&A.S.sd, 3, 4, 1e12, &from, &to); practice_lead(from, 0.5, &at, &lead);
+                A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 4; A.practiceSpeed = PRACTICE_SPEEDS - 1; int all = A.S.chart.nnotes; double from, to, at, lead;   /* and a practice run of sections 3 to 4 played by the bot */
+                practicePlay = 1; int lbad = load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e); practicePlay = 0; if (lbad) puts(e); else { gh3_run *r = &A.S.run; practice_range(&A.S.sd, 3, 4, 1e12, &from, &to); practice_lead(from, 0.5, &at, &lead);
                     double t = at - lead; while (!r->finished && t < 1e7) { game_step(r, t, t); t += 1000.0 / 60; }
                     printf("practice sections 3-4 (%.0f..%.0f ms) at 50%%: sound from %.0f ms after a %.0f ms count-in (song ms); %d of the song's %d notes, first %d last %d; run ends at %.0f ms, %d hits, %d misses\n",
-                        from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses); } } } return bad ? 1 : 0; }
+                        from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses);
+                    printf("judging windows at x%.3f: early %.1f late %.1f song ms (full speed %.0f / %.0f)\n", practice_speed(), r->tn->early, r->tn->late, lib.tuning.early, lib.tuning.late);
+                    bad += practice_drumtest(at, to, practice_speed(), lead); } } } return bad ? 1 : 0; }
     if (moneyTest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); bank_index(); return store_selftest(&lib) ? 1 : 0; }
     if (cfg.movietest[0]) { SDL_Init(0); movie_test(); audio_close(); return 0; }
 #ifdef GH3_3D
