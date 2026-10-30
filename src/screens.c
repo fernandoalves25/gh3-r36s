@@ -20,6 +20,7 @@
 #include "orig_results.h"
 #include "original.h"
 #include "orig_options.h"
+#include "overlay.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -359,7 +360,7 @@ static void draw_results(double now) {
     if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, sizeof b, "Treino a %d%% da velocidade: nada é salvo.", (int)lround(PRACTICE_SPEED[k] * 100)); gfx_text_center(W / 2, 362, 1, b, C_SP); }
     else if (SET.noFail && !r->failed) gfx_text_center(W / 2, 362, 1, "Modo sem falhar: não vale para recordes nem para a carreira.", C_MUTED);
     else if (!cheats_records_ok(A.mode) && !r->failed) gfx_text_center(W / 2, 362, 1, "Easy Expert: não vale para recordes.", C_MUTED);
-    else if (A.mode == MODE_QUICK && !r->failed && !A.newRecord) gfx_text_center(W / 2, 362, 1, "Jogo rápido: o recorde conta, a carreira não muda.", C_MUTED);
+    else if (A.mode == MODE_QUICK && !r->failed && !A.newRecord && !r->autoPlay) gfx_text_center(W / 2, 362, 1, "Jogo rápido: o recorde conta, a carreira não muda.", C_MUTED);
     store_draw_result(W, 200, T);
     const char *it[3] = { "Tocar de novo", A.mode == MODE_PRACTICE ? "Mudar o treino" : store_encore_offer() >= 0 ? "Encore!" : "Lista de músicas", "Mais estatísticas" }; int by = 404, ni = r->failed ? 2 : 3, cw = ni == 3 ? 204 : 244;
     for (int i = 0; i < ni; i++) { int x = W / 2 - ni * cw / 2 + 8 + i * cw; if (i == A.resRow) ui_panel(x, by - 7, cw - 16, 30, UI_PANEL_AMBER); gfx_text_sh_center(x + cw / 2 - 8, by, ni == 3 ? 1 : 2, it[i], i == A.resRow ? C_INK : C_MUTED, C_SHADOW); }
@@ -513,6 +514,7 @@ void screens_event(int in, double now) {
             else if (A.mode == MODE_PRACTICE) { if (app_prepare_song(A.selSong) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; } }   /* other sections or speed, same song */
             else { app_session_free(); to_setlist(now); } }
         else if (in == IN_BACK) { app_session_free(); audio_sfx(SFX_BACK); to_setlist(now); }
+        if (A.screen != SC_RESULTS) overlay_close();   /* left before the flames were over: their decoder goes */
     } else if (A.screen == SC_CALIB) {
         if (in == IN_OK) { if (A.calN >= 6) { SET.offsetMs = app_calib_result(); settings_save(); audio_sfx(SFX_FANFARE); } else audio_sfx(SFX_BACK); app_calib_stop(); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_CALIB; }
         else if (in == IN_BACK) { app_calib_stop(); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_CALIB; audio_sfx(SFX_BACK); }
