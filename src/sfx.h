@@ -15,6 +15,7 @@ void sfx_loop(int kind, int on);                      /* a looping kind (the bat
 void sfx_mix(float *l, float *r, float gain, int songOn);   /* one frame, from the audio callback; beds hold while !songOn */
 /* the crowd of a song: `zone` is the tier's venue ("z_dive", "" for none), the beds start at the lead-in and the
  * Song_Intro_Kick comes when the music does (leadMs later); tick once a frame with the run; end with the result */
+void sfx_song_prepare(const char *zone);            /* the loading screen: decodes the venue's crowd and every sound a song can play, so none is decoded mid-song */
 void sfx_song_begin(const char *zone, double leadMs);
 void sfx_song_tick(const gh3_run *r, double songMs);
 void sfx_song_end(int failed);

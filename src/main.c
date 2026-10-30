@@ -391,6 +391,7 @@ static int song_load(void) {   /* the blocking part: the set's venue (3D build),
     r3d_select(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "");   /* the set's venue (levelzones); a bonus song with none gets the default */
 #endif
     if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
+    { Uint32 t0 = SDL_GetTicks(); sfx_song_prepare(A.mode != MODE_PRACTICE && A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : ""); static int once; if (!once) { once = 1; SDL_Log("sfx: the song's sounds decoded in %u ms (behind the loading screen)", SDL_GetTicks() - t0); } }
     return 0;
 }
 static void song_go(void);

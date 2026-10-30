@@ -210,6 +210,13 @@ static void bed(int st, double fadeSec) {   /* the mood's loop, faded in over th
 static void crowd_swell(void) { if (!CR.on) return; const crowdset_t *S = &CROWD[CR.set]; clip_t *c = named(S->swell2 && rand() % 2 ? S->swell2 : S->swell); if (c && c->pcm) start(c, S->swellVol / 100 * CROWD_LEVEL, 100, 0, 0, 0, -1); boostTarget = SURGE_LEVEL; boostStep = (SURGE_LEVEL - 1) / (1.2f * 44100); }
 static void crowd_decode(int set) { const crowdset_t *S = &CROWD[set]; const char *fs[] = { S->bed[0].f, S->bed[1].f, S->bed[2].f, S->up01.f, S->up12.f, S->down21.f, S->down10.f, S->swell, S->swell2, S->applause.f };
     for (int i = 0; i < 10; i++) { clip_t *c = named(fs[i]); if (c) decode(c); } for (int i = 0; i < 2; i++) { event_t *e = event_of(RAW[i].cont); if (e) event_decode(e); } event_t *e = event_of(cont_key("crowd_individual_clap_to_beat")); if (e) event_decode(e); }
+void sfx_song_prepare(const char *zone) {   /* (the first use of a sound decodes its MP3 on the game's thread: 0.1-0.3 s on the A35 for the long cheers) */
+    if (!ready) return; int set = venue_set(zone); if (set >= 0) crowd_decode(set);
+    static const int K[] = { SFX_HIGHWAY, SFX_INTRO, SFX_BAD, SFX_BAD_BASS, SFX_READY, SFX_AWARDED, SFX_STAR_ON, SFX_STREAK, SFX_STREAK100, SFX_LOSE, SFX_LOSE3, SFX_LOSE4, SFX_FAIL, SFX_ROCK,
+        SFX_ATK_LIGHTNING, SFX_ATK_DIFFUP, SFX_ATK_DOUBLE, SFX_ATK_STEAL, SFX_ATK_LEFTY, SFX_ATK_STRING, SFX_ATK_WHAMMY, SFX_ATK_DEATH, SFX_ATK_OVER, SFX_BATTLE_AWARD, SFX_SUDDEN_DEATH, SFX_DEVIL_DIE, SFX_HEARTBEAT, SFX_WIN_P1, SFX_WIN_P2 };
+    for (size_t i = 0; i < sizeof K / sizeof K[0]; i++) sfx_prepare(K[i]);
+    for (int i = 0; i < 2; i++) { event_t *e = event_of(RAW[i].cont); if (e) event_decode(e); }   /* the crowd's one-shot cheers and boos */
+}
 void sfx_song_begin(const char *zone, double leadMs) {
     if (!ready) return; sfx_song_stop(); int set = venue_set(zone); CR.introDone = 0; CR.beat = -1; CR.state = -1; CR.nextShot = 0;
     event_t *hw = kind_event(SFX_HIGHWAY, 0), *kick = kind_event(SFX_INTRO, 0); if (hw) event_decode(hw); if (kick) event_decode(kick); if (set >= 0) crowd_decode(set);
