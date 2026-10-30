@@ -204,6 +204,19 @@ static void battle_read(const secmap *m, gh3_library *lib) {
 }
 const gh3_boss *gh3_library_boss(const gh3_library *lib, int si) { for (int i = 0; i < lib->battle.nbosses; i++) if (lib->battle.bosses[i].songIdx == si) return lib->battle.bosses[i].npowerups ? &lib->battle.bosses[i] : NULL; return NULL; }
 
+/* the light cue notes (lightshow_notemapping: { midinote scr|event params{ mood | color | time } }), as the browser port reads them (readLibrary) */
+static void lightshow_read(const secmap *m, gh3_library *lib) {
+    const qbv *ln = sec(m, "lightshow_notemapping"), *lc = sec(m, "lightshow_coloroverrides"), *ex = sec(m, "lightshow_coloroverrideexcludelights");
+    uint32_t kCol = gh3_qbkey("lightshow_overridecolor"), kTime = gh3_qbkey("lightshow_settime"), kStrobe = gh3_qbkey("strobetoggle"), kSnap = gh3_qbkey("snapshotchange"), kPyro = gh3_qbkey("lightshow_pyroevent");
+    if (ln && ln->kind == QB_ARRAY) for (int i = 0; i < ln->narr; i++) { const qbv *it = ln->arr[i], *p = qb_get(it, "params"), *tm = qb_get(p, "time"), *cv = NULL; int note = (int)qb_num(qb_get(it, "midinote"), -1); uint32_t scr = 0, ev = 0, mood, col;
+        if (note < 0 || note > 127) continue; gh3_lightnote *o = &lib->lightNote[note]; memset(o, 0, sizeof *o); qb_keyof(qb_get(it, "scr"), &scr); qb_keyof(qb_get(it, "event"), &ev);
+        if (qb_keyof(qb_get(p, "mood"), &mood)) { o->kind = LN_MOOD; o->mood = mood; }
+        else if (scr == kCol) { o->kind = LN_COLOUR; o->rgb[0] = -1; if (qb_keyof(qb_get(p, "color"), &col) && (cv = qb_getk(lc, col)) && cv->kind == QB_VEC3) for (int k = 0; k < 3; k++) o->rgb[k] = cv->f[k] / 255; }
+        else if (scr == kTime) { o->kind = LN_TIME; o->time = tm && (tm->kind == QB_INT || tm->kind == QB_FLOAT) ? (float)qb_num(tm, 0) : -1; }
+        else if (ev == kStrobe) o->kind = LN_STROBE; else if (ev == kSnap) o->kind = LN_NEXT; else if (scr == kPyro) o->kind = LN_PYRO;
+        if (o->kind) lib->hasLightNotes = 1; }
+    if (ex && ex->kind == QB_ARRAY) for (int i = 0; i < ex->narr && lib->nlightKeep < 128; i++) { uint32_t k; if (qb_keyof(ex->arr[i], &k)) lib->lightKeep[lib->nlightKeep++] = k; }
+}
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib) {
     memset(lib, 0, sizeof *lib); gh3_default_tuning(&lib->tuning);
     gh3_pakent *ents; int ne = gh3_pak_parse(pak, pakLen, pab, pabLen, &ents);
@@ -297,6 +310,7 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
     tn->susShorten = num(&m, "whammy_shorten", 0.25); tn->split = num(&m, "split_late_percent", 0.5); tn->spDrain = num(&m, "star_power_drain_rate", 12.5);
     shop_read(&m, lib);
     battle_read(&m, lib);
+    lightshow_read(&m, lib);
     for (int i = 0; i < ne; i++) if (keep[i]) gh3_qb_free_sections(keep[i], keepn[i]);
     free(keep); free(keepn); free(m.a); free(ents);
     return lib->nsongs ? 0 : -1;
@@ -344,10 +358,13 @@ int gh3_songpak_read(const uint8_t *pak, size_t len, const char *name, gh3_songd
     if ((a = arrsec(best, bestn, sd->name, "_cameras_notes"))) { sd->cams = calloc(a->narr, sizeof *sd->cams);
         for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; if (e && e->kind == QB_ARRAY && e->narr >= 2) { for (int k = 0; k < 3 && k < e->narr; k++) sd->cams[sd->ncams][k] = arr_int(e, k); sd->ncams++; } }
         for (int i = 1; i < sd->ncams; i++) { int c[3]; memcpy(c, sd->cams[i], sizeof c); int j = i; while (j > 0 && sd->cams[j - 1][0] > c[0]) { memcpy(sd->cams[j], sd->cams[j - 1], sizeof c); j--; } memcpy(sd->cams[j], c, sizeof c); } }
+    if ((a = arrsec(best, bestn, sd->name, "_lightshow_notes"))) { sd->lights = calloc(a->narr, sizeof *sd->lights);
+        for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; if (e && e->kind == QB_ARRAY && e->narr >= 2) { for (int k = 0; k < 3 && k < e->narr; k++) sd->lights[sd->nlights][k] = arr_int(e, k); sd->nlights++; } }
+        for (int i = 1; i < sd->nlights; i++) { int c[3]; memcpy(c, sd->lights[i], sizeof c); int j = i; while (j > 0 && sd->lights[j - 1][0] > c[0]) { memcpy(sd->lights[j], sd->lights[j - 1], sizeof c); j--; } memcpy(sd->lights[j], c, sizeof c); } }   /* stable: cues at one time keep their order */
     gh3_qb_free_sections(best, bestn);
     return sd->nfret ? 0 : -1;
 }
-void gh3_songdata_free(gh3_songdata *sd) { free(sd->fretbars); free(sd->timesig); free(sd->markers); free(sd->cues); free(sd->cams); for (int p = 0; p < 4; p++) for (int d = 0; d < 4; d++) { free(sd->parts[p][d].raw); free(sd->parts[p][d].star); free(sd->parts[p][d].battle); } memset(sd, 0, sizeof *sd); }
+void gh3_songdata_free(gh3_songdata *sd) { free(sd->fretbars); free(sd->timesig); free(sd->markers); free(sd->cues); free(sd->cams); free(sd->lights); for (int p = 0; p < 4; p++) for (int d = 0; d < 4; d++) { free(sd->parts[p][d].raw); free(sd->parts[p][d].star); free(sd->parts[p][d].battle); } memset(sd, 0, sizeof *sd); }
 
 /* ------------------------------------------------------------------ chart */
 double gh3_beatpos(const int32_t *fb, int nfb, double t) {

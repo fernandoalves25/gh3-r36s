@@ -7,6 +7,7 @@
 #include "r3d.h"
 #include "r3d_gl.h"
 #include "r3d_zone.h"
+#include "r3d_lights.h"
 #include "app.h"
 #include "settings.h"
 #include <stdio.h>
@@ -90,6 +91,7 @@ static int sphere_visible(const float *vp, const float c[3], float rad) {
 /* ------------------------------------------------------------------ shaders */
 static const char *VS =
     "uniform mat4 uProj; uniform mat4 uView; uniform float uBoard; uniform vec4 uAnim; uniform vec4 uWibU; uniform vec4 uWibV; uniform vec3 uWibR; uniform float uWib; uniform float uTime;\n"
+    "uniform vec3 uBake; uniform float uDyn; uniform vec4 uLP[4]; uniform vec4 uLC[4]; uniform vec4 uLD[4];\n"   /* the light show (r3d_lights.c): the baked light scaled, plus four lights' changes (pos far / rgb near / dir isSpot) */
     "attribute vec3 aPos; attribute vec3 aCtr; attribute vec4 aCol; attribute vec4 aLit; attribute vec2 aUv; attribute vec2 aUv2;\n"
     "varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vLit;\n"
     "void main() {\n"
@@ -101,7 +103,11 @@ static const char *VS =
     "  if (uAnim.x > 0.5) { float fr = floor(mod(uTime * uAnim.z + uAnim.w, uAnim.x * uAnim.y)); uv = (vec2(mod(fr, uAnim.x), floor(fr / uAnim.x)) + aUv) / uAnim.xy; }\n"   /* a picture made of frames */
     "  if (uWib > 0.5) { float su = uTime * uWibU.x + uWibU.z * sin(uWibU.y * uTime + uWibU.w), sv = uTime * uWibV.x + uWibV.z * sin(uWibV.y * uTime + uWibV.w), ra = uTime * uWibR.x;\n"   /* one that scrolls, sways and turns */
     "    vec2 c0 = aUv - uWibR.yz; uv = vec2(c0.x * cos(ra) + c0.y * sin(ra), c0.y * cos(ra) - c0.x * sin(ra)) + uWibR.yz + vec2(mod(su, 8.0), mod(sv, 8.0)); }\n"
-    "  vUv = uv; vUv2 = aUv2; vCol = aCol; vLit = aLit.rgb * 4.0;\n"
+    "  vUv = uv; vUv2 = aUv2; vCol = aCol; vec3 lit = aLit.rgb * 4.0;\n"
+    "  if (uDyn > 0.5) { vec3 dl = vec3(0.0); for (int k = 0; k < 4; k++) { vec3 d = uLP[k].xyz - aCtr; float dd = length(d), att = clamp((uLP[k].w - dd) / max(uLP[k].w - uLC[k].w, 0.01), 0.0, 1.0);\n"
+    "      dl += uLC[k].rgb * att * mix(1.0, 0.25 + 0.75 * smoothstep(0.2, 0.8, dot(d, -uLD[k].xyz) / max(dd, 0.001)), uLD[k].w); }\n"
+    "    lit = max(lit * uBake + dl, 0.0); }\n"
+    "  vLit = lit;\n"
     "}\n";
 static const char *FS =
     "#ifdef GL_ES\nprecision highp float;\n#endif\n"
@@ -127,6 +133,7 @@ static int build_program(void) {
 #define U(n) R.n = GL(glGetUniformLocation)(R.prog, #n)
     U(uProj); U(uView); U(uBoard); U(uAnim); U(uWibU); U(uWibV); U(uWibR); U(uWib); U(uTime); U(uMap); U(uSmap); U(uColour); U(uAmb); U(uTint); U(uAlphaRef); U(uColA); U(uTile);
 #undef U
+    r3d_lights_program(R.prog);
     return 0;
 }
 
@@ -210,7 +217,7 @@ static void unload(void) {
     for (int i = 0; i < R.nb; i++) { GL(glDeleteBuffers)(1, &R.b[i].vbo); GL(glDeleteBuffers)(1, &R.b[i].ibo); free(R.b[i].v); free(R.b[i].i); }
     for (int i = 0; i < R.ntex; i++) if (R.tex[i].id) GL(glDeleteTextures)(1, &R.tex[i].id);
     free(R.b); free(R.tex); free(R.shots); free(R.order); R.b = NULL; R.tex = NULL; R.shots = NULL; R.order = NULL; R.nb = R.ntex = R.nshots = R.ngen = 0; R.loaded = 0; R.zone[0] = 0;
-    R.meshes = R.skipped = R.tris = R.textures = 0; R.vram = 0;
+    R.meshes = R.skipped = R.tris = R.textures = 0; R.vram = 0; r3d_lights_unload();
 }
 static uint8_t q8(float v, float scale) { float x = v * scale; return (uint8_t)(x < 0 ? 0 : x > 255 ? 255 : x + 0.5f); }
 static void euler_xyz(const float a[3], float m[9]) {   /* three.js rotation.set(x, y, z), order XYZ: Rx * Ry * Rz */
@@ -301,6 +308,7 @@ static int load_zone(const char *zone) {
     SDL_Log("r3d: %s: %d meshes in %d batches (%d skipped, %d crowd cards), %d triangles, %d textures, %.1f MB on the GPU, %d shots (%d general; %d lights, %d objects, %d hidden), %u ms",
         zone, R.meshes, R.nb, R.skipped, panels, R.tris, R.textures, R.vram / 1048576.0, R.nshots, R.ngen, vq.nlights, vq.nobjects, vq.nhidden, SDL_GetTicks() - t0);
     R.loadMs = SDL_GetTicks() - t0; snprintf(R.zone, sizeof R.zone, "%s", zone); R.loaded = 1;
+    r3d_lights_load(zone, ents, ne, &vq);   /* the venue's light show: presets, mapping, pyro */
     free(L.l); r3d_venueqb_free(&vq); free(tents); r3d_scene_free(&sc); free(ents); free(pak); return 0;
 }
 const char *r3d_zone(void) { return R.zone; }
@@ -386,16 +394,16 @@ static void draw_batch(const batch *b) {
     GL(glActiveTexture)(GL_TEXTURE1); GL(glBindTexture)(GL_TEXTURE_2D, b->smap); GL(glActiveTexture)(GL_TEXTURE0); GL(glBindTexture)(GL_TEXTURE_2D, b->tex);
     GL(glUniform1f)(R.uBoard, (float)b->board); GL(glUniform4f)(R.uAnim, b->hasAnim ? b->anim[0] : 0, b->anim[1], b->anim[2], b->anim[3]);
     GL(glUniform1f)(R.uWib, (float)b->wib); if (b->wib) { GL(glUniform4f)(R.uWibU, b->wibU[0], b->wibU[1], b->wibU[2], b->wibU[3]); GL(glUniform4f)(R.uWibV, b->wibV[0], b->wibV[1], b->wibV[2], b->wibV[3]); GL(glUniform3f)(R.uWibR, b->wibR[0], b->wibR[1], b->wibR[2]); }
-    GL(glUniform4f)(R.uColour, b->colour[0], b->colour[1], b->colour[2], b->colour[3]); GL(glUniform3f)(R.uAmb, b->amb[0], b->amb[1], b->amb[2]); GL(glUniform1f)(R.uAlphaRef, b->alphaRef); GL(glUniform1f)(R.uColA, (float)b->colA); GL(glUniform1f)(R.uTile, b->tile);
+    GL(glUniform4f)(R.uColour, b->colour[0], b->colour[1], b->colour[2], b->colour[3]); r3d_lights_batch(!b->colA, b->amb); GL(glUniform1f)(R.uAlphaRef, b->alphaRef); GL(glUniform1f)(R.uColA, (float)b->colA); GL(glUniform1f)(R.uTile, b->tile);
     if (b->blend == 1) { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_ONE, GL_ONE); GL(glDepthMask)(GL_FALSE); } else if (b->blend == 2) { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); GL(glDepthMask)(GL_FALSE); } else { GL(glDisable)(GL_BLEND); GL(glDepthMask)(GL_TRUE); }
     GL(glDrawElements)(GL_TRIANGLES, b->nidx, GL_UNSIGNED_SHORT, (void *)0); R.drawCalls++; R.drawnTris += b->nidx / 3;
 }
 static int draw(double perf, int sp, float energy) {
-    double t = perf / 1000; float view[16], proj[16], vp[16]; camera(t, view, proj); mat_mul(proj, view, vp);
+    double t = perf / 1000; float view[16], proj[16], vp[16]; camera(t, view, proj); mat_mul(proj, view, vp); r3d_lights_update(t);
     R.flush(R.ren); glstate st; state_save(&st); R.drawCalls = R.drawnTris = 0;
     GL(glDisable)(GL_SCISSOR_TEST); GL(glViewport)(0, 0, R.W, R.H); GL(glEnable)(GL_DEPTH_TEST); GL(glDepthFunc)(GL_LEQUAL); GL(glDepthMask)(GL_TRUE); GL(glColorMask)(1, 1, 1, 1); GL(glDisable)(GL_CULL_FACE);
     GL(glClear)(GL_DEPTH_BUFFER_BIT); GL(glBlendEquationSeparate)(GL_FUNC_ADD, GL_FUNC_ADD);
-    GL(glUseProgram)(R.prog); GL(glUniformMatrix4fv)(R.uProj, 1, GL_FALSE, proj); GL(glUniformMatrix4fv)(R.uView, 1, GL_FALSE, view); GL(glUniform1f)(R.uTime, (float)fmod(t, 4096)); GL(glUniform1i)(R.uMap, 0); GL(glUniform1i)(R.uSmap, 1);
+    GL(glUseProgram)(R.prog); GL(glUniformMatrix4fv)(R.uProj, 1, GL_FALSE, proj); GL(glUniformMatrix4fv)(R.uView, 1, GL_FALSE, view); GL(glUniform1f)(R.uTime, (float)fmod(t, 4096)); GL(glUniform1i)(R.uMap, 0); GL(glUniform1i)(R.uSmap, 1); r3d_lights_uniforms();
     float k = 1 + 0.12f * energy; if (sp) GL(glUniform3f)(R.uTint, k * 0.78f, k * 0.98f, k * 1.18f); else GL(glUniform3f)(R.uTint, k, k, k);   /* star power: the room goes blue */
     for (int i = 0; i < st.nattr; i++) GL(glDisableVertexAttribArray)(i);
     GL(glEnableVertexAttribArray)(R.aPos); GL(glEnableVertexAttribArray)(R.aCtr); GL(glEnableVertexAttribArray)(R.aCol); GL(glEnableVertexAttribArray)(R.aLit); GL(glEnableVertexAttribArray)(R.aUv); GL(glEnableVertexAttribArray)(R.aUv2);
@@ -408,15 +416,18 @@ static int draw(double perf, int sp, float energy) {
         for (int i = 0; i < n; i++) if (R.b[idx[i]].board || sphere_visible(vp, R.b[idx[i]].centre, R.b[idx[i]].radius)) draw_batch(&R.b[idx[i]]); }
     GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0); GL(glDepthMask)(GL_TRUE);
     GL(glDisableVertexAttribArray)(R.aPos); GL(glDisableVertexAttribArray)(R.aCtr); GL(glDisableVertexAttribArray)(R.aCol); GL(glDisableVertexAttribArray)(R.aLit); GL(glDisableVertexAttribArray)(R.aUv); GL(glDisableVertexAttribArray)(R.aUv2);
+    r3d_lights_draw(vp, view);   /* beams, the housings' glow, pyro sparks: additive, after the venue */
     state_restore(&st); return 1;
 }
 int r3d_draw_stage(double perf, int sp, float energy) {
     if (!R.ready || !R.loaded || !SET.stage3d) return 0;
     return draw(perf, sp, energy);
 }
-void r3d_shutdown(void) { if (!R.ready) return; unload(); GL(glDeleteProgram)(R.prog); GL(glDeleteTextures)(1, &R.white); R.ready = 0; }
+void r3d_shutdown(void) { if (!R.ready) return; unload(); r3d_lights_shutdown(); GL(glDeleteProgram)(R.prog); GL(glDeleteTextures)(1, &R.white); R.ready = 0; }
 
 /* ------------------------------------------------------------------ --r3dtest */
+static char testSong[64];
+void r3d_test_song(const char *song) { snprintf(testSong, sizeof testSong, "%s", song ? song : ""); }
 int r3d_test(const char *zone, const char *outdir, int W, int H) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);   /* as main() asks for the game's window */
@@ -434,10 +445,34 @@ int r3d_test(const char *zone, const char *outdir, int W, int H) {
         for (int y = 0; y < H / 2; y++) for (int x = 0; x < W * 4; x++) { uint8_t t = px[(size_t)y * W * 4 + x]; px[(size_t)y * W * 4 + x] = px[(size_t)(H - 1 - y) * W * 4 + x]; px[(size_t)(H - 1 - y) * W * 4 + x] = t; }
         SDL_Surface *sf = SDL_CreateRGBSurfaceFrom(px, W, H, 32, W * 4, 0x000000FF, 0x0000FF00, 0x00FF0000, 0); char p[700]; snprintf(p, sizeof p, "%s/%s_%d.bmp", outdir && *outdir ? outdir : ".", zone, s); SDL_SaveBMP(sf, p); SDL_FreeSurface(sf);
         printf("  shot %d: %d draw calls, %d triangles -> %s\n", s, R.drawCalls, R.drawnTris, p); SDL_RenderPresent(ren); }
-    /* timing: frames across all the shots, the GPU made to finish each */
-    int N = 120; Uint64 f0 = SDL_GetPerformanceCounter(); long calls = 0;
-    for (int f = 0; f < N; f++) { SDL_RenderClear(ren); draw(f * 1000.0 / 60 * 7, 0, 0.5f); R.flush(ren); GL(glFinish)(); calls += R.drawCalls; }
-    double ms = (SDL_GetPerformanceCounter() - f0) * 1000.0 / SDL_GetPerformanceFrequency() / N;
-    printf("%d frames: %.2f ms/frame on this GPU (%s), %.0f draw calls/frame\n", N, ms, GL(glGetString)(GL_RENDERER), (double)calls / N);
+    /* the light show over a song (--song NAME, else the first song of the set played here): frames at the first cue of each kind, three shots each, the show stepped from the song's start */
+    static gh3_songdata sd; uint8_t *spak = NULL; double showAt = -1; const gh3_library *lib = A.lib; const char *song = testSong;
+    if (!*song && lib) for (int t = 0; t < lib->ntiers && !*song; t++) if (lib->shop.tierZone && !strcmp(lib->shop.tierZone[t], zone) && lib->tiers[t].nsongs) song = lib->songs[lib->tiers[t].songIdx[0]].name;
+    if (*song && lib && lib->hasLightNotes) { char nm[96]; size_t len; snprintf(nm, sizeof nm, "%s_song.pak.xen", song); spak = app_read_data("songs", nm, &len);
+        if (!spak || gh3_songpak_read(spak, len, song, &sd)) printf("light show: no song %s\n", song);
+        else { const char *what[9] = { "intro", "verse", "chorus", "solo", "strobe", "colour", "pyro", "chorus_poor", "off" }; double at[9]; uint32_t mk[5] = { gh3_qbkey("intro"), gh3_qbkey("verse"), gh3_qbkey("chorus"), gh3_qbkey("solo"), gh3_qbkey("strobe") };
+            for (int i = 0; i < 8; i++) at[i] = -1;
+            for (int i = 0; i < sd.nlights; i++) { const gh3_lightnote *w = &lib->lightNote[sd.lights[i][1] & 127]; double t = sd.lights[i][0];
+                if (w->kind == LN_MOOD) for (int k = 0; k < 5; k++) if (w->mood == mk[k] && at[k] < 0) at[k] = t + 400;
+                if (w->kind == LN_COLOUR && w->rgb[0] >= 0 && at[5] < 0) at[5] = t + 600; if (w->kind == LN_PYRO && at[6] < 0) at[6] = t + 450; }
+            at[7] = at[2]; at[8] = 0; showAt = at[2] > 0 ? at[2] : at[1];
+            if (getenv("R3D_LDEBUG")) for (int i = 0; i < sd.nlights; i++) if (fabs(sd.lights[i][0] - at[4]) < 3000) printf("    cue %6d note %3d kind %d\n", sd.lights[i][0], sd.lights[i][1], lib->lightNote[sd.lights[i][1] & 127].kind);
+            printf("light show: %s, %d cues\n", song, sd.nlights);
+            SET.stage3d = 1;
+            for (int i = 0; i < 9; i++) { if (at[i] < 0) { printf("  %-11s: no cue\n", what[i]); continue; }
+                for (int c = 0; c < 3; c++) { r3d_lights_sim(NULL, 0, 0); SET.stageFx = i < 8; if (i < 8) r3d_lights_sim(&sd, at[i], i == 7 ? 0.3 : 1.6);   /* "off": Efeitos de palco off, the baked look */
+                    SDL_RenderClear(ren); draw((c * c + c) * SHOT_MS + SHOT_MS * 0.35, 0, 0.5f); R.flush(ren); GL(glFinish)();
+                    GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1); GL(glReadPixels)(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px);
+                    for (int y = 0; y < H / 2; y++) for (int x = 0; x < W * 4; x++) { uint8_t t = px[(size_t)y * W * 4 + x]; px[(size_t)y * W * 4 + x] = px[(size_t)(H - 1 - y) * W * 4 + x]; px[(size_t)(H - 1 - y) * W * 4 + x] = t; }
+                    SDL_Surface *sf = SDL_CreateRGBSurfaceFrom(px, W, H, 32, W * 4, 0x000000FF, 0x0000FF00, 0x00FF0000, 0); char p[700]; snprintf(p, sizeof p, "%s/%s_show_%s_%d.bmp", outdir && *outdir ? outdir : ".", zone, what[i], c); SDL_SaveBMP(sf, p); SDL_FreeSurface(sf);
+                    if (!c) printf("  %-11s at %6.0f ms: %s -> %s\n", what[i], at[i], r3d_lights_info(), p); } } } }
+    /* timing: frames across all the shots, the GPU made to finish each; with the show off, then on (frozen at the first chorus) */
+    for (int pass = 0; pass < (showAt >= 0 ? 2 : 1); pass++) {
+        r3d_lights_sim(NULL, 0, 0); SET.stageFx = pass; if (pass) r3d_lights_sim(&sd, showAt, 1.6);
+        int N = 120; Uint64 f0 = SDL_GetPerformanceCounter(); long calls = 0;
+        for (int f = 0; f < N; f++) { SDL_RenderClear(ren); draw(f * 1000.0 / 60 * 7, 0, 0.5f); R.flush(ren); GL(glFinish)(); calls += R.drawCalls; }
+        double ms = (SDL_GetPerformanceCounter() - f0) * 1000.0 / SDL_GetPerformanceFrequency() / N;
+        printf("%d frames, light show %s: %.2f ms/frame on this GPU (%s), %.0f draw calls/frame\n", N, pass ? "on" : "off", ms, GL(glGetString)(GL_RENDERER), (double)calls / N); }
+    r3d_lights_sim(NULL, 0, 0); gh3_songdata_free(&sd); free(spak);
     free(px); r3d_shutdown(); SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit(); return 0;
 }

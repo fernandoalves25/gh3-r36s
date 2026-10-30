@@ -531,7 +531,7 @@ int main(int argc, char **argv) {
     if (moneyTest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); bank_index(); return store_selftest(&lib) ? 1 : 0; }
     if (cfg.movietest[0]) { SDL_Init(0); movie_test(); audio_close(); return 0; }
 #ifdef GH3_3D
-    if (r3dTest[0]) return r3d_test(r3dTest, cfg.outdir, cfg.W, cfg.H);
+    if (r3dTest[0]) { r3d_test_song(cfg.song); return r3d_test(r3dTest, cfg.outdir, cfg.W, cfg.H); }
 #endif
     if (cfg.audiotest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
         char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }

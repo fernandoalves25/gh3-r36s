@@ -49,7 +49,11 @@ typedef struct { uint32_t key; int id; char title[48], alt[48]; double weight, w
 typedef struct { int songIdx; char name[48]; uint32_t powerups[16]; int npowerups; double gain[4], loss[4], miss[4], whammySpeed[4], stringSpeed[4], stringMiss[4]; } gh3_boss;
 typedef struct { gh3_powerup *pu; int npu; gh3_boss *bosses; int nbosses; int max; double offset[4], good[4], bad[4]; } gh3_battledata;
 typedef struct { char zone[24]; uint32_t tex[16]; int n; } gh3_zonecrowd;   /* a venue's crowd panel textures (<zone>_crowd_models textureasset keys): the flat stand-ins the game paints the crowd on */
-typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; char careerMovie[48]; gh3_battledata battle; gh3_zonecrowd crowd[12]; int ncrowd; } gh3_library;   /* careerMovie: the career's initial_movie */
+/* what a song's light cue note means (lightshow_notemapping, colours from lightshow_coloroverrides): kind LN_*; mood: the mood key; rgb 0..1 (LN_COLOUR with rgb[0] < 0: back to the preset colours); time: blend seconds (< 0: the default) */
+enum { LN_NONE = 0, LN_MOOD, LN_COLOUR, LN_TIME, LN_STROBE, LN_NEXT, LN_PYRO };
+typedef struct { int kind; uint32_t mood; float rgb[3], time; } gh3_lightnote;
+typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; char careerMovie[48]; gh3_battledata battle; gh3_zonecrowd crowd[12]; int ncrowd;
+    gh3_lightnote lightNote[128]; int hasLightNotes; uint32_t lightKeep[128]; int nlightKeep; } gh3_library;   /* careerMovie: the career's initial_movie; lightKeep: lightshow_coloroverrideexcludelights, the lights a colour cue leaves alone */
 const gh3_zonecrowd *gh3_library_crowd(const gh3_library *lib, const char *zone);   /* NULL when the venue lists none */
 const gh3_boss *gh3_library_boss(const gh3_library *lib, int songIdx);   /* the boss of a battle song, or NULL */
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib);
@@ -71,6 +75,7 @@ typedef struct {
     gh3_partdiff parts[4][4];
     gh3_cue *cues; int ncues;
     int (*cams)[3]; int ncams;   /* _cameras_notes: [time ms, midinote, duration] camera cuts, by time (the 3D stage; the note names a shot list through cameracuts_notemapping) */
+    int (*lights)[3]; int nlights;   /* _lightshow_notes: [time ms, midinote, tag] light cues, by time (the 3D stage's light show; the note's meaning is gh3_library.lightNote) */
 } gh3_songdata;
 int gh3_songpak_read(const uint8_t *pak, size_t len, const char *name, gh3_songdata *sd);
 void gh3_songdata_free(gh3_songdata *sd);
