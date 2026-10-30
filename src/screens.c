@@ -94,7 +94,7 @@ static void draw_main(double now) {
         snprintf(b, sizeof b, "%s", diff_name_pt(d)); gfx_text(px + 14, py + 36 + d * 22, 1, b, C_MUTED);
         snprintf(b, sizeof b, "%d/%d sets", done, ntier); gfx_text_sh_right(px + 194, py + 36 + d * 22, 1, b, done == ntier ? C_GOOD : C_INK, C_SHADOW);
         ui_bar(px + 70, py + 38 + d * 22, 60, 5, ntier ? (float)done / ntier : 0, done == ntier ? C_GOOD : C_AMP); }
-    { gfx_sprite *st = fx_star(1, SET.theme == 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), px + 12, py + 120, 20, 20, RGB(255, 255, 255), 1); } snprintf(b, sizeof b, "%d estrelas", records_count_stars()); gfx_text_sh(px + 38, py + 126, 1, b, C_INK, C_SHADOW);
+    { gfx_sprite *st = fx_star(1, SET.theme >= 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), px + 12, py + 120, 20, 20, RGB(255, 255, 255), 1); } snprintf(b, sizeof b, "%d estrelas", records_count_stars()); gfx_text_sh(px + 38, py + 126, 1, b, C_INK, C_SHADOW);
     ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, MM_HELP[A.mainRow], C_MUTED);
     static const char *bt[2] = { "A", "B" }, *tx[2] = { "Escolher", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2);
     if (A.confirmQuit) { ui_dim(W, H, 150); ui_panel(W / 2 - 150, H / 2 - 50, 300, 100, UI_PANEL_DARK); gfx_text_sh_center(W / 2, H / 2 - 34, 2, "Sair do jogo?", C_INK, C_SHADOW); static const char *qb[2] = { "A", "B" }, *qt[2] = { "Sim, sair", "Ficar" }; ui_hints(H / 2 + 14, W, qb, qt, 2); }
@@ -206,12 +206,12 @@ static const char *CAT_LABEL[CAT_N] = { "ÁUDIO", "CALIBRAR ATRASO", "CONTROLE",
 static const char *CAT_HELP[CAT_N] = {
     "Volumes da banda, da guitarra e dos efeitos, a música do menu, as prévias e o atraso do áudio.",
     "Toca um clique e você palheta no ritmo: o jogo mede o atraso do som e ajusta as notas e o julgamento. Faça antes de jogar.",
-    "Canhoto, modo de palhetada e os botões de cada ação.", "Tema visual, efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
+    "Canhoto, modo de palhetada e os botões de cada ação.", "Efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
     "Os seus melhores resultados em cada música.", "As trapaças do jogo: toque os códigos nos trastes ou ligue cada uma direto.", "Volta todas as opções e controles ao padrão (recordes e carreira ficam)." };
 #ifdef GH3_3D
-#define VIDEO_ITEMS { OPT_THEME, OPT_STAGE3D, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
+#define VIDEO_ITEMS { OPT_STAGE3D, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
 #else
-#define VIDEO_ITEMS { OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
+#define VIDEO_ITEMS { OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
 #endif
 static const int CAT_ITEMS[CAT_N][7] = { { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, -1 }, { -1 }, { OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, -1 },
     VIDEO_ITEMS, { -1 }, { OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, -1 }, { -1 } };
@@ -245,7 +245,7 @@ static void draw_options(double now) {
         ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, cat_off(A.optRow) ? "Não dá para abrir durante a música." : CAT_HELP[A.optRow], C_MUTED);
         static const char *bt[2] = { "A", "B" }, *tx[2] = { "Abrir", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2); return; }
     ui_header(W, CAT_LABEL[A.optCat], "salvas ao sair");
-    int n = cat_count(A.optCat), rowH = 30, top = 80;
+    int n = cat_count(A.optCat), rowH = 30, top = 80; if (A.optRow >= n) A.optRow = n - 1;   /* a row past the category (one that lost an item) */
     for (int k = 0; k < n; k++) { int i = CAT_ITEMS[A.optCat][k], y = top + k * rowH, sel = k == A.optRow; opt_value(i, v, sizeof v);
         if (sel) { ui_panel(14, y - 7, W - 28, rowH - 2, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), 20, y - 3, 0.5f, RGB(255, 255, 255), 1); }
         gfx_text_sh(36, y, 2, OPT_LABEL[i], sel ? C_INK : C_MUTED, C_SHADOW);

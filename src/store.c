@@ -207,7 +207,7 @@ void encore_draw(double now) {
     ui_title(W / 2 - gfx_text_w(E, sc) / 2, H / 2 - 92, sc, E, fb_alpha(C_AMP, 0.75f + 0.25f * pulse), C_SHADOW, 4);
     gfx_text_sh_center(W / 2, H / 2 + 6, 2, "A plateia quer mais uma!", C_INK, C_SHADOW);
     const gh3_song *s = &A.lib->songs[A.selSong]; char b[320]; snprintf(b, sizeof b, "%s • %s", s->title, s->artist); gfx_text_sh_center(W / 2, H / 2 + 40, 1, b, C_MUTED, C_SHADOW);
-    for (int i = 0; i < 5; i++) { float a = (float)(0.35 + 0.65 * fmax(0, sin(T * 6.2 - i * 0.9))); { gfx_sprite *st = fx_star(1, SET.theme == 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), W / 2 - 116 + i * 50, H / 2 + 66, 32, 32, RGB(255, 255, 255), a); } }
+    for (int i = 0; i < 5; i++) { float a = (float)(0.35 + 0.65 * fmax(0, sin(T * 6.2 - i * 0.9))); { gfx_sprite *st = fx_star(1, SET.theme >= 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), W / 2 - 116 + i * 50, H / 2 + 66, 32, 32, RGB(255, 255, 255), a); } }
     static const char *bt[2] = { "A", "B" }, *tx[2] = { "Tocar já", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2);
 }
 int store_encore_offer(void) {   /* the tier's encore once the career opened it by its own rules (not by the cheat), until it is played */

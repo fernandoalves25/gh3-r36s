@@ -8,7 +8,8 @@ enum { BIND_NONE = 0, BIND_BUTTON = 1, BIND_AXIS = 2, BIND_STICK = 3 };
 typedef struct { int type, id, dir; } bind_t;
 #define BIND_SLOTS 3
 #define SETTINGS_VERSION 3   /* 2: whammy on both sticks, offset = lag compensation; 3: frets on the shoulders as in the GH3 PS2 manual */
-#define THEME_N 3   /* 0 pixel art, 1 HD, 2 Original (the game's own 2D art, original.c) */
+#define THEME_N 3   /* 2 Original (the game's own 2D art, original.c) is the game's look; 1 HD draws what the Original art lacks
+                     * (or all of it when ZONES/global is missing); 0 pixel art only for headless checks (--theme 0) */
 typedef struct {
     int tap;            /* 1 = notes play when their frets are held (no strumming) */
     int lefty;          /* mirror the highway */

@@ -18,7 +18,7 @@ da carreira seguem as do jogo original.
 - Hammer-ons, sustains, star power, multiplicador e medidor de rock com as janelas de tempo do jogo.
 - Controles iguais ao Guitar Hero III de PS2 por padrão (trastes em L2, L1, R1, R2 e B), configuráveis, com cinco perfis.
 - Alavanca nos dois analógicos, que abaixa o tom das notas longas como no PS2.
-- Calibração do atraso do som, três temas visuais (pixel art, HD suave e a arte 2D do próprio jogo), menus em português, prévia das músicas.
+- O visual do próprio jogo (notas, trastes, pista, HUD, menus e fontes lidos de `ZONES/global`), calibração do atraso do som, menus em português, prévia das músicas.
 - **Dois executáveis na mesma pasta**: `GH3` (palco em pixel art) e `GH3 3D`, que desenha o cenário do próprio jogo
   em 3D atrás da pista (os `.scn`/`.tex` de `ZONES/`, com as câmeras do jogo cortando no ritmo da música). Os dois leem o
   mesmo `DATA` e os mesmos arquivos de save; o 3D é experimental e pode ser desligado em Opções > Vídeo > Palco 3D.

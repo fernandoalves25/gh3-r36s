@@ -20,7 +20,7 @@ jogo, como foram levantadas no port para navegador.
   - `ZONES/global_sfx.pak.xen` (os efeitos sonoros do jogo: menus, notas erradas, star power, ataques, plateia) - 6 MB, opcional.
     Sem ele os efeitos são sintetizados.
   - `ZONES/global.pak.xen` + `global.pab.xen` (a arte 2D do jogo: notas, trastes, HUD, fundos dos menus e fontes) - 83 MB, opcional.
-    Só o tema visual **Original** lê esses dois arquivos; sem eles esse tema desenha como o HD suave.
+    Sem eles o jogo funciona com um visual liso de reserva.
   - `ZONES/` (os cenários 3D, `z_*.pak.xen`) - 225 MB, só para o executável **GH3 3D** (veja abaixo). O resto de
     `MOVIES/` não é usado e pode ficar de fora para poupar cartão.
 
@@ -134,13 +134,13 @@ Organizadas como no jogo:
 - **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
 - **Calibrar atraso**: a medição descrita acima.
 - **Controle**: canhoto (lefty flip), palhetada normal ou toque livre (a nota toca ao segurar os trastes), botões.
-- **Vídeo**: tema visual, palco 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura. Os temas são três: **Pixel art** (o padrão),
-  **HD suave** e **Original**, que usa a arte 2D do próprio jogo lida de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os
-  trastes, as chamas, a pista com os seus trilhos, o medidor de rock com as válvulas do star power, a caixa do placar com a
-  válvula do multiplicador e os dígitos do jogo, e nos menus os fundos (o salão do menu principal, a mesa de madeira da lista,
-  a parede de cartazes), a moldura e o padrão do menu de pausa, as pílulas dos botões e a fonte dos títulos. Os textos miúdos
-  continuam na fonte pixel. A arte é lida só quando o tema está escolhido, tela por tela, e liberada ao trocar de tema; o palco
-  atrás da pista (plateia, luzes) segue o desenho dos outros temas, porque no jogo ele é 3D.
+- **Vídeo**: palco 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
+
+O visual é o do próprio jogo, lido de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os trastes, as chamas, a pista com
+os seus trilhos, o medidor de rock com as válvulas do star power, a caixa do placar com a válvula do multiplicador e os
+dígitos do jogo, e nos menus os fundos (o salão do menu principal, a mesa de madeira da lista, a parede de cartazes), a
+moldura e o padrão do menu de pausa, as pílulas dos botões e a fonte dos títulos. Os textos miúdos continuam na fonte pixel.
+Sem esses dois arquivos o jogo desenha tudo num visual liso de reserva.
 - **Top Rockers**: os seus melhores resultados em cada música, por dificuldade.
 - **Trapaças**: as do jogo, com os mesmos códigos (em "Tocar um código", segure os trastes de cada acorde e palhete):
   Hyperspeed, No Fail, Easy Expert (janelas de acerto dobradas; não vale na carreira nem para recordes), Precision Mode

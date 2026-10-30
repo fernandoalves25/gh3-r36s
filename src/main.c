@@ -436,7 +436,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
-    A.optCat = 3; A.optRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on Vídeos de abertura */
+    A.optCat = 3; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
     A.optionsFrom = SC_MAIN; A.optRow = 5; cheats_open(); gfx_begin(); screens_draw(0); gfx_end(); save_named("cheats");
     { /* the Hyperspeed code of the game (O B O Y O B O Y) typed on the keyboard frets, to see the matcher unlock it */
