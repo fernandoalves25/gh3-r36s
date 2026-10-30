@@ -117,6 +117,12 @@ Beams: additive open cone mesh (`venueBeam` L7082): `r0->r1` radius over `Range`
 3. Duration: shot runs from `T_i` to the next cue time that maps to a camera (else `T_i + max(4000, dur_i)`); `u = clamp((ms - t0)/(t1 - t0))`.
 4. No camera cues (no song / 0-cut songs): every 16 beats (`VENUE_SHOT_BEATS`) a shot from the "general" lists (cameras, orbit, pan, dolly, zoom_slow, zoom_out, singer, drummer, bassist, guitar_closeup) in a fixed shuffle.
 5. Song end (win/lose): lists `z_<v>_cameras_win|lose` (1 orbit shot each, orbitangle -10/-20, lockto guitarist), new shot every 4 s. `cameras_starpower` only via note 96.
+   (qb.pak, checked: the band's win / lose event arrays (0xf598ae8e / 0xc7fea388) run play_win_anims / play_lose_anims and script 0x6bd5485e
+   = `cameracuts_setarrayprefix prefix = "cameras_win"|"cameras_lose" changenow`. Every venue but z_soundcheck has both lists, one shot of kind
+   0xe2ecb8e2 (orbit-lerp: cam1 -> cam2 over the shot's time, turning orbitangle about the guitarist). A shot's time (script 0x1590418e): the
+   next camera cue's, else Random(3, 8) s. r3d.c cuts to the list as the band takes its stance, 3-8 s a shot by the cue hash.)
+6. Song end, highway: GuitarEvent_SongWon_Spawned / SongFailed_Spawned start the movie (Player1_wins...) and the words first, then spawn
+   `waitandkillhighway` = wait 0.5 s, Crowd_Fast_Surge_Cheer, hide the highway and HUD at once (a failed normal song hides it at once).
 6. Filters: drop shots whose `lockto` member is not on stage; drop FOV<45 close-ups when there is no band; drop shots with geometry within 1.2 m in front of the lens (ray test, `open()` L7226). Cheap to precompute at load.
 
 ### Shot data (DATA)

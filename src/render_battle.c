@@ -15,6 +15,7 @@
 #include <math.h>
 
 #define LANE_Q 0.55f
+#define HWY_KILL_MS 500   /* GuitarEvent_SongWon / SongFailed_Spawned spawn waitandkillhighway after the banner: wait 0.5 s, then the highway is hidden at once */
 static gfx_sprite *icons[THEME_N][PU_KINDS + 1];   /* [PU_KINDS]: an empty slot */
 static const uint32_t CARD_BG[PU_KINDS + 1] = { RGB(0xb0, 0x6a, 0x10), RGB(0x1f, 0x8a, 0x3e), RGB(0x2a, 0x5c, 0xb8), RGB(0x7a, 0x3a, 0xa8), RGB(0x16, 0x8a, 0x8a), RGB(0xa8, 0x26, 0x22), RGB(0xc8, 0x6a, 0x16), RGB(0x30, 0x10, 0x14), RGB(0x2a, 0x25, 0x36) };
 
@@ -143,7 +144,8 @@ static void draw_intro(double now) {
 }
 static void draw_end(double now) {
     int W = A.W, H = A.H; double age = now - BTL.phaseAt; char sub[120] = "";
-    if (BTL.on) render_battle(now, 0); else { gh3_run *r = &A.S.run; render_game(r, now, NULL); }
+    int killed = age >= HWY_KILL_MS && render_venue(now);   /* waitandkillhighway: the movie and the words first, half a second later the highways and the HUD hidden; the venue (gh3-3d) alone under them */
+    if (!killed) { if (BTL.on) render_battle(now, 0); else { gh3_run *r = &A.S.run; render_game(r, now, NULL); } }
     ui_dim(W, H, (int)fmin(150, age / 4));
     overlay_draw(now, W, H);   /* the game's own movie for the moment (Player1_wins, Satan-Battle_WIN...), under the words; without it, the words alone */
     const char *tx = BTL.banner; int sc = 5; while (sc > 2 && gfx_text_w(tx, sc) > W - 30) sc--;

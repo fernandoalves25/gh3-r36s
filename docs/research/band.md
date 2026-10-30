@@ -372,3 +372,10 @@ Step 3: bassist + drummer (hits from `_drums_notes`) + singer (jaw from song lip
   the boss included). Bret Michaels: the singer is "singer_bret" (profile Singer_Bret: skeleton 0x2825681c, which is in
   global.pak, body PAK/Singer_Brett.pak + _anims, which are NOT in this copy of the game). Performance Mode: the script that
   raises the highway at the intro is not spawned, the note streak / star power HUD scripts return at once.
+- The singer (create_band, 0x3681c07d): the song's struct in permanent_songlist_props has `singer = $male | $female | $bret | $None`
+  (none: no vocalist; no field, e.g. the boss songs: the usual one). With the field, z_wikker, z_budokan and z_hell take the `_alt`
+  profile (singer_alt / singer_female_alt / singer_bret_alt: the same body, another microphone, microphone002 not in this copy);
+  Cheat_BretMichaels gives singer_bret (non-alt) unless the song's singer is female; more than one player: no vocalist.
+  Female: barracuda, closer, downndirty, hitmewithyourbestshot, inlove, KoolThing, radiosong (+ dlc15/29/30/31). None: cliffsofdover,
+  impulse (+ 11 dlc). Bret: gothatfar, talkdirtytome. No field: bossslash, bosstom, reptilia, sunshineofyourlove, the sync tests. 125 male.
+  PAK/Singer_Female(.pak, _anims) and Singer_Brett are not in this copy: r3d_band.c logs it and the usual singer sings.

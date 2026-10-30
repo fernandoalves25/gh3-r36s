@@ -18,6 +18,7 @@ void r3d_band_test_clock(double ms, const char *song);   /* --r3dtest --band: a 
  * and takes the win or lose stance (the _smstg ones in the small venues; in a battle the boss the other one) until the
  * next song or the menus. This is the same for --r3dtest: how 1 won, 2 lost, 0 back to the song */
 void r3d_band_test_finale(int how);
+int r3d_band_finale(void);   /* that end while it lasts (r3d.c's camera cuts to <zone>_cameras_win / _lose): 1 won, 2 lost (a battle: the player's), 0 none */
 /* a boss battle's attack as it lands (battle.c): from side 0 (the player, the guitarist) or 1 (the boss, in the bassist's
  * place), the power-up's name key. player1/2_battlemode_anims give each side's kind: the attacker its attack_anim, the
  * other its response_anim (none for the Death Drain, which is in neither) */

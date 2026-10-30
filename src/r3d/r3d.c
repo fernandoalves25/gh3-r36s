@@ -380,7 +380,9 @@ static void default_lights(lightset *L) {
 }
 
 /* ------------------------------------------------------------------ building the batches */
+static struct { int how, n, seg, cand[16]; double t0, dur; } FC;   /* the song's end on camera (camera() below) */
 static void unload(void) {
+    FC.how = FC.n = 0;   /* (its shots go with the venue) */
     for (int i = 0; i < R.nb; i++) { GL(glDeleteBuffers)(1, &R.b[i].vbo); GL(glDeleteBuffers)(1, &R.b[i].lvbo); GL(glDeleteBuffers)(1, &R.b[i].ibo); free(R.b[i].v); free(R.b[i].lv); free(R.b[i].i); free(R.b[i].p); }
     for (int i = 0; i < R.ntex; i++) if (R.tex[i].id) GL(glDeleteTextures)(1, &R.tex[i].id);
     free(R.b); free(R.tex); free(R.shots); free(R.order); R.b = NULL; R.tex = NULL; R.shots = NULL; R.order = NULL; R.nb = R.ntex = R.nshots = R.ngen = 0; R.loaded = 0; R.zone[0] = 0;
@@ -567,9 +569,17 @@ static void place(const shot *s, double u, double t, float *view, float *fov) {
 /* the camera at this moment: over a song, the song's own cue list cuts between the venue's shots; otherwise the general shots one after another
  * (a->b moves eased, single ones swaying); with no shots at all, a slow circle round the room */
 static struct { int on, seq; float view[16], fov; } camOver;   /* --r3dtest --band: a camera on one member (seq: a new one each time it is set, a "cut" for the draw order) */
+/* the song's end: the band's win / lose events call cameracuts_setarrayprefix "cameras_win" | "cameras_lose" with changenow, so the venue's own
+ * list at once (one orbiting shot on the guitarist in every venue); with no cue after it a shot lasts what the camera scripts give it, 3 to 8 s
+ * (picked here by the cues' hash), then the list again. The candidates are found once, when the end comes */
+static double fin_dur(int i) { return 3 + (((uint32_t)(i + 1) * 0x9e3779b1u) >> 8) % 5001 / 1000.0; }
 static void camera(double t, float *view, float *proj, int *shotId) {   /* shotId: changes when the camera cuts */
-    float fov = 72; if (t < 0) t = 0; int placed = 0;
+    float fov = 72; if (t < 0) t = 0; int placed = 0, fh = r3d_band_finale();
+    if (fh != FC.how) { FC.how = fh; FC.n = FC.seg = 0; FC.t0 = t; FC.dur = fin_dur(0);
+        if (fh) { char nm[64]; snprintf(nm, sizeof nm, "%s_%s", R.zone, fh == 1 ? "cameras_win" : "cameras_lose"); uint32_t lk = gh3_qbkey(nm); for (int k = 0; k < R.nshots && FC.n < 16; k++) if (R.shots[k].list == lk && shot_ok(&R.shots[k])) FC.cand[FC.n++] = k; } }   /* (none: the cuts go on as they were) */
     if (camOver.on) { memcpy(view, camOver.view, 64); fov = camOver.fov; placed = 1; *shotId = 0x40000000 + camOver.seq; }
+    else if (FC.how && FC.n) { if (t < FC.t0 || t - FC.t0 > 60) FC.t0 = t; while (t - FC.t0 >= FC.dur) { FC.t0 += FC.dur; FC.dur = fin_dur(++FC.seg); }
+        place(&R.shots[FC.cand[FC.seg % FC.n]], (t - FC.t0) / FC.dur, t, view, &fov); placed = 1; *shotId = 0x30000000 + FC.seg; }
     const gh3_songdata *sd = A.screen == SC_PLAY && A.S.loaded && A.S.sd.ncams ? &A.S.sd : NULL;
     static const gh3_songdata *song; static int pCam = -1, cur = -1; static double t0, t1, lastMs;
     if (placed) {}
@@ -755,8 +765,11 @@ static void band_test_frames(SDL_Renderer *ren, const char *zone, const char *ou
     if (A.lib && A.selSong >= 0 && battle_song(A.selSong) && r3d_band_where(BAND_BASSIST, p, NULL)) for (int side = 0; side < 2; side++) {
         r3d_band_attack(side, gh3_qbkey("lightning")); double until = ms + 900; for (; ms < until; ms += 1000.0 / 60) { r3d_band_test_clock(ms, r3d_test_song); camOver.on = 0; SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); }
         band_shots(ren, zone, outdir, W, H, px, ms, side ? "attack_p2" : "attack_p1"); }
-    for (int how = 1; how <= 2; how++) { r3d_band_test_finale(how); double until = ms + 2500;
-        for (; ms < until; ms += 1000.0 / 60) { r3d_band_test_clock(ms, r3d_test_song); camOver.on = 0; SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); }
+    for (int how = 1; how <= 2; how++) { r3d_band_test_finale(how); double until = ms + 2500, half = ms + 1250;
+        for (; ms < until; ms += 1000.0 / 60) { r3d_band_test_clock(ms, r3d_test_song); camOver.on = 0; SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren);
+            int mid = ms < half && ms + 1000.0 / 60 >= half, last = ms + 1000.0 / 60 >= until; char fn[96];   /* the end through its own camera, halfway and at the end */
+            if (mid || last) { GL(glFinish)(); snprintf(fn, sizeof fn, "%s_cam_%s_%c", zone, how == 1 ? "win" : "lose", mid ? 'a' : 'b'); save_frame(outdir, fn, W, H, px);
+                printf("  the end's camera: %s_cameras_%s, %d shots, shot %d of %.1f s at %.1f s -> %s/%s.bmp\n", zone, how == 1 ? "win" : "lose", FC.n, FC.seg, FC.dur, ms / 1000 - FC.t0, outdir && *outdir ? outdir : ".", fn); } }
         band_shots(ren, zone, outdir, W, H, px, ms, how == 1 ? "win" : "lose"); r3d_band_test_finale(0); }
 }
 static void band_shots(SDL_Renderer *ren, const char *zone, const char *outdir, int W, int H, uint8_t *px, double ms, const char *tag) {
