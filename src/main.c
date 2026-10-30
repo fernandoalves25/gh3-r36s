@@ -70,7 +70,7 @@ typedef struct {
     int frames, every; char song[64], tutorial[16]; int diff, part, autoPlay, dump, audiotest, menutest, screens, stretchtest, sfxtest; char outdir[520]; char movietest[64]; int movieplay; int miss;
 } cfg_t;
 static cfg_t cfg;
-static int moneyTest;   /* --moneytest: the career's pay rules, the store data and the encore chants */
+static int moneyTest, judgeTest;   /* --moneytest: the career's pay rules, the store data and the encore chants */
 static void cfg_defaults(void) {
     memset(&cfg, 0, sizeof cfg); snprintf(cfg.data, sizeof cfg.data, "DATA"); cfg.W = 640; cfg.H = 480; cfg.vsync = 1; cfg.diff = 3; cfg.every = 30;
     const char *e;
@@ -88,6 +88,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--audiotest")) cfg.audiotest = 1;
         else if (!strcmp(a, "--menutest")) cfg.menutest = 1;
         else if (!strcmp(a, "--sfxtest")) cfg.sfxtest = 1;
+        else if (!strcmp(a, "--judgetest")) judgeTest = 1;
         else if (!strcmp(a, "--stretchtest")) cfg.stretchtest = 1;
         else if (!strcmp(a, "--moneytest")) moneyTest = 1;
         else if (!strcmp(a, "--movietest")) { snprintf(cfg.movietest, sizeof cfg.movietest, "%s", v); i++; }
@@ -111,7 +112,7 @@ static void cfg_args(int argc, char **argv) {
 #ifdef GH3_3D
         else if (!strcmp(a, "--r3dtest")) { snprintf(r3dTest, sizeof r3dTest, "%s", v); i++; }   /* --r3dtest z_dive --out DIR: a venue drawn offscreen, frames saved, counts and timings printed */
 #endif
-        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--sfxtest] [--r3dtest ZONE --out DIR (gh3-3d)] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
+        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--sfxtest] [--judgetest] [--r3dtest ZONE --out DIR (gh3-3d)] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
     }
 }
 
@@ -124,6 +125,52 @@ static void sfx_hook(const char *name) {
     else if (!strncmp(name, "streak", 6)) audio_sfx(!strcmp(name, "streak100") ? SFX_STREAK100 : SFX_STREAK); else if (!strncmp(name, "lose", 4)) audio_sfx(name[4] == '4' ? SFX_LOSE4 : name[4] == '3' ? SFX_LOSE3 : SFX_LOSE);   /* lose2..4: the multiplier lost */
 }
 static void mute_hook(int m) { audio_mute(BUS_PLAYER, m); }
+/* --judgetest: the judging on a made-up chart, input simulated, and which sounds each case makes (no audio device) */
+static double jtT; static char jtLog[160];
+static void jt_sfx(const char *n) { size_t l = strlen(jtLog); snprintf(jtLog + l, sizeof jtLog - l, " %s@%.0f", n, jtT); }
+static void jt_mute(int m) { size_t l = strlen(jtLog); snprintf(jtLog + l, sizeof jtLog - l, " %s@%.0f", m ? "mute" : "unmute", jtT); }
+static int judge_test(void) {
+    static const int32_t FB[] = { 0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500, 8000 };
+    gh3_tuning tn; if (A.libOk) tn = lib.tuning; else gh3_default_tuning(&tn);
+    typedef struct { const char *name, *expect; int bass, warm; struct { double t; int frets, strum; } in[6]; } jcase;
+    static const jcase C[] = {   /* notes: green at 3000, red at 3600 (a streak of greens before them when warm) */
+        { "overstrum (no note in reach)", "bad, mute", 0, 0, { { 2000, 1, 1 } } },
+        { "wrong frets on a note", "bad (bum_note miss), mute", 0, 0, { { 2990, 2, 1 } } },
+        { "wrong frets on a note, bass", "badBass, mute", 1, 0, { { 2990, 2, 1 } } },
+        { "a note left to pass", "mute only", 0, 0, { { 0, 0, 0 } } },
+        { "correct hit", "unmute", 0, 0, { { 2990, 1, 1 } } },
+        { "strum, then the frets in 20 ms", "unmute", 0, 0, { { 2990, 0, 1 }, { 3010, 1, 0 } } },
+        { "wrong frets, fixed after 60 ms", "bad, mute", 0, 0, { { 2990, 2, 1 }, { 3050, 1, 0 } } },
+        { "x2 streak lost on wrong frets", "lose2, bad, mute", 0, 1, { { 2990, 2, 1 } } },
+        { "x4 streak lost passively", "lose4, mute", 0, 3, { { 0, 0, 0 } } } };
+    int fails = 0;
+    for (size_t c = 0; c < sizeof C / sizeof C[0]; c++) {
+        const jcase *k = &C[c]; int warm = k->warm ? k->warm * 10 + 1 : 0; gh3_note N[40]; int nn = 0; memset(N, 0, sizeof N);
+        for (int i = 0; i < warm; i++) { gh3_note *n = &N[nn++]; n->t = 200 + i * 60; n->mask = 1; n->n = 1; n->star = -1; }
+        gh3_note *g = &N[nn++]; g->t = 3000; g->mask = 1; g->n = 1; g->star = -1; gh3_note *rd = &N[nn++]; rd->t = 3600; rd->mask = 2; rd->n = 1; rd->star = -1;
+        gh3_chart ch; memset(&ch, 0, sizeof ch); ch.notes = N; ch.nnotes = nn; ch.fretbars = FB; ch.nfret = sizeof FB / sizeof FB[0]; ch.end = 8000;
+        gh3_runopts o; memset(&o, 0, sizeof o); o.bass = k->bass; o.endMs = 5000; o.speed = 100; o.noFail = 1;
+        gh3_run r; game_new(&r, &ch, &tn, 3, &o); gh3_sfx_hook = jt_sfx; gh3_mute_hook = jt_mute;
+        int in = 0, w = 0;
+        for (double t = 0; t < 4200; t += 1000.0 / 240) {
+            jtT = t; if (warm && t < 3000) { jtLog[0] = 0; }   /* the warm-up streak's own hits are not logged */
+            while (w < warm && N[w].t <= t) { game_set_frets(&r, 1, t, t); game_strum(&r, t, t); game_set_frets(&r, 0, t + 1, t + 1); w++; }
+            while (in < 6 && k->in[in].t > 0 && k->in[in].t <= t) { game_set_frets(&r, k->in[in].frets, t, t); if (k->in[in].strum) game_strum(&r, t, t); in++; }
+            game_step(&r, t, t);
+            if (t >= 3300 && t < 3300 + 1000.0 / 240) break; }   /* before the red note */
+        int ok = 0; const char *e = k->expect;
+        if (!strcmp(e, "bad, mute") || !strncmp(e, "bad (", 5)) ok = strstr(jtLog, " bad@") && strstr(jtLog, " mute@") && !strstr(jtLog, "unmute");
+        else if (!strcmp(e, "badBass, mute")) ok = strstr(jtLog, " badBass@") && strstr(jtLog, " mute@");
+        else if (!strcmp(e, "mute only")) ok = strstr(jtLog, " mute@") && !strstr(jtLog, "bad");
+        else if (!strcmp(e, "unmute")) ok = strstr(jtLog, " unmute@") && !strstr(jtLog, "bad") && !strstr(jtLog, " mute@");
+        else if (!strcmp(e, "lose2, bad, mute")) ok = strstr(jtLog, " lose2@") && strstr(jtLog, " bad@");
+        else if (!strcmp(e, "lose4, mute")) ok = strstr(jtLog, " lose4@") && !strstr(jtLog, "bad");
+        if (!ok) fails++;
+        printf("%-32s expect %-26s got%s | hits %d misses %d overstrums %d %s\n", k->name, e, jtLog[0] ? jtLog : " (nothing)", r.hits - warm, r.misses, r.overstrums, ok ? "ok" : "FAIL");
+        jtLog[0] = 0; }
+    gh3_sfx_hook = sfx_hook; gh3_mute_hook = mute_hook;
+    printf("%d failures\n", fails); return fails;
+}
 static int resultCash;   /* what the last result paid: the Cash_Sound on the results screen */
 
 void app_session_free(void) {
@@ -520,7 +567,8 @@ int main(int argc, char **argv) {
     if (cfg.frames > 0) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
     if (cfg.screens) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
     if (cfg.menutest) { SDL_Init(0); menu_selftest(); return 0; }
-    if (cfg.sfxtest) { SDL_Init(0); return sfx_selftest() ? 1 : 0; }   /* --sfxtest: the game's sound effects, listed and decoded */
+    if (cfg.sfxtest) { SDL_Init(0); return sfx_selftest() ? 1 : 0; }
+    if (judgeTest) return judge_test() ? 1 : 0;   /* --judgetest: overstrum, wrong frets, a passed note, a hit: the sounds each makes */   /* --sfxtest: the game's sound effects, listed and decoded */
     if (cfg.stretchtest) { SDL_Init(0); int bad = stretch_selftest(); if (*cfg.song && A.libOk) { int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i;   /* and a song through the mixer at each speed */
             char e[300]; if (si < 0) puts("song not found"); else if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { practice_bench(A.S.durationMs);
                 A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 4; int all = A.S.chart.nnotes; double from, to, at, lead;   /* and a practice run of sections 3 to 4 played by the bot */

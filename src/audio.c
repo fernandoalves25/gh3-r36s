@@ -254,7 +254,7 @@ void audio_selftest(void) { /* decodes every loaded stream to the end and report
 void audio_stop(void) { if (dev) SDL_LockAudioDevice(dev); running = 0; preview = 0; metroFrames = 0; if (dev) SDL_UnlockAudioDevice(dev); }
 void audio_pause(int p) { if (dev) SDL_LockAudioDevice(dev); paused = p; estOn = 0; if (dev) SDL_UnlockAudioDevice(dev); }
 int audio_running(void) { return running && !paused; }
-void audio_mute(int bus, int m) { S[bus].target = m ? 0.06f : 1.0f; }
+void audio_mute(int bus, int m) { S[bus].target = m ? 0.0f : 1.0f; }   /* GH3: guitar_volume 0 on a miss (GuitarEvent_MissedNote / _UnnecessaryNote), 100 on a hit: silence, no bleed */
 void audio_set_master(double g) { master = (float)g; }
 void audio_set_bus_gain(int bus, double g) { if (bus >= 0 && bus < BUS_N) busGain[bus] = (float)g; }
 void audio_fade_out(double sec) { if (sec <= 0) sec = 0.01; fadeStep = (float)(1.0 / (sec * 44100)); }

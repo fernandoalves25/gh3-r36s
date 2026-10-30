@@ -64,10 +64,14 @@ static void hitNote(gh3_run *r, gh3_note *n, double t, int hammered, double perf
     for (int f = 0; f < 5; f++) if (n->mask & (1 << f)) r->flash[f] = perf;
     mute(r, 0);
 }
-static void missNote(gh3_run *r, gh3_note *n, double perf) {
+/* GH3's guitar_events (qb.pak): the exe sends missed_note (bum_note = 1 when a strum on the wrong frets missed it) and
+ * unnecessary_note (a strum with no note to play). GuitarEvent_UnnecessaryNote always calls Guitar_Wrong_Note_Sound_Logic
+ * (Single_Player_Bad_Note_Guitar / _Bass) and sets guitar_volume = 0; GuitarEvent_MissedNote calls it only for a bum_note
+ * and sets guitar_volume = 0 too, so a note left to pass is a silent miss that mutes the guitar. Both: CrowdDecrease. */
+static void missNote(gh3_run *r, gh3_note *n, double perf, int bum) {
     n->missed = 1; streakLost(r); r->chain = 0; r->misses++; r->health += r->d.bad; r->missFlash = perf;
     if (n->star >= 0) r->chart->phrases[n->star].failed = 1;
-    r->sus = NULL; mute(r, 1);
+    r->sus = NULL; mute(r, 1); if (bum) sfx(r, r->bass ? "badBass" : "bad");
     if (r->battle) battle_judge(r, n, 0);
 }
 static void overstrum(gh3_run *r, double perf) {
@@ -75,8 +79,12 @@ static void overstrum(gh3_run *r, double perf) {
     if (r->sus) { r->sus->dropped = 1; r->sus = NULL; }
     mute(r, 1); sfx(r, r->bass ? "badBass" : "bad");
 }
+static void wrongStrum(gh3_run *r, double perf) {   /* the strum's strum_before_forming lapsed without the frets: the note it was at is missed, with the clank */
+    r->hasPending = 0; gh3_note *n = r->pendNote >= 0 && r->pendNote < r->nnotes ? &r->notes[r->pendNote] : NULL;
+    if (n && !n->hit && !n->missed) { if (r->sus) r->sus->dropped = 1; missNote(r, n, perf, 1); } else overstrum(r, perf);
+}
 static void playAt(gh3_run *r, int i, double t, int hammered, double perf) {
-    int skipped = 0; for (int k = r->idx; k < i; k++) { gh3_note *e = &r->notes[k]; if (!e->hit && !e->missed) { missNote(r, e, perf); skipped++; } }
+    int skipped = 0; for (int k = r->idx; k < i; k++) { gh3_note *e = &r->notes[k]; if (!e->hit && !e->missed) { missNote(r, e, perf, 0); skipped++; } }
     hitNote(r, &r->notes[i], t, hammered, perf, skipped > 0);
 }
 static int tryHammer(gh3_run *r, double t, double perf) {
@@ -96,11 +104,12 @@ static int tryTap(gh3_run *r, double t, double perf) {
         if (n->n > 1 && !(r->held & ~n->mask)) break; }
     return 0;
 }
+static int firstInReach(gh3_run *r, double t) { for (int i = r->idx; i < r->nnotes; i++) { gh3_note *n = &r->notes[i]; if (n->t - r->tn->early > t) break; if (!n->hit && !n->missed && t <= n->t + n->lateW) return i; } return -1; }
 static void onFretChange(gh3_run *r, double t, double perf) {
     if (r->autoPlay || r->finished) return;
     if (r->noStrum) { r->tapArmed = 1; tryTap(r, t, perf); return; }
     if (r->hasPending) {
-        if (t - r->pending > r->tn->strumBefore + INPUT_SLOP) r->hasPending = 0;
+        if (t - r->pending > r->tn->strumBefore + INPUT_SLOP) wrongStrum(r, perf);
         else if (r->held) for (int i = r->idx; i < r->nnotes; i++) { gh3_note *n = &r->notes[i];
             if (n->t - r->tn->early > t) break;
             if (n->hit || n->missed || t > n->t + n->lateW) continue;
@@ -126,10 +135,10 @@ void game_strum(gh3_run *r, double t, double perf) {
         if (n->hit || n->missed || t > n->t + n->lateW) continue;
         inReach = 1;
         for (int k = 0; k < ns; k++) { int s = shapes[k]; if (s && !(hamOpen && s == r->hamShape) && matches(s, n)) { hit = i; break; } } }
-    if (!inReach) { if (hamOpen && (r->held & r->hamShape)) return; r->hasPending = 0; overstrum(r, perf); return; }
-    if (r->hasPending) { r->hasPending = 0; overstrum(r, perf); }
+    if (!inReach) { if (hamOpen && (r->held & r->hamShape)) return; if (r->hasPending) wrongStrum(r, perf); overstrum(r, perf); return; }   /* unnecessary_note */
+    if (r->hasPending) { if (hit == r->pendNote) { r->hasPending = 0; overstrum(r, perf); } else wrongStrum(r, perf); }   /* a second strum inside the first one's window: the first was on the wrong frets */
     if (hit >= 0) { playAt(r, hit, t, 0, perf); return; }
-    if (!hamOpen) { r->pending = t; r->hasPending = 1; }
+    if (!hamOpen) { r->pending = t; r->hasPending = 1; r->pendNote = firstInReach(r, t); }   /* the frets may still come (strum_before_forming), else a bum_note miss */
 }
 static void starOn(gh3_run *r, double perf) { r->spOn = 1; r->spAt = perf; sfx(r, "deployed"); }
 static void starOff(gh3_run *r, double perf) { r->sp = 0; r->spOn = 0; r->spOffAt = perf; sfx(r, "staroff"); }
@@ -139,10 +148,10 @@ void game_step(gh3_run *r, double t, double perf) {
     r->now = t;
     if (r->autoPlay) {
         if (r->botRelease >= 0 && t >= r->botRelease) { r->held = 0; r->botRelease = -1; }
-        while (r->botIdx < r->nnotes && r->notes[r->botIdx].t <= t) { gh3_note *n = &r->notes[r->botIdx++]; if (n->hit || n->missed) continue; if ((n->bflags & BN_BOTMISS) || (r->battle && ((bside_t *)r->battle)->cpu && (n->mask & ((bside_t *)r->battle)->mask))) { missNote(r, n, perf); continue; } /* (a boss under attack misses some, and those on a fret out of play) */ r->held = n->mask; r->botRelease = n->t + fmax(90, n->sus); hitNote(r, n, t, 0, perf, 0); }
+        while (r->botIdx < r->nnotes && r->notes[r->botIdx].t <= t) { gh3_note *n = &r->notes[r->botIdx++]; if (n->hit || n->missed) continue; if ((n->bflags & BN_BOTMISS) || (r->battle && ((bside_t *)r->battle)->cpu && (n->mask & ((bside_t *)r->battle)->mask))) { missNote(r, n, perf, 0); continue; } /* (a boss under attack misses some, and those on a fret out of play) */ r->held = n->mask; r->botRelease = n->t + fmax(90, n->sus); hitNote(r, n, t, 0, perf, 0); }
         if (!r->spOn && r->sp >= 0.5) starOn(r, perf);
-    } else if (r->hasPending && t - r->pending > r->tn->strumBefore + INPUT_SLOP) r->hasPending = 0;
-    for (gh3_note *n = nextNote(r); n && t > n->t + n->lateW + (r->autoPlay ? 0 : MISS_HOLD); n = nextNote(r)) { missNote(r, n, perf); if (r->hasPending) { r->hasPending = 0; overstrum(r, perf); } }
+    } else if (r->hasPending && t - r->pending > r->tn->strumBefore + INPUT_SLOP) wrongStrum(r, perf);
+    for (gh3_note *n = nextNote(r); n && t > n->t + n->lateW + (r->autoPlay ? 0 : MISS_HOLD); n = nextNote(r)) { int bum = r->hasPending && n == &r->notes[r->pendNote]; if (bum) r->hasPending = 0; missNote(r, n, perf, bum); }   /* passed unplayed: silent, unless it was strummed at on the wrong frets */
     if (!r->autoPlay) { if (r->noStrum) tryTap(r, t, perf); else tryHammer(r, t, perf); }
     double bp = gh3_beatpos(r->chart->fretbars, r->chart->nfret, t); double db = r->hasLastBeat ? fmax(0, bp - r->lastBeat) : 0; r->lastBeat = bp; r->hasLastBeat = 1;
     if (r->sus) { gh3_note *s = r->sus; double endT = s->t + s->sus, upTo = fmin(t, endT);
