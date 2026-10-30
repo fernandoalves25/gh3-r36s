@@ -11,6 +11,6 @@ void r3d_select(const char *zone);               /* the venue to show from now o
 const char *r3d_zone(void);                      /* the venue loaded, "" when none */
 int r3d_draw_stage(double perf, int sp, float energy);   /* draws the venue (1) or not (0): the caller then draws its 2D stage */
 int r3d_test(const char *zone, const char *outdir, int W, int H);   /* --r3dtest: loads a zone in a hidden window, saves frames, prints counts and timings; the exit code */
-void r3d_test_song(const char *song);            /* --r3dtest with --song NAME: the light show frames follow that song's cues (else the first song of the venue's set) */
+extern int r3d_test_band; extern char r3d_test_song[64];   /* --r3dtest ZONE --band [--song NAME]: with the band (that song's: a boss song has the boss), pictures of each member and its costs */   /* the song also drives the light show frames (else the first song of the venue's set) */
 void r3d_shutdown(void);
 #endif

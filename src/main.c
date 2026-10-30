@@ -111,8 +111,9 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--size")) { sscanf(v, "%dx%d", &cfg.W, &cfg.H); i++; }
 #ifdef GH3_3D
         else if (!strcmp(a, "--r3dtest")) { snprintf(r3dTest, sizeof r3dTest, "%s", v); i++; }   /* --r3dtest z_dive --out DIR: a venue drawn offscreen, frames saved, counts and timings printed */
+        else if (!strcmp(a, "--band")) r3d_test_band = 1;   /* --r3dtest ZONE --band [--song NAME]: and the band, a picture of each member */
 #endif
-        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--sfxtest] [--judgetest] [--r3dtest ZONE --out DIR (gh3-3d)] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
+        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--sfxtest] [--judgetest] [--r3dtest ZONE [--band] [--song NAME] --out DIR (gh3-3d)] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
     }
 }
 
@@ -585,7 +586,7 @@ int main(int argc, char **argv) {
     if (moneyTest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); bank_index(); return store_selftest(&lib) ? 1 : 0; }
     if (cfg.movietest[0]) { SDL_Init(0); movie_test(); audio_close(); return 0; }
 #ifdef GH3_3D
-    if (r3dTest[0]) { r3d_test_song(cfg.song); return r3d_test(r3dTest, cfg.outdir, cfg.W, cfg.H); }
+    if (r3dTest[0]) { snprintf(r3d_test_song, sizeof r3d_test_song, "%s", cfg.song); return r3d_test(r3dTest, cfg.outdir, cfg.W, cfg.H); }
 #endif
     if (cfg.audiotest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
         char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }
