@@ -12,6 +12,7 @@
 #include "battle.h"
 #include "cheats.h"
 #include "tutorial.h"
+#include "orig_setup.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -153,6 +154,7 @@ static void section_name(int k, char *out, size_t n) { if (k <= 0 || k > A.S.sd.
 static void end_change(int d) { int lo = A.practiceSec > 1 ? A.practiceSec : 1, hi = A.S.sd.nmarkers - 1, cnt = 1 + (hi >= lo ? hi - lo + 1 : 0);
     int i = A.practiceEnd >= lo && A.practiceEnd <= hi ? A.practiceEnd - lo : cnt - 1; i = (i + cnt + d) % cnt; A.practiceEnd = i == cnt - 1 ? 0 : lo + i; }
 static void draw_setup(double now) {
+    if (SET.theme == 2 && orig_ready()) { int r_[8], n_ = setup_rows(r_); if (orig_setup_draw(now, r_, n_)) return; }
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; const gh3_song *s = &A.lib->songs[A.selSong]; char b[200], t[160];
     song_title(s, t, sizeof t); ui_header(W, "PREPARAR", NULL);
     gfx_text_sh(16, 70, 3, t, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s%s%s", s->artist, *s->year ? " • " : "", s->year); gfx_text_sh(16, 106, 1, b, C_MUTED, C_SHADOW);

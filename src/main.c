@@ -435,6 +435,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
+    { int r0 = A.setupRow; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_play"); A.setupRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_part"); A.setupRow = r0; }
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
     A.optCat = 3; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
