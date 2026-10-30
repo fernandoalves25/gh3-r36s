@@ -301,7 +301,7 @@ Camera shots can be locked to a role (`lockto`), orbiting its holder; not part o
 - Port tip: ~6 FBO textures of 128x256 re-skinned at 15-30 Hz is cheap (a ped is <=1.2k verts); or pre-bake a few frames per ped.
 - C port (src/r3d/r3d_crowd.c): the cards are template a17d40ed (unlit + camera-facing board, alpha ref 100), 1.15x2.58 (dive),
   1.0x2.58 (budokan), 1.0x1.87 (prison) quads, hundreds per kind, vertex colours 57-165 (drawn x1.6). Every kind is a 128x256 cell
-  of one 512x512 atlas redrawn in one pass at 15 Hz (only kinds on screen) + one mipmap build; the venue batch picks its cell
+  of one 512x512 atlas (no mipmaps), each kind redrawn at 15 Hz round robin, <=2 figures a frame (only kinds on screen); the venue batch picks its cell
   with uAnim (fps 0). Lighter groups `<zone>_lighter_geo01..24` exist in budokan, prison, wikker (hidden by the venue's
   scripts); 34 songs cue crowd_startlighters (paintitblack, citiesonflame, thrufireandflames, ...).
 
