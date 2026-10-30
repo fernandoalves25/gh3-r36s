@@ -21,6 +21,8 @@
 #include <math.h>
 
 #define SFX_LEVEL 0.7f          /* the table's vol=100 (the browser port's level) */
+#define UI_LEVEL 2.2f           /* the menu sounds: their clips are quiet (scroll peaks at 0.27) and the game plays them over the menu music */
+static int ui_kind(int k) { return k == SFX_MOVE || k == SFX_OK || k == SFX_BACK || k == SFX_WARN || k == SFX_WHOOSH || k == SFX_CASH; }
 #define CROWD_LEVEL 0.8f
 #define BED_LEVEL 0.5f          /* crowdnormal_bussset: the beds sit at -6 dB; a surge lifts them to +3 dB */
 #define SURGE_LEVEL 1.41f
@@ -112,7 +114,7 @@ static voice_t *voice_new(void) { for (int v = 0; v < VOICES; v++) if (!V[v].on)
     voice_t *o = NULL; for (int v = 0; v < VOICES; v++) if (!V[v].bed && !V[v].loop && (!o || V[v].pos > o->pos)) o = &V[v]; return o ? o : &V[0]; }
 static voice_t *start(const clip_t *c, float gain, float pitch, double delayMs, int loop, int bed, int kind) {   /* under the audio lock */
     if (!c || !c->pcm) return NULL; voice_t *v = voice_new(); memset(v, 0, sizeof *v); v->c = c; v->step = (double)c->hz / 44100.0 * (pitch > 0 ? pitch / 100 : 1);
-    v->pos = -delayMs / 1000.0 * 44100; v->gain = v->target = gain > 1.5f ? 1.5f : gain; v->loop = loop; v->bed = bed; v->kind = kind;
+    v->pos = -delayMs / 1000.0 * 44100; v->gain = v->target = gain > 4 ? 4 : gain; v->loop = loop; v->bed = bed; v->kind = kind;
     if (loop) { double trim = c->hz * 0.06; v->loopA = trim; v->loopB = c->frames - 1 - trim; if (v->loopB <= v->loopA + 1) { v->loopA = 0; v->loopB = c->frames - 1; } if (bed) v->pos = v->loopA + (rand() / (RAND_MAX + 1.0)) * fmax(0, v->loopB - v->loopA - c->hz); }
     v->on = 1; return v;
 }
@@ -161,6 +163,7 @@ static const struct { int kind; const char *ev; } MAP[] = {
     { SFX_ATK_WHAMMY, "GH_SFX_BattleMode_WhammyAttack_P1" }, { SFX_ATK_DEATH, "GH_SFX_BattleMode_Death_Drain_P1" }, { SFX_ATK_OVER, "GH_SFX_BattleMode_Attack_Over_P1" },
     { SFX_BATTLE_AWARD, "Battle_Power_Awarded_SFX_P1" }, { SFX_SUDDEN_DEATH, "GH_SFX_BattleMode_Sudden_Death" }, { SFX_DEVIL_DIE, "gh3_devil_die" },
     { SFX_HEARTBEAT, "Battlemode_Heartbeat_P1" },
+    { SFX_WARN, "Menu_Warning_SFX" },                                                  /* a closed song, a refused choice (Menu_Warning_01) */
 };
 #define NMAP ((int)(sizeof MAP / sizeof MAP[0]))
 /* events the table has under names not recovered: named here by their container key (events.txt of the port's notes) */
@@ -173,7 +176,7 @@ int sfx_play(int kind) {
     if (!ready || kind == SFX_STAR_OFF) return ready;   /* (the game has no sound for star power running out) */
     event_t *e0 = kind_event(kind, 0), *e1 = kind_event(kind, 1); if (!e0 && !e1) return 0;
     if (e0) event_decode(e0); if (e1) event_decode(e1);   /* (before the lock: the first use decodes) */
-    audio_lock(); play_event(e0, 0, SFX_LEVEL, 0); play_event(e1, 0, SFX_LEVEL, 0); if (kind == SFX_STREAK || kind == SFX_STREAK100) crowd_swell(); audio_unlock();
+    float lv = ui_kind(kind) ? UI_LEVEL : SFX_LEVEL; audio_lock(); play_event(e0, 0, lv, 0); play_event(e1, 0, lv, 0); if (kind == SFX_STREAK || kind == SFX_STREAK100) crowd_swell(); audio_unlock();
     return 1;
 }
 void sfx_prepare(int kind) { if (!ready) return; event_t *e; for (int w = 0; w < 2 && (e = kind_event(kind, w)); w++) event_decode(e); }
@@ -230,10 +233,11 @@ void sfx_song_stop(void) { if (!ready) return; audio_lock(); for (int v = 0; v <
 
 /* ---- --sfxtest */
 static const char *KIND_NAME[SFX_N] = { "MOVE", "OK", "BACK", "BAD", "BAD_BASS", "READY", "STAR_ON", "STAR_OFF", "STREAK", "DING", "FANFARE", "TICK", "GO", "FAIL", "LOSE", "LOSE3", "LOSE4", "STREAK100", "AWARDED", "ROCK", "CASH", "WHOOSH", "INTRO", "HIGHWAY", "WIN_P1", "WIN_P2",
-    "ATK_LIGHTNING", "ATK_DIFFUP", "ATK_DOUBLE", "ATK_STEAL", "ATK_LEFTY", "ATK_STRING", "ATK_WHAMMY", "ATK_DEATH", "ATK_OVER", "BATTLE_AWARD", "SUDDEN_DEATH", "DEVIL_DIE", "HEARTBEAT" };
+    "ATK_LIGHTNING", "ATK_DIFFUP", "ATK_DOUBLE", "ATK_STEAL", "ATK_LEFTY", "ATK_STRING", "ATK_WHAMMY", "ATK_DEATH", "ATK_OVER", "BATTLE_AWARD", "SUDDEN_DEATH", "DEVIL_DIE", "HEARTBEAT", "WARN" };
 static int show_clip(clip_t *c, float vol, float pitch) {
     int ok = decode(c); printf("      %-36s %7u B %s", c->name[0] ? c->name : "?", c->len, c->fsb ? "fsb3/mp3" : "mp3");
-    if (ok) printf(" %d Hz %dch %.2f s", c->hz, c->ch, c->frames / (double)c->hz); else printf(" DECODE FAILED");
+    if (ok) { double pk = 0, sq = 0; size_t n = (size_t)c->frames * c->ch; for (size_t i = 0; i < n; i++) { double v = c->pcm[i] / 32768.0; if (fabs(v) > pk) pk = fabs(v); sq += v * v; }
+        printf(" %d Hz %dch %.2f s peak %.2f rms %.3f", c->hz, c->ch, c->frames / (double)c->hz, pk, n ? sqrt(sq / n) : 0); } else printf(" DECODE FAILED");
     if (vol != 100) printf(" vol %.0f", vol); if (pitch != 100) printf(" pitch %.0f", pitch); printf("\n"); return !ok;
 }
 int sfx_selftest(void) {

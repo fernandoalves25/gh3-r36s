@@ -223,7 +223,7 @@ void audio_voice(const uint8_t *mp3, size_t size, double levelDb) {
 int audio_voice_on(void) { return V.on; }
 static int synth_kind(int kind) {   /* the newer kinds on the synthesized set, when the game's bank is missing */
     switch (kind) { case SFX_LOSE3: case SFX_LOSE4: case SFX_WIN_P2: return SFX_LOSE; case SFX_STREAK100: return SFX_STREAK; case SFX_AWARDED: return SFX_DING; case SFX_ROCK: case SFX_CASH: case SFX_WIN_P1: return SFX_FANFARE;
-        case SFX_WHOOSH: return SFX_MOVE; case SFX_INTRO: return SFX_GO; case SFX_BATTLE_AWARD: return SFX_READY; case SFX_ATK_OVER: return SFX_GO; case SFX_ATK_DEATH: case SFX_SUDDEN_DEATH: case SFX_DEVIL_DIE: return SFX_LOSE;
+        case SFX_WHOOSH: return SFX_MOVE; case SFX_WARN: return SFX_BACK; case SFX_INTRO: return SFX_GO; case SFX_BATTLE_AWARD: return SFX_READY; case SFX_ATK_OVER: return SFX_GO; case SFX_ATK_DEATH: case SFX_SUDDEN_DEATH: case SFX_DEVIL_DIE: return SFX_LOSE;
         case SFX_HIGHWAY: case SFX_HEARTBEAT: return -1; default: return kind >= SFX_ATK_LIGHTNING && kind <= SFX_ATK_WHAMMY ? SFX_STAR_ON : kind; }
 }
 void audio_sfx(int kind) {

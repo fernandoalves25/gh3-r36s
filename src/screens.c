@@ -370,7 +370,7 @@ static void go_options(int from) { A.optionsFrom = from; A.screen = SC_OPTIONS; 
 static void to_setlist(double now) {
     if (A.moviePending[0] && A.mode == MODE_CAREER) { char m[48]; snprintf(m, sizeof m, "%s", A.moviePending); A.moviePending[0] = 0; app_play_movie(m, SC_SETLIST); return; }   /* a tier's cutscene first */
     A.moviePending[0] = 0; A.screen = SC_SETLIST; app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); if (A.unlockPending && A.mode == MODE_CAREER) { A.unlockPending = 0; A.unlockAt = now; audio_sfx(SFX_FANFARE); } }
-static void open_mode(int mode, double now) { A.mode = mode; app_refresh_career(0); screens_build_rows(); audio_sfx(SFX_OK);
+static void open_mode(int mode, double now) { A.mode = mode; app_refresh_career(0); screens_build_rows(); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH);
     if (mode == MODE_CAREER && !SET.careerIntro && app_movie_exists(A.lib->careerMovie)) { SET.careerIntro = 1; settings_save(); app_play_movie(A.lib->careerMovie, SC_SETLIST); return; }   /* the career's opening movie, the first time */
     to_setlist(now); }
 static void to_main(void) { A.screen = SC_MAIN; A.confirmQuit = 0; app_preview(-1); }
@@ -384,15 +384,15 @@ static void setup_change(int r, int d) { const gh3_song *s = &A.lib->songs[A.sel
         case SR_END: end_change(d); break; case SR_SPEED: A.practiceSpeed = (A.practiceSpeed + PRACTICE_SPEEDS + d) % PRACTICE_SPEEDS; break; case SR_STRUM: SET.tap = !SET.tap; break; case SR_HYPER: SET.hyper = (SET.hyper + 6 + d) % 6; break; } }
 void screens_event(int in, double now) {
     if (A.screen == SC_BATTLE) { battle_input(in, now); return; }
-    if (A.screen == SC_TITLE) { if (in == IN_OK || in == IN_X || in == IN_Y) { audio_sfx(SFX_OK); app_guitar_lick(); A.screen = SC_MAIN; } else if (in == IN_BACK) { A.screen = SC_MAIN; A.mainRow = MM_EXIT; A.confirmQuit = 1; } }
+    if (A.screen == SC_TITLE) { if (in == IN_OK || in == IN_X || in == IN_Y) { audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); app_guitar_lick(); A.screen = SC_MAIN; } else if (in == IN_BACK) { A.screen = SC_MAIN; A.mainRow = MM_EXIT; A.confirmQuit = 1; } }
     else if (A.screen == SC_MAIN) {
         if (A.confirmQuit) { if (in == IN_OK) app_quit(); else if (in == IN_BACK || in == IN_X || in == IN_Y) { A.confirmQuit = 0; audio_sfx(SFX_BACK); } return; }
         if (menu_move(in, &A.mainRow, MM_N)) return;
         if (in == IN_BACK) { A.screen = SC_TITLE; A.titleAt = now; audio_sfx(SFX_BACK); return; }
         if (in != IN_OK) return;
         switch (A.mainRow) { case MM_CAREER: open_mode(MODE_CAREER, now); break; case MM_QUICK: open_mode(MODE_QUICK, now); break;
-            case MM_COOP: case MM_MULTI: audio_sfx(SFX_BACK); note(now, "Precisa de dois jogadores: não dá no R36S."); break;
-            case MM_TRAINING: A.screen = SC_TRAINING; A.trainRow = TR_PRACTICE; audio_sfx(SFX_OK); break; case MM_OPTIONS: go_options(SC_MAIN); audio_sfx(SFX_OK); break;
+            case MM_COOP: case MM_MULTI: audio_sfx(SFX_WARN); note(now, "Precisa de dois jogadores: não dá no R36S."); break;
+            case MM_TRAINING: A.screen = SC_TRAINING; A.trainRow = TR_PRACTICE; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); break; case MM_OPTIONS: go_options(SC_MAIN); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); break;
             default: A.confirmQuit = 1; audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_TRAINING) {
         if (menu_move(in, &A.trainRow, TR_N)) return;
@@ -401,8 +401,8 @@ void screens_event(int in, double now) {
     } else if (A.screen == SC_SETLIST) {
         if (in == IN_UP || in == IN_DOWN) { int was = A.cursor; move_cursor(in == IN_UP ? -1 : 1); if (A.cursor != was) { audio_sfx(SFX_MOVE); app_preview(A.rows[A.cursor].idx); } }
         else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { A.selDiff = (A.selDiff + 4 + ((in == IN_RIGHT || in == IN_R) ? 1 : -1)) % 4; app_refresh_career(0); audio_sfx(SFX_MOVE); }
-        else if (in == IN_OK && A.cursor < A.nrows) { int lock = row_lock(A.cursor); if (lock) { audio_sfx(SFX_BACK); snprintf(A.unlockMsg, sizeof A.unlockMsg, "%s", lock == LOCK_BUY ? (A.mode == MODE_CAREER ? "Compre esta música na Loja (Y)" : "Compre esta música na Loja da carreira") : lock == LOCK_FINALE ? "Termine a carreira para liberar esta" : A.mode != MODE_CAREER ? "Libere esta música na carreira primeiro" : lock == LOCK_TIER ? "Termine o set anterior primeiro" : lock == LOCK_BOSS ? "Complete mais músicas do set para a batalha" : "Complete o set (e a batalha) para o encore"); A.unlockAt = now; return; }
-            A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier; A.practiceSec = A.practiceEnd = 0; if (app_prepare_song(A.selSong) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; audio_sfx(SFX_OK); } }
+        else if (in == IN_OK && A.cursor < A.nrows) { int lock = row_lock(A.cursor); if (lock) { audio_sfx(SFX_WARN); snprintf(A.unlockMsg, sizeof A.unlockMsg, "%s", lock == LOCK_BUY ? (A.mode == MODE_CAREER ? "Compre esta música na Loja (Y)" : "Compre esta música na Loja da carreira") : lock == LOCK_FINALE ? "Termine a carreira para liberar esta" : A.mode != MODE_CAREER ? "Libere esta música na carreira primeiro" : lock == LOCK_TIER ? "Termine o set anterior primeiro" : lock == LOCK_BOSS ? "Complete mais músicas do set para a batalha" : "Complete o set (e a batalha) para o encore"); A.unlockAt = now; return; }
+            A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier; A.practiceSec = A.practiceEnd = 0; if (app_prepare_song(A.selSong) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); } }
         else if (in == IN_Y && A.mode == MODE_CAREER) store_open(now);
         else if (in == IN_BACK) { to_main(); audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_STORE) store_event(in, now);
@@ -410,19 +410,19 @@ void screens_event(int in, double now) {
         if (menu_move(in, &A.setupRow, nr)) return;
         if (in == IN_LEFT || in == IN_RIGHT) { audio_sfx(SFX_MOVE); setup_change(rows[A.setupRow], in == IN_RIGHT ? 1 : -1); }
         else if (in == IN_OK) { if (rows[A.setupRow] != SR_PLAY && rows[A.setupRow] != SR_PART) { setup_change(rows[A.setupRow], 1); audio_sfx(SFX_MOVE); return; } if (rows[A.setupRow] == SR_PART) { setup_change(SR_PART, 1); audio_sfx(SFX_MOVE); return; }
-            if (app_song_lock(A.selTier, A.selSong)) { audio_sfx(SFX_BACK); return; } settings_save(); encore_begin(now); }
+            if (app_song_lock(A.selTier, A.selSong)) { audio_sfx(SFX_WARN); return; } settings_save(); encore_begin(now); }
         else if (in == IN_BACK) { app_session_free(); A.screen = SC_SETLIST; audio_sfx(SFX_BACK); app_preview(A.rows[A.cursor].idx); }
     } else if (A.screen == SC_OPTIONS) {
         if (A.optCat < 0) {
             if (menu_move(in, &A.optRow, CAT_N)) return;
             if (in == IN_BACK) { leave_options(); audio_sfx(SFX_BACK); return; }
             if (in != IN_OK) return;
-            if (cat_off(A.optRow)) { audio_sfx(SFX_BACK); return; }
+            if (cat_off(A.optRow)) { audio_sfx(SFX_WARN); return; }
             if (A.optRow == CAT_CALIB) { audio_sfx(SFX_OK); app_calib_start(SC_OPTIONS); }
             else if (A.optRow == CAT_TOP) { A.screen = SC_TOPROCK; A.topDiff = A.selDiff; A.topScroll = 0; while (A.topScroll < A.nrows - 1 && A.rows[A.topScroll].kind == 0) A.topScroll++; audio_sfx(SFX_OK); }
             else if (A.optRow == CAT_CHEATS) { cheats_open(); audio_sfx(SFX_OK); }
             else if (A.optRow == CAT_RESET) { int seen = SET.careerIntro; settings_defaults(); SET.careerIntro = seen; A.preset = 0; app_apply_volumes(); app_refresh_career(0); audio_sfx(SFX_OK); note(now, "Opções e controles voltaram ao padrão."); }
-            else { A.optCat = A.optRow; A.optRow = 0; audio_sfx(SFX_OK); }
+            else { A.optCat = A.optRow; A.optRow = 0; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); }
             return; }
         int n = cat_count(A.optCat), it = CAT_ITEMS[A.optCat][A.optRow];
         if (menu_move(in, &A.optRow, n)) return;

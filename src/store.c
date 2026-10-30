@@ -113,9 +113,9 @@ static void item(int i, const char **title, const char **sub, int *price, int *h
 /* a bonus video, from MOVIES/R36S (tools/convert_movies.sh makes them) */
 static void watch_video(const gh3_video *v, double now) {
     if (app_movie_exists(v->id)) { audio_sfx(SFX_OK); app_play_movie(v->id, SC_STORE); return; }
-    char b[160]; snprintf(b, sizeof b, "Falta o vídeo \"%s\" em DATA/MOVIES/R36S.", v->name); note(now, b); audio_sfx(SFX_BACK);
+    char b[160]; snprintf(b, sizeof b, "Falta o vídeo \"%s\" em DATA/MOVIES/R36S.", v->name); note(now, b); audio_sfx(SFX_WARN);
 }
-void store_open(double now) { make_list(); store_refresh(A.lib); A.screen = SC_STORE; confirm = 0; app_preview(-1); audio_sfx(SFX_OK); (void)now; }
+void store_open(double now) { make_list(); store_refresh(A.lib); A.screen = SC_STORE; confirm = 0; app_preview(-1); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); (void)now; }
 void store_draw(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; const gh3_library *lib = A.lib; char b[320], c[32];
     snprintf(b, sizeof b, "Seu dinheiro: %s", store_cash_str()); ui_header(W, "LOJA", b);
@@ -162,9 +162,9 @@ void store_event(int in, double now) {
     else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { cat = !cat; top = 0; audio_sfx(SFX_MOVE); }
     else if (in == IN_BACK || in == IN_Y) { A.screen = SC_SETLIST; audio_sfx(SFX_BACK); app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); }
     else if (in == IN_OK && n) { const char *title, *sub; int price, have; item(*s, &title, &sub, &price, &have); char b[120], c[24];
-        if (have) { if (cat == 1) watch_video(&A.lib->shop.videos[*s], now); else { audio_sfx(SFX_BACK); note(now, "Essa já é sua: toque na lista de músicas."); } return; }
-        if (price <= 0) { audio_sfx(SFX_BACK); note(now, careerDone || SET.unlockAll ? "Essa já está liberada na lista de músicas." : "Termine a carreira (em qualquer dificuldade) para liberar esta."); return; }
-        if (cash < price) { audio_sfx(SFX_BACK); fmt_cash(price - cash, c, sizeof c); snprintf(b, sizeof b, "Faltam %s: tire 3 estrelas ou mais na carreira.", c); note(now, b); return; }
+        if (have) { if (cat == 1) watch_video(&A.lib->shop.videos[*s], now); else { audio_sfx(SFX_WARN); note(now, "Essa já é sua: toque na lista de músicas."); } return; }
+        if (price <= 0) { audio_sfx(SFX_WARN); note(now, careerDone || SET.unlockAll ? "Essa já está liberada na lista de músicas." : "Termine a carreira (em qualquer dificuldade) para liberar esta."); return; }
+        if (cash < price) { audio_sfx(SFX_WARN); fmt_cash(price - cash, c, sizeof c); snprintf(b, sizeof b, "Faltam %s: tire 3 estrelas ou mais na carreira.", c); note(now, b); return; }
         confirm = 1; audio_sfx(SFX_OK); }
 }
 void store_draw_result(int W, int y, double T) {
