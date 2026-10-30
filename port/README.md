@@ -17,13 +17,30 @@ jogo, como foram levantadas no port para navegador.
   - `MOVIES/R36S/` (os vídeos do jogo em MPEG-1, `*.mpg`) - 200 MB, opcional. São feitos no PC a partir dos MP4 de
     `MOVIES/WEB/` com `tools/convert_movies.sh DATA` (precisa do ffmpeg). Só essa subpasta é lida; sem ela os vídeos são pulados.
     Os quatro vídeos bônus (`brettmichaels`, `sexpistols`, `slash`, `tommorello`) são 115 MB desse total.
-  - `ZONES/` e o resto de `MOVIES/` não são usados e podem ficar de fora para poupar cartão.
+  - `ZONES/` (os cenários 3D, `z_*.pak.xen`) - 225 MB, só para o executável **GH3 3D** (veja abaixo). O resto de
+    `MOVIES/` não é usado e pode ficar de fora para poupar cartão.
 
 ## Instalação
 
-1. Copie `GH3.sh` para `roms/ports/` (ou `roms2/ports/`) do cartão e a pasta `gh3/` para `roms/ports/gh3/`.
-2. Copie a pasta `DATA` do jogo para `roms/ports/gh3/DATA/` (com pelo menos `PAK`, `SONGS` e `MUSIC` dentro).
-3. Atualize a lista de jogos (ou reinicie) e abra **Guitar Hero III** no menu Ports.
+1. Copie `GH3.sh` e `GH3 3D.sh` para `roms/ports/` (ou `roms2/ports/`) do cartão e a pasta `gh3/` para `roms/ports/gh3/`.
+2. Copie a pasta `DATA` do jogo para `roms/ports/gh3/DATA/` (com pelo menos `PAK`, `SONGS` e `MUSIC` dentro; `ZONES` para o 3D).
+3. Atualize a lista de jogos (ou reinicie) e abra **Guitar Hero III** (ou **Guitar Hero III 3D**) no menu Ports.
+
+## Os dois executáveis: GH3 e GH3 3D
+
+Na mesma pasta `gh3/` há dois programas feitos dos mesmos fontes:
+
+- `gh3.aarch64` (**GH3.sh**): o palco em pixel art, estável.
+- `gh3-3d.aarch64` (**GH3 3D.sh**): o mesmo jogo, mas atrás da pista ele desenha o cenário do próprio jogo em 3D, lido
+  de `DATA/ZONES/z_*.pak.xen`: as malhas e texturas do palco do set (o bar, o inferno, o Budokan…), com as luzes do
+  cenário e as câmeras do jogo cortando pela lista de cortes de cada música (`<música>_cameras_notes`). Nos menus, o
+  último palco carregado passeia pelas tomadas gerais do jogo. Banda, plateia, show de luzes dinâmico, fogo e brilho
+  ainda não entram. É experimental: se engasgar ou a imagem sair errada, **Opções > Vídeo > Palco 3D** desliga o
+  cenário (volta ao palco 2D) sem trocar de executável; `Escurecer o fundo` continua valendo sobre o cenário.
+
+Os dois leem o mesmo `DATA` e os mesmos arquivos de save (`gh3.cfg`, `gh3-recordes.cfg`, `gh3-carreira.cfg`,
+`gh3-tutoriais.cfg`), então dá para alternar entre eles sem perder nada; cada um escreve o seu log (`log.txt` e
+`log-3d.txt`). Sem `ZONES/`, ou quando o aparelho desenha por software (`SOFT_RENDER=1`), o 3D cai no palco 2D sozinho.
 
 ## Menu principal
 
@@ -113,7 +130,7 @@ Organizadas como no jogo:
 - **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
 - **Calibrar atraso**: a medição descrita acima.
 - **Controle**: canhoto (lefty flip), palhetada normal ou toque livre (a nota toca ao segurar os trastes), botões.
-- **Vídeo**: tema visual, efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
+- **Vídeo**: tema visual, palco 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
 - **Top Rockers**: os seus melhores resultados em cada música, por dificuldade.
 - **Trapaças**: as do jogo, com os mesmos códigos (em "Tocar um código", segure os trastes de cada acorde e palhete):
   Hyperspeed, No Fail, Easy Expert (janelas de acerto dobradas; não vale na carreira nem para recordes), Precision Mode
@@ -124,8 +141,8 @@ Organizadas como no jogo:
 
 ## O que ainda não tem
 
-- A arte e os cenários 3D do próprio jogo, co-op e multiplayer. No treino lento o jogo troca a banda pelos seus
-  samples de bateria; aqui a banda toca, esticada.
+- A banda, a plateia e o show de luzes do próprio jogo (o cenário 3D entra só no GH3 3D, parado e sem a banda), co-op e
+  multiplayer. No treino lento o jogo troca a banda pelos seus samples de bateria; aqui a banda toca, esticada.
 - Os efeitos sonoros são sintetizados (menus, erros, star power); a guitarra silencia ao errar como no jogo.
 
 ## Compilar do código
@@ -133,6 +150,10 @@ Organizadas como no jogo:
 Precisa de um Linux (ou WSL) com `aarch64-linux-gnu-gcc` e um sysroot aarch64 com SDL2 (glibc até 2.30, a do ArkOS):
 
 ```
-make            # build/gh3 para o PC (SDL2 do sistema), com modos sem janela: --dump, --frames, --screens
-make port       # build/gh3.aarch64 e o zip do PortMaster em build/port/
+make            # build/gh3 e build/gh3-3d para o PC (SDL2 do sistema), com modos sem janela: --dump, --frames, --screens, --r3dtest
+make port       # build/gh3.aarch64, build/gh3-3d.aarch64 e o zip do PortMaster em build/port/
 ```
+
+O `gh3-3d` é o mesmo código com `-DGH3_3D` mais `src/r3d/` (sem a define nada do 3D é compilado). Ele precisa de um
+SDL2 com `SDL_RenderFlush` (2.0.10+, resolvido em tempo de execução) e do renderer GLES2/OpenGL do SDL; por software
+cai no palco 2D.

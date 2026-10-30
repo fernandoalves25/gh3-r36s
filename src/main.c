@@ -29,6 +29,10 @@
 #include "battle.h"
 #include "cheats.h"
 #include "tutorial.h"
+#ifdef GH3_3D
+#include "r3d/r3d.h"   /* the 3D build (gh3-3d): the game's venues behind the highway */
+static char r3dTest[32];
+#endif
 
 /* ------------------------------------------------------------------ files */
 typedef struct { char lower[300]; char path[600]; size_t size; } fentry;
@@ -101,6 +105,9 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--windowed")) cfg.fullscreen = 0;
         else if (!strcmp(a, "--fullscreen")) cfg.fullscreen = 1;
         else if (!strcmp(a, "--size")) { sscanf(v, "%dx%d", &cfg.W, &cfg.H); i++; }
+#ifdef GH3_3D
+        else if (!strcmp(a, "--r3dtest")) { snprintf(r3dTest, sizeof r3dTest, "%s", v); i++; }   /* --r3dtest z_dive --out DIR: a venue drawn offscreen, frames saved, counts and timings printed */
+#endif
         else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
     }
 }
@@ -320,6 +327,9 @@ static void movie_test(void) {   /* --movietest NAME|all [--movieplay]: decodes 
 /* ---- playing ---- */
 void app_begin_song(void) {
     char err[300]; app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
+#ifdef GH3_3D
+    r3d_select(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "");   /* the set's venue (levelzones); a bonus song with none gets the default */
+#endif
     if (battle_intro_start(A.selSong, SDL_GetTicks())) return;   /* a boss: his intro first (it comes back here) */
     if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return; }
     app_apply_volumes();
@@ -483,10 +493,16 @@ int main(int argc, char **argv) {
                         from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses); } } } return bad ? 1 : 0; }
     if (moneyTest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); bank_index(); return store_selftest(&lib) ? 1 : 0; }
     if (cfg.movietest[0]) { SDL_Init(0); movie_test(); audio_close(); return 0; }
+#ifdef GH3_3D
+    if (r3dTest[0]) return r3d_test(r3dTest, cfg.outdir, cfg.W, cfg.H);
+#endif
     if (cfg.audiotest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
         char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) < 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
+#ifdef GH3_3D
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16); if (!SDL_GetHint(SDL_HINT_RENDER_DRIVER)) SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengles2");   /* the venue needs a depth buffer; GLES2 as on the device (SDL falls back when it is not there) */
+#endif
     SDL_Window *win = SDL_CreateWindow("Guitar Hero III", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, cfg.W, cfg.H, cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
     if (!win) { fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
     SDL_Renderer *ren = NULL; SDL_Texture *softTex = NULL;
@@ -501,6 +517,9 @@ int main(int argc, char **argv) {
         softTex = SDL_CreateTexture(soft, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, cfg.W, cfg.H);
         gfx_init(NULL, cfg.W, cfg.H); ren = soft; SDL_Log("renderer: software");
     } else gfx_init(ren, cfg.W, cfg.H);
+#ifdef GH3_3D
+    if (!softTex && r3d_init(ren)) SDL_Log("palco 3D indisponível: palco 2D");
+#endif
     SDL_ShowCursor(SDL_DISABLE);
     art_init(cfg.H >= 400 ? cfg.H / 240 : 1); fx_init(art_px()); render_init(cfg.W, cfg.H); A.W = cfg.W; A.H = cfg.H;
     if (audio_open()) SDL_Log("no audio device"); app_apply_volumes();
@@ -543,6 +562,10 @@ int main(int argc, char **argv) {
         fpsN++; Uint32 t2 = SDL_GetTicks(); if (t2 - fpsAt >= 1000) { A.fps = fpsN; fpsN = 0; fpsAt = t2; }
         if (!cfg.vsync) { if (t2 - last < 16) SDL_Delay(16 - (t2 - last)); } last = SDL_GetTicks();
     }
-    settings_save(); movie_close(); preview_shutdown(); app_session_free(); audio_close(); SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit();
+    settings_save(); movie_close(); preview_shutdown(); app_session_free(); audio_close();
+#ifdef GH3_3D
+    r3d_shutdown();
+#endif
+    SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit();
     return 0;
 }

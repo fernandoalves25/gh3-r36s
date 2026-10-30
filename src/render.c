@@ -6,6 +6,9 @@
 #include "fx.h"
 #include "ui.h"
 #include "settings.h"
+#ifdef GH3_3D
+#include "r3d/r3d.h"
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -169,6 +172,9 @@ static void gem(float x, float y, float s, uint32_t color, int kind, float alpha
 }
 /* the stage behind the highway: baked backdrop plus crowd, lamps and beams that move with the music */
 static void stage(double perf, float pulse, int sp, int level, int fx, float energy) {
+#ifdef GH3_3D
+    if (r3d_draw_stage(perf, sp, energy)) return;   /* the game's own venue in 3D (the gh3-3d build): no 2D backdrop, crowd or beams over it */
+#endif
     gfx_sprite_at(stageSp, 0, 0, 1, RGB(255, 255, 255), 1);
     if (!fx) return;
     static const uint32_t LIGHTS[5] = { RGB(0xe9, 0xb0, 0x4c), RGB(0x31, 0xc4, 0x66), RGB(0xf3, 0xd2, 0x3b), RGB(0xf2, 0x8d, 0x2d), RGB(0xea, 0x4b, 0x40) };

@@ -169,7 +169,13 @@ static void shop_read(const secmap *m, gh3_library *lib) {
         for (int i = 0; i < st->nitems; i++) { const qbv *tv = st->items[i].v, *arr = qb_get(tv, "songs"); uint32_t lk, sk; if (!arr || arr->kind != QB_ARRAY || !arr->narr || !qb_keyof(qb_get(tv, "level"), &lk) || !qb_keyof(arr->arr[0], &sk)) continue;
             int s0 = song_index(lib, sk); const char *z = qb_str(qb_get(qb_getk(lz, lk), "name")); if (s0 < 0 || !*z) continue;
             for (int t = 0; t < lib->ntiers; t++) if (lib->tiers[t].tab == L) for (int k = 0; k < lib->tiers[t].nsongs; k++) if (lib->tiers[t].songIdx[k] == s0) { cpystr(lib->shop.tierZone[t], sizeof lib->shop.tierZone[t], z); lower(lib->shop.tierZone[t]); } } }
+    /* each venue's crowd panels: the textures its stand-in cards wear (the 3D stage leaves those cards out) */
+    for (int t = 0; t < lib->ntiers; t++) { const char *z = lib->shop.tierZone[t]; if (!*z || gh3_library_crowd(lib, z) || lib->ncrowd >= 12) continue;
+        char nm[48]; snprintf(nm, sizeof nm, "%s_crowd_models", z); const qbv *L = sec(m, nm); if (!L || L->kind != QB_ARRAY) continue;
+        gh3_zonecrowd *c = &lib->crowd[lib->ncrowd++]; memset(c, 0, sizeof *c); cpystr(c->zone, sizeof c->zone, z);
+        for (int i = 0; i < L->narr && c->n < 16; i++) { const qbv *tx = qb_get(L->arr[i], "textureasset"); uint32_t k; if (tx && tx->kind == QB_STR) c->tex[c->n++] = gh3_qbkey(tx->s); else if (qb_keyof(tx, &k)) c->tex[c->n++] = k; } }
 }
+const gh3_zonecrowd *gh3_library_crowd(const gh3_library *lib, const char *zone) { for (int i = 0; i < lib->ncrowd; i++) if (!strcmp(lib->crowd[i].zone, zone)) return &lib->crowd[i]; return NULL; }
 /* boss battles, as the browser port reads them: the power-ups, each battle song's boss and the per-difficulty numbers */
 static int truthy(const qbv *v) { return v && !(v->kind == QB_INT && !v->i) && !(v->kind == QB_FLOAT && !v->f[0]); }
 static void perd(const qbv *st, const char *post, double *out) { for (int d = 0; d < 4; d++) { char nm[48]; snprintf(nm, sizeof nm, "%s%s", GH3_DIFF_NAME[d], post); out[d] = qb_num(qb_get(st, nm), 0); } }
@@ -334,10 +340,13 @@ int gh3_songpak_read(const uint8_t *pak, size_t len, const char *name, gh3_songd
     if ((a = arrsec(best, bestn, sd->name, "_scripts"))) { sd->cues = calloc(a->narr, sizeof *sd->cues);
         for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; const qbv *t = qb_get(e, "time"); uint32_t k; if (!t || !qb_keyof(qb_get(e, "scr"), &k)) continue; sd->cues[sd->ncues].t = (int)qb_num(t, 0); sd->cues[sd->ncues].scr = k; sd->ncues++; }
         for (int i = 1; i < sd->ncues; i++) { gh3_cue c = sd->cues[i]; int j = i; while (j > 0 && sd->cues[j - 1].t > c.t) { sd->cues[j] = sd->cues[j - 1]; j--; } sd->cues[j] = c; } }
+    if ((a = arrsec(best, bestn, sd->name, "_cameras_notes"))) { sd->cams = calloc(a->narr, sizeof *sd->cams);
+        for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; if (e && e->kind == QB_ARRAY && e->narr >= 2) { for (int k = 0; k < 3 && k < e->narr; k++) sd->cams[sd->ncams][k] = arr_int(e, k); sd->ncams++; } }
+        for (int i = 1; i < sd->ncams; i++) { int c[3]; memcpy(c, sd->cams[i], sizeof c); int j = i; while (j > 0 && sd->cams[j - 1][0] > c[0]) { memcpy(sd->cams[j], sd->cams[j - 1], sizeof c); j--; } memcpy(sd->cams[j], c, sizeof c); } }
     gh3_qb_free_sections(best, bestn);
     return sd->nfret ? 0 : -1;
 }
-void gh3_songdata_free(gh3_songdata *sd) { free(sd->fretbars); free(sd->timesig); free(sd->markers); free(sd->cues); for (int p = 0; p < 4; p++) for (int d = 0; d < 4; d++) { free(sd->parts[p][d].raw); free(sd->parts[p][d].star); free(sd->parts[p][d].battle); } memset(sd, 0, sizeof *sd); }
+void gh3_songdata_free(gh3_songdata *sd) { free(sd->fretbars); free(sd->timesig); free(sd->markers); free(sd->cues); free(sd->cams); for (int p = 0; p < 4; p++) for (int d = 0; d < 4; d++) { free(sd->parts[p][d].raw); free(sd->parts[p][d].star); free(sd->parts[p][d].battle); } memset(sd, 0, sizeof *sd); }
 
 /* ------------------------------------------------------------------ chart */
 double gh3_beatpos(const int32_t *fb, int nfb, double t) {
