@@ -131,7 +131,7 @@ void store_draw(double now) {
         if (on) { ui_panel(10, y - 3, W - 20, rowH, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), 16, y + 1, 0.5f, RGB(255, 255, 255), 1); }
         gfx_text_sh(34, y + 1, 2, title, on ? C_INK : have ? C_MUTED : RGB(210, 204, 196), C_SHADOW);
         int tw = gfx_text_w(title, 2), rw = gfx_text_w(b, cat || have || price <= 0 ? 1 : 2);
-        if (*sub && 34 + tw + 14 + gfx_text_w(sub, 1) < W - 40 - rw) gfx_text(34 + tw + 14, y + 6, 1, sub, on ? C_MUTED : C_LINE);
+        if (*sub && 34 + tw + 14 + gfx_text_w(sub, 1) < W - 40 - rw) gfx_text(34 + tw + 14, y + 6, 1, sub, on ? C_INK : C_MUTED);
         if (price > 0 && !have) gfx_text_sh_right(W - 22, y + 1, 2, b, sc, C_SHADOW); else gfx_text_sh_right(W - 22, y + 6, 1, b, sc, C_SHADOW); }
     if (top > 0) gfx_text_center(W / 2, y0 - 9, 1, "↑", C_MUTED); if (top + vis < n) gfx_text_center(W / 2, y0 + vis * rowH - 4, 1, "↓", C_MUTED);
     int py = H - 146; ui_panel(14, py, W - 28, 94, UI_PANEL_FLAT);

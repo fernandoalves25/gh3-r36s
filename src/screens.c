@@ -274,7 +274,7 @@ static void draw_toprock(double now) {
         if (A.rows[i].kind == 0) { const gh3_tier *tr = &lib->tiers[A.rows[i].idx]; gfx_rect(10, y + 2, W - 20, rowH - 4, RGBA(60, 40, 15, 120)); gfx_text_sh(18, y + 6, 1, tr->tab == 1 ? "Músicas bônus" : tr->tab == 2 ? "Músicas baixadas" : tr->tab == 3 ? "Mais músicas" : tr->title, C_AMP, C_SHADOW); continue; }
         const gh3_song *s = &lib->songs[A.rows[i].idx]; const record_t *rc = records_get(s->name, A.topDiff, 0), *rc2 = records_get(s->name, A.topDiff, 1); if (!rc || (rc2 && rc2->score > rc->score)) rc = rc2;
         if (i == cur) ui_panel(10, y - 1, W - 20, rowH, UI_PANEL_AMBER);
-        song_title(s, b, sizeof b); gfx_text_sh(24, y + 6, 1, b, rc ? C_INK : C_LINE, C_SHADOW);
+        song_title(s, b, sizeof b); gfx_text_sh(24, y + 6, 1, b, rc ? C_INK : C_MUTED, C_SHADOW);
         if (rc) { stars_str(rc->stars, b2); fmt_num(rc->score, b, sizeof b); gfx_text_sh_right(W - 24, y + 6, 1, b, C_INK, C_SHADOW); gfx_text_right(W - 120, y + 3, 2, b2, C_AMP); snprintf(b, sizeof b, "%d%%", rc->pct); gfx_text_right(W - 236, y + 6, 1, b, C_MUTED); }
         else gfx_text_right(W - 24, y + 6, 1, "—", C_LINE); }
     static const char *bt[3] = { "↑↓", "← →", "B" }, *tx[3] = { "Rolar", "Dificuldade", "Voltar" }; ui_hints(H - 24, W, bt, tx, 3);

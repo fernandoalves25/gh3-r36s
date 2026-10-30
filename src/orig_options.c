@@ -113,7 +113,7 @@ static int ctrl_draw(const int *items, int n, const char *const *optLabel, const
         ga_text_fit(head, LX, y, SZ, tk >= 0 ? 210 : 280, b, on ? FOC : UNF, 0);
         if (tk >= 0) img(tk ? "options_controller_check" : "options_controller_x", CX_(975) - 15 - 3 * k, y - 7, 30, 30, WHITE, 1); }
     ga_text_fit(head, CX_(135) + 213, CY_(30) + 352, 19, 100, "Controle", UNF, 1); ga_text_fit(head, CX_(135) + 213, CY_(30) + 174, 14, 80, "Opções", UNF, 1);
-    gfx_text_box((int)LX - 6, (int)(RY + n * RP + 10), (int)(CX_(1080) - LX), 1, optHelp[items[A.optRow]], UNF);   /* the help on the paper, under the words */
+    gfx_text_box((int)LX - 6, (int)(RY + n * RP + 10), (int)(CX_(525) + 368 - 28 - (LX - 6)), 1, optHelp[items[A.optRow]], UNF);   /* the help on the paper, under the words, inside its right edge */
     tape("tape_v_01", CX_(250), CY_(360), 53, 95);
     static const char *bt[3] = { "← →", "A", "B" }, *tx[3] = { "Mudar", "Abrir", "Voltar" }; ui_hints(H - 24, W, bt, tx, 3);
     #undef CX_

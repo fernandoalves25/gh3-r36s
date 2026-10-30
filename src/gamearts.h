@@ -20,6 +20,9 @@ int ga_tex_biggest(int w, int h, uint32_t *key);         /* the largest texture 
 /* fonts (.fnt): white glyphs on a sheet, drawn tinted. y is the top of the line; size px tall (the font's own size scaled) */
 typedef struct ga_font ga_font;
 ga_font *ga_font_get(const char *name);
+ga_font *ga_font_down(const char *name, int down);       /* the same font on a sheet shrunk `down` times (1..8): for text drawn much smaller than its size */
+int ga_has(const ga_font *f, int code);                  /* 1 the font has code's glyph, 2 it puts it together (an accent it lacks over the plain letter), 0 neither */
+float ga_char(const ga_font *f, float x, float base, float size, float sx, int code, uint32_t color);   /* one code point on baseline `base`, squeezed sx; its advance (alpha 0: measured only) */
 float ga_font_size(const ga_font *f);                    /* the font's native size */
 float ga_text_w(const ga_font *f, const char *s, float size);
 void ga_text(const ga_font *f, float x, float y, float size, const char *s, uint32_t color);
