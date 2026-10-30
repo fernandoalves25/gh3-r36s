@@ -338,6 +338,7 @@ static const uint8_t FSB_KEY[10] = { 0x35, 0x61, 0x74, 0x75, 0x36, 0x77, 0x34, 0
 static uint8_t REV[256]; static int rev_ready = 0;
 static void rev_setup(void) { if (rev_ready) return; for (int i = 0; i < 256; i++) { int r = 0; for (int k = 0; k < 8; k++) if (i & (1 << k)) r |= 0x80 >> k; REV[i] = (uint8_t)r; } rev_ready = 1; }
 static void fsb_dec(uint8_t *b, size_t from, size_t to) { rev_setup(); for (size_t i = from; i < to; i++) b[i] = REV[b[i] ^ FSB_KEY[i % 10]]; }
+void gh3_fsb_descramble(uint8_t *b, size_t n, size_t at) { rev_setup(); for (size_t i = 0; i < n; i++) b[i] = REV[b[i] ^ FSB_KEY[(at + i) % 10]]; }
 static const char *ROLES[FSB_ROLES] = { "guitar", "rhythm", "song", "preview", "coop_guitar", "coop_rhythm", "coop_song" };
 int gh3_fsb_read(uint8_t *bytes, size_t N, const uint8_t *dat, size_t datLen, const char *songName, gh3_fsb *out) {
     memset(out, 0, sizeof *out); out->bytes = bytes; out->n = N; if (N < 24) return -1;

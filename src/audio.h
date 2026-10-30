@@ -19,6 +19,7 @@ int audio_running(void);
 double audio_song_ms(void);                       /* song position heard right now (ms), smoothed */
 void audio_mute(int bus, int mute);
 void audio_set_master(double gain);
+void audio_set_bus_gain(int bus, double gain);   /* the player track (guitar) and the band have their own volumes */
 double audio_duration_ms(void);                   /* best estimate from the stream headers */
 void audio_fade_out(double sec);
 void audio_selftest(void);
@@ -27,8 +28,9 @@ void audio_metronome(double periodMs, double leadMs); /* calibration: clicks at 
 /* effects */
 void audio_sfx(int kind);
 void audio_set_sfx_gain(double gain);
-/* previews: one looping stream, faded in and out, on the player bus (the song clock is not used meanwhile) */
-void audio_preview(const uint8_t *mp3, size_t size, double levelDb);
+/* previews and the menu music: one stream, faded in and out, on the player bus at the band volume (the song clock is
+ * not used meanwhile); a looping preview repeats, a menu track stops at its end and audio_preview_on() turns 0 */
+void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping);
 void audio_preview_stop(double fadeSec);
 int audio_preview_on(void);
 #endif

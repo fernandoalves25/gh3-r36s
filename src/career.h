@@ -1,7 +1,8 @@
 /* Career progress, as the game does it: a tier opens when the one before is finished; its regular songs are all
  * available at once; after enough of them are completed (2 on Easy, 3 on Medium, 4 on Hard and Expert) the
  * boss battle (where there is one) and then the encore open; the encore (or the last battle) finishes the tier.
- * Progress is per difficulty and read from the records table (a song counts once completed on any part). */
+ * Progress is per difficulty and read from the records table (a song counts once completed on any part in Career
+ * mode; Quickplay scores are kept but do not move the career). */
 #ifndef CAREER_H
 #define CAREER_H
 #include "gh3fmt.h"

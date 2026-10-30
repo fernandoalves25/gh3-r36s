@@ -75,5 +75,6 @@ typedef struct { uint8_t *bytes; size_t n; gh3_fsbstream *streams; int nstreams;
 int gh3_fsb_read(uint8_t *bytes, size_t n, const uint8_t *dat, size_t datLen, const char *songName, gh3_fsb *out);
 const uint8_t *gh3_fsb_extract(gh3_fsb *f, int role, size_t *size);
 int gh3_fsb_has(const gh3_fsb *f, int role);
+void gh3_fsb_descramble(uint8_t *b, size_t n, size_t at);   /* bytes read from offset `at` of a scrambled bank */
 
 #endif

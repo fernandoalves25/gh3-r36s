@@ -3,7 +3,7 @@
 #include <string.h>
 
 int career_required(int diff) { static const int req[4] = { 2, 3, 4, 4 }; return req[diff < 0 ? 0 : diff > 3 ? 3 : diff]; }
-static int completed(const gh3_song *s, int diff) { return records_get(s->name, diff, 0) != NULL || records_get(s->name, diff, 1) != NULL; }
+static int completed(const gh3_song *s, int diff) { const record_t *a = records_get(s->name, diff, 0), *b = records_get(s->name, diff, 1); return (a && a->career) || (b && b->career); }
 void career_eval(const gh3_library *lib, int diff, int unlockAll, tierstate_t *out) {
     int prevDone = 1;
     for (int t = 0; t < lib->ntiers; t++) {

@@ -6,7 +6,10 @@
 #include "game.h"
 #include "settings.h"
 #include "career.h"
-enum { SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR };
+enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR };
+/* the main menu's ways to play, as in the game: Career moves the career, Quickplay plays any song the career has
+ * opened (scores kept, career untouched), Practice plays a song from a chosen section (nothing saved) */
+enum { MODE_CAREER, MODE_QUICK, MODE_PRACTICE };
 enum { IN_NONE = 0, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_OK, IN_BACK, IN_X, IN_Y, IN_L, IN_R, IN_SELECT };
 typedef struct { int kind, idx, tier; } row_t;            /* kind 0 = set header, 1 = song */
 typedef struct {
@@ -16,7 +19,9 @@ typedef struct {
 typedef struct {
     int W, H; gh3_library *lib; int libOk;
     row_t *rows; int nrows, cursor, scroll;
-    int screen, setupRow, pauseRow, optRow, ctlRow, ctlSlot, capturing, resRow, preset, optionsFrom, confirmQuit;
+    int screen, setupRow, pauseRow, optRow, optCat, ctlRow, ctlSlot, capturing, resRow, preset, optionsFrom, confirmQuit;
+    int mode, mainRow, trainRow, topDiff, topScroll, practiceSec; double titleAt, noteAt; char note[120];   /* note: a short line shown over a menu */
+    unsigned char *quickOpen;                /* per song: opened by the career on some difficulty (Quickplay, Practice) */
     int selSong, selDiff, selPart, selTier;
     char errMsg[300];
     session_t S;
@@ -33,6 +38,8 @@ extern app_t A;
 /* services of main.c */
 void app_begin_song(void);
 int app_prepare_song(int songIdx);     /* loads the chart for the setup screen (no audio); 0 when fine */
+int app_song_lock(int tier, int songIdx);   /* LOCK_* for the current mode */
+void app_guitar_lick(void);            /* one of the game's guitar licks (the title screen's Start), then the menu music again */
 void app_session_free(void);
 void app_quit(void);
 void app_preview(int songIdx);         /* the preview of a song is wanted (-1: none) */

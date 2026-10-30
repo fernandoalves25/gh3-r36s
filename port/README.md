@@ -13,13 +13,25 @@ jogo, como foram levantadas no port para navegador.
   - `PAK/` (lista de músicas, carreira e afinação: `qb.pak.xen` + `qb.pab.xen`) - 240 MB
   - `SONGS/` (as partituras: `*_song.pak.xen`) - 380 MB
   - `MUSIC/` (o áudio: `*.fsb.xen` + `*.dat.xen`) - 2,1 GB
-  - `ZONES/`, `MOVIES/` e `STREAMS/` não são usadas e podem ficar de fora para poupar cartão.
+  - `STREAMS/` (a música do menu e os riffs de guitarra: `streamall.fsb.xen`) - 85 MB, opcional
+  - `ZONES/` e `MOVIES/` não são usadas e podem ficar de fora para poupar cartão.
 
 ## Instalação
 
 1. Copie `GH3.sh` para `roms/ports/` (ou `roms2/ports/`) do cartão e a pasta `gh3/` para `roms/ports/gh3/`.
 2. Copie a pasta `DATA` do jogo para `roms/ports/gh3/DATA/` (com pelo menos `PAK`, `SONGS` e `MUSIC` dentro).
 3. Atualize a lista de jogos (ou reinicie) e abra **Guitar Hero III** no menu Ports.
+
+## Menu principal
+
+Igual ao do jogo: tela de título (aperte Start, toca um riff de guitarra) e o menu com **Carreira**, Carreira co-op,
+**Jogo rápido**, Multijogador, **Treino** e **Opções**. Co-op e multijogador aparecem, mas precisam de dois
+jogadores e não abrem no R36S. Nos menus tocam as 11 músicas de menu do próprio jogo, lidas de `STREAMS/` (sem essa
+pasta os menus ficam em silêncio).
+
+- **Jogo rápido**: qualquer música já liberada na carreira, em qualquer dificuldade. O recorde conta, a carreira não muda.
+- **Treino > Treinar música**: escolha a seção onde começar ("Começar em"). A música não falha e nada é salvo.
+  Os tutoriais narrados aparecem, mas ainda não foram portados.
 
 ## Carreira
 
@@ -29,12 +41,12 @@ A lista de músicas é a carreira do jogo, liberada como no original:
 - Complete **2 músicas no Fácil, 3 no Médio e as 4 no Difícil e no Expert** para liberar a batalha e depois o encore.
 - O encore (ou a última batalha) fecha o set e abre o seguinte. O progresso é separado por dificuldade (← → ou L1/R1 na lista).
 - As batalhas são tocadas como músicas normais (a trilha do chefe toca junto), sem os ataques do modo batalha.
-- Músicas bônus e baixadas ficam sempre abertas. Em Opções dá para liberar tudo de uma vez.
+- Músicas bônus e baixadas ficam sempre abertas. Em Opções > Trapaças dá para liberar tudo de uma vez.
 
 Recordes (pontos, porcentagem, maior sequência e estrelas) ficam em `gh3-recordes.cfg`, por música, parte e dificuldade.
 Uma música só conta como completada se não falhar; no modo "sem falhar" nada é gravado.
 
-## Controles (padrão igual ao PS2, todos configuráveis em Controles)
+## Controles (padrão igual ao PS2, todos configuráveis em Opções > Controle > Botões)
 
 O perfil padrão é o do manual do Guitar Hero III de PS2 para o controle comum (DualShock 2): os trastes ficam nos
 botões de ombro e no X, que no R36S é o botão de baixo (B):
@@ -65,15 +77,23 @@ O áudio do R36S chega aos ouvidos um pouco depois do que o jogo calcula. Antes 
 **Opções > Calibrar atraso**: toca um clique e você palheta no ritmo; o jogo mede o atraso e ajusta as notas e o
 julgamento. Sem isso, as notas parecem certas na tela e mesmo assim saem atrasadas.
 
-## Opções (menu Opções, salvas em `gh3.cfg`)
+## Opções (salvas em `gh3.cfg`)
 
-Palhetada normal ou toque livre (a nota toca ao segurar os trastes), canhoto, velocidade da pista (hyperspeed),
-sem falhar, efeitos de palco, escurecer o fundo, prévia das músicas na lista, volumes da música e dos efeitos,
-atraso do áudio, calibração do atraso, tema visual e FPS. `port.cfg` só tem as opções do launcher (vsync, clocks, renderização por software).
+Organizadas como no jogo:
+
+- **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
+- **Calibrar atraso**: a medição descrita acima.
+- **Controle**: canhoto (lefty flip), palhetada normal ou toque livre (a nota toca ao segurar os trastes), botões.
+- **Vídeo**: tema visual, efeitos de palco, escurecer o fundo, FPS.
+- **Top Rockers**: os seus melhores resultados em cada música, por dificuldade.
+- **Trapaças**: hyperspeed, sem falhar, liberar todas as músicas.
+
+`port.cfg` só tem as opções do launcher (vsync, clocks, renderização por software).
 
 ## O que ainda não tem
 
-- A arte e os cenários 3D do próprio jogo, os vídeos, a loja, o modo batalha com ataques, co-op e multiplayer.
+- A arte e os cenários 3D do próprio jogo, os vídeos, a loja, o modo batalha com ataques, co-op e multiplayer, os tutoriais
+  narrados e o treino em velocidade reduzida.
 - Os efeitos sonoros são sintetizados (menus, erros, star power); a guitarra silencia ao errar como no jogo.
 
 ## Compilar do código

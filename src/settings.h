@@ -17,7 +17,8 @@ typedef struct {
     int stageFx;        /* crowd, lights and beams */
     int showFps;
     int preview;        /* song previews on the set list */
-    int volMusic, volSfx;   /* 0..100 */
+    int volMusic, volGuitar, volSfx;   /* 0..100: the band (and the menu music), the part being played, the effects */
+    int menuMusic;      /* the game's menu music plays in the menus */
     int offsetMs;       /* audio lag compensation: the song clock used for notes and judging is the heard clock minus this */
     int bgDim;          /* 0..100: how dark the stage behind the highway is */
     int unlockAll;      /* every song open whatever the career says */
@@ -30,9 +31,9 @@ const char *settings_home(void);                     /* GH3_HOME or "." */
 int settings_load(void);
 int settings_save(void);
 
-typedef struct { char key[96]; long score; int pct, streak, stars; int plays; } record_t;
+typedef struct { char key[96]; long score; int pct, streak, stars; int plays; int career; } record_t;   /* career: completed in Career mode */
 const record_t *records_get(const char *song, int diff, int part);
-int records_put(const char *song, int diff, int part, long score, int pct, int streak, int stars);   /* 1 when it is a new best score */
+int records_put(const char *song, int diff, int part, long score, int pct, int streak, int stars, int career);   /* 1 when it is a new best score */
 int records_load(void);
 int records_save(void);
 int records_count_stars(void);                       /* all stars earned, for the set list header */

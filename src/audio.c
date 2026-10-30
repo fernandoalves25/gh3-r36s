@@ -14,7 +14,7 @@ typedef struct {
 } stream_t;
 
 static SDL_AudioDeviceID dev; static SDL_AudioSpec spec; static stream_t S[BUS_N];
-static float master = 1.0f, fadeStep = 0, fadeGain = 1, sfxGain = 0.8f;
+static float master = 1.0f, fadeStep = 0, fadeGain = 1, sfxGain = 0.8f, busGain[BUS_N] = { 1, 1, 1 };
 static int running = 0, paused = 0, preview = 0, loop = 0;
 static int64_t mixed = 0;          /* frames mixed since play (negative start = lead-in) */
 static double fromMs = 0, leadMs = 0;
@@ -108,10 +108,10 @@ static void callback(void *ud, Uint8 *out, int len) {
         if (running && !paused) {
             if (mixed >= 0) for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue;
                 s->gain += (s->target - s->gain) * 0.002f;
-                if (!pull(s)) continue;
+                if (!pull(s)) { if (preview && !loop && b == BUS_PLAYER) { running = 0; preview = 0; } continue; }
                 float sl, sr; if (s->channels >= 2) { sl = s->pcm[s->pcmPos] * (1.0f / 32768); sr = s->pcm[s->pcmPos + 1] * (1.0f / 32768); s->pcmPos += 2; } else { sl = sr = s->pcm[s->pcmPos++] * (1.0f / 32768); }
                 if (b == BUS_PLAYER && !preview) ps_process(&sl, &sr);
-                float g = s->level * s->gain; l += sl * g; r += sr * g; s->produced++; }
+                float g = s->level * s->gain * busGain[preview ? BUS_BAND : b]; l += sl * g; r += sr * g; s->produced++; }
             if (fadeStep) { fadeGain -= fadeStep; if (fadeGain <= 0) { fadeGain = 0; if (preview) { running = 0; preview = 0; fadeStep = 0; } } }
             float g = master * fadeGain; l *= g; r *= g;
             if (metroFrames > 0 && mixed >= 0 && mixed % metroFrames == 0) voice_start((mixed / metroFrames) % 4 == 0 ? SFX_GO : SFX_TICK);
@@ -130,8 +130,11 @@ int audio_open(void) {
 }
 void audio_close(void) { if (dev) SDL_CloseAudioDevice(dev); dev = 0; }
 int audio_has_device(void) { return dev != 0; }
-static void skip_to(stream_t *s, double ms) { /* decode forward to a position (only used for a start offset) */
+static void skip_to(stream_t *s, double ms) { /* moves to a position (a start offset): whole frames are only parsed, the rest decoded */
     int64_t want = (int64_t)(ms / 1000.0 * 44100); int64_t have = 0;
+    while (s->pos < s->size) { mp3dec_frame_info_t info; int n = mp3dec_decode_frame(&s->dec, s->data + s->pos, (int)(s->size - s->pos), NULL, &info);
+        if (info.frame_bytes <= 0 || have + n + 2304 > want) break; s->pos += info.frame_bytes; have += n; }
+    mp3dec_init(&s->dec);
     while (have < want && pull(s)) { int64_t left = (s->pcmLen - s->pcmPos) / (s->channels >= 2 ? 2 : 1); int64_t take = want - have < left ? want - have : left; s->pcmPos += (int)take * (s->channels >= 2 ? 2 : 1); have += take; }
 }
 void audio_set_stream(int bus, const uint8_t *mp3, size_t size, double levelDb) {
@@ -148,12 +151,12 @@ void audio_play(double from, double lead) {
     estOn = 0; running = 1; cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed; playTicks = SDL_GetTicks();
     if (dev) SDL_UnlockAudioDevice(dev);
 }
-void audio_preview(const uint8_t *mp3, size_t size, double levelDb) {
+void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping) {
     if (dev) SDL_LockAudioDevice(dev);
     for (int b = 0; b < BUS_N; b++) S[b].on = 0;
     stream_t *s = &S[BUS_PLAYER]; memset(s, 0, sizeof *s); mp3dec_init(&s->dec); s->data = mp3; s->size = size; s->on = mp3 && size > 0;
     s->level = (float)pow(10, levelDb / 20); s->gain = 0; s->target = 1;
-    fromMs = 0; leadMs = 0; mixed = 0; fadeStep = 0; fadeGain = 1; paused = 0; preview = 1; loop = 1; running = s->on; estOn = 0;
+    fromMs = 0; leadMs = 0; mixed = 0; fadeStep = 0; fadeGain = 1; paused = 0; preview = 1; loop = looping; running = s->on; estOn = 0;
     if (dev) SDL_UnlockAudioDevice(dev);
 }
 void audio_preview_stop(double sec) { if (dev) SDL_LockAudioDevice(dev); if (preview && running) { if (sec <= 0) { running = 0; preview = 0; } else fadeStep = (float)(1.0 / (sec * 44100)); } if (dev) SDL_UnlockAudioDevice(dev); }
@@ -183,6 +186,7 @@ void audio_pause(int p) { if (dev) SDL_LockAudioDevice(dev); paused = p; estOn =
 int audio_running(void) { return running && !paused; }
 void audio_mute(int bus, int m) { S[bus].target = m ? 0.06f : 1.0f; }
 void audio_set_master(double g) { master = (float)g; }
+void audio_set_bus_gain(int bus, double g) { if (bus >= 0 && bus < BUS_N) busGain[bus] = (float)g; }
 void audio_fade_out(double sec) { if (sec <= 0) sec = 0.01; fadeStep = (float)(1.0 / (sec * 44100)); }
 double audio_duration_ms(void) { double d = 0; for (int b = 0; b < BUS_N; b++) if (S[b].on) { /* MP3 CBR guess: 128 kbps */ double est = S[b].size / 16000.0 * 1000; if (est > d) d = est; } return d; }
 double audio_song_ms(void) {

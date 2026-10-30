@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <dirent.h>
+#include <time.h>
 #include <sys/stat.h>
 #include "gh3fmt.h"
 #include "game.h"
@@ -52,7 +53,7 @@ static uint8_t *read_data(const char *dir, const char *name, size_t *len) { cons
 /* ------------------------------------------------------------------ config */
 typedef struct {
     char data[520]; int W, H, fullscreen, vsync, soft;
-    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, screens; char outdir[520];
+    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens; char outdir[520];
 } cfg_t;
 static cfg_t cfg;
 static void cfg_defaults(void) {
@@ -70,6 +71,7 @@ static void cfg_args(int argc, char **argv) {
         if (!strcmp(a, "--data")) { snprintf(cfg.data, sizeof cfg.data, "%s", v); i++; }
         else if (!strcmp(a, "--dump")) cfg.dump = 1;
         else if (!strcmp(a, "--audiotest")) cfg.audiotest = 1;
+        else if (!strcmp(a, "--menutest")) cfg.menutest = 1;
         else if (!strcmp(a, "--screens")) { cfg.screens = 1; snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
         else if (!strcmp(a, "--song")) { snprintf(cfg.song, sizeof cfg.song, "%s", v); i++; }
         else if (!strcmp(a, "--diff")) { cfg.diff = diff_index(v); i++; }
@@ -98,7 +100,7 @@ static void sfx_hook(const char *name) {
 static void mute_hook(int m) { audio_mute(BUS_PLAYER, m); }
 
 void app_session_free(void) {
-    session_t *S = &A.S; audio_clear(); gh3_chart_free(&S->chart); gh3_songdata_free(&S->sd); free(S->pakBytes); free(S->fsbBytes); free(S->datBytes); free(S->fsb.streams);
+    session_t *S = &A.S; if (!audio_preview_on()) audio_clear(); /* a preview or menu track owns the mixer: none of the session's streams are on */ gh3_chart_free(&S->chart); gh3_songdata_free(&S->sd); free(S->pakBytes); free(S->fsbBytes); free(S->datBytes); free(S->fsb.streams);
     memset(S, 0, sizeof *S);
 }
 static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int withAudio, char *err, size_t errCap) {
@@ -124,7 +126,7 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
             } else SDL_Log("audio bank %s not understood", nm);
         } else SDL_Log("no audio bank for %s", song->name);
     }
-    gh3_runopts o; memset(&o, 0, sizeof o); o.autoPlay = autoPlay; o.noStrum = SET.tap; o.silent = !withAudio; o.bass = p == 1; o.noFail = SET.noFail; o.hyper = SET.hyper;
+    gh3_runopts o; memset(&o, 0, sizeof o); o.autoPlay = autoPlay; o.noStrum = SET.tap; o.silent = !withAudio; o.bass = p == 1; o.noFail = SET.noFail || A.mode == MODE_PRACTICE; o.hyper = SET.hyper;
     const gh3_note *last = &S->chart.notes[S->chart.nnotes - 1];
     double endMs = last->t + last->sus + 3000; if (S->durationMs > 1000 && S->durationMs < endMs) endMs = S->durationMs;
     o.endMs = endMs; o.speed = 100;
@@ -136,7 +138,8 @@ const char *app_section_at(double t) {
     if (!m) return ""; return m->text[0] ? m->text : gh3_library_text(&lib, m->key);
 }
 int app_prepare_song(int songIdx) { char e[300]; if (load_song(&lib.songs[songIdx], A.selPart, A.selDiff, 1, 0, e, sizeof e)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", e); A.screen = SC_ERROR; return -1; } return 0; }
-void app_apply_volumes(void) { audio_set_master(SET.volMusic / 100.0); audio_set_sfx_gain(SET.volSfx / 100.0 * 0.9); }
+void app_apply_volumes(void) { audio_set_master(1); audio_set_bus_gain(BUS_PLAYER, SET.volGuitar / 100.0); audio_set_bus_gain(BUS_BAND, SET.volMusic / 100.0); audio_set_bus_gain(BUS_OTHER, SET.volMusic / 100.0); audio_set_sfx_gain(SET.volSfx / 100.0 * 0.9); }
+int app_song_lock(int tier, int si) { if (A.mode == MODE_CAREER) return career_song_lock(&lib, A.tiers, tier, si); return A.quickOpen && A.quickOpen[si] ? LOCK_OPEN : LOCK_TIER; }
 void app_calib_start(int from) { app_preview(-1); if (audio_preview_on()) audio_preview_stop(0); app_apply_volumes(); audio_metronome(500, 1200); input_reset_axes(); A.calN = 0; A.calLastTapAt = -1e9; A.calFrom = from; A.screen = SC_CALIB; }
 void app_calib_stop(void) { audio_stop(); }
 static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
@@ -149,6 +152,10 @@ void app_refresh_career(int announce) {
     tierstate_t *before = NULL; if (announce && A.tiers) { before = malloc(lib.ntiers * sizeof *before); memcpy(before, A.tiers, lib.ntiers * sizeof *before); }
     if (!A.tiers) A.tiers = calloc(lib.ntiers, sizeof *A.tiers);
     career_eval(&lib, A.selDiff, SET.unlockAll, A.tiers);
+    { /* Quickplay and Practice: whatever the career opened on any difficulty */
+      tierstate_t *ts = malloc(lib.ntiers * sizeof *ts); A.quickOpen = realloc(A.quickOpen, lib.nsongs ? lib.nsongs : 1); memset(A.quickOpen, 0, lib.nsongs);
+      for (int d = 0; d < 4; d++) { career_eval(&lib, d, SET.unlockAll, ts); for (int t = 0; t < lib.ntiers; t++) for (int k = 0; k < lib.tiers[t].nsongs; k++) { int si = lib.tiers[t].songIdx[k]; if (career_song_lock(&lib, ts, t, si) == LOCK_OPEN) A.quickOpen[si] = 1; } }
+      free(ts); }
     if (before) { A.unlockMsg[0] = 0;
         for (int t = 0; t < lib.ntiers; t++) { const gh3_tier *tr = &lib.tiers[t];
             if (!before[t].open && A.tiers[t].open) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", tr->title);
@@ -157,11 +164,33 @@ void app_refresh_career(int announce) {
         if (A.unlockMsg[0]) A.unlockPending = 1; free(before); }
 }
 
-/* ---- previews: the song's audio bank is read by a worker thread, parsed and started on the main thread ---- */
+/* ---- menu audio: the set list's song previews, otherwise the game's own menu music (STREAMS/streamall, the
+ * menu_music_* tracks in a shuffled row, and a guitar lick on the title screen's Start). Both are read by a worker
+ * thread and started on the main thread through the mixer's one preview stream. */
+enum { JOB_PREVIEW, JOB_MENU };
 static SDL_Thread *prevThread; static int prevWant = -1, prevPlaying = -1; static double prevWantAt;
-static struct { int idx; uint8_t *fsb, *dat; size_t fl, dl; int done; } prevJob;
+static struct { int kind, idx; uint8_t *fsb, *dat; size_t fl, dl; int done; } prevJob;
 static uint8_t *prevBytes, *prevDat; static gh3_fsb prevFsb;
-static int preview_worker(void *ud) { (void)ud; const gh3_song *s = &lib.songs[prevJob.idx]; char nm[128];
+static gh3_fsb bank; static char bankPath[600]; static int bankFound;   /* the streamall index: headers only */
+static int menuTracks[24], nMenu, licks[8], nLicks, menuPlaying, menuLast = -1, lickWanted; static uint8_t *menuBytes;
+static void bank_index(void) {
+    const fentry *e = find_file("streams", "streamall.fsb.xen"); if (!e) return;
+    FILE *f = fopen(e->path, "rb"); if (!f) return; uint8_t h[24];
+    if (fread(h, 1, 24, f) == 24) { int plain = h[0] == 'F' && h[1] == 'S' && h[2] == 'B'; if (!plain) gh3_fsb_descramble(h, 24, 0);
+        uint32_t sh = h[8] | h[9] << 8 | h[10] << 16 | (uint32_t)h[11] << 24;
+        if (!memcmp(h, "FSB3", 4) && sh < (8u << 20)) { uint8_t *hdr = malloc(24 + sh); fseek(f, 0, SEEK_SET);   /* gh3_fsb_read descrambles the header itself */
+            if (fread(hdr, 1, 24 + sh, f) == 24 + sh && gh3_fsb_read(hdr, e->size, NULL, 0, NULL, &bank) == 0) { bankFound = 1; snprintf(bankPath, sizeof bankPath, "%s", e->path); } else free(hdr); } }
+    fclose(f); if (!bankFound) return;
+    for (int i = 0; i < bank.nstreams; i++) { const char *n = bank.streams[i].name;
+        if (bank.streams[i].freq != 44100) continue;   /* the mixer runs at 44.1 kHz without resampling (two licks are 48 kHz) */
+        if (!strncmp(n, "menu_music_", 11) && nMenu < 24) menuTracks[nMenu++] = i; else if (!strncmp(n, "guitar_lick_", 12) && nLicks < 8) licks[nLicks++] = i; }
+    SDL_Log("menu music: %d tracks, %d licks", nMenu, nLicks);
+}
+static int preview_worker(void *ud) { (void)ud; char nm[128];
+    if (prevJob.kind == JOB_MENU) { const gh3_fsbstream *st = &bank.streams[prevJob.idx]; FILE *f = fopen(bankPath, "rb");
+        if (f) { uint8_t *b = malloc(st->size ? st->size : 1); if (fseek(f, (long)st->offset, SEEK_SET) == 0 && fread(b, 1, st->size, f) == st->size) { if (!bank.plain) gh3_fsb_descramble(b, st->size, st->offset); prevJob.fsb = b; prevJob.fl = st->size; } else free(b); fclose(f); }
+        prevJob.done = 1; return 0; }
+    const gh3_song *s = &lib.songs[prevJob.idx];
     snprintf(nm, sizeof nm, "%s.fsb.xen", s->name); prevJob.fsb = read_data("music", nm, &prevJob.fl);
     snprintf(nm, sizeof nm, "%s.dat.xen", s->name); prevJob.dat = read_data("music", nm, &prevJob.dl);
     prevJob.done = 1; return 0; }
@@ -169,26 +198,51 @@ void app_preview(int idx) {
     if (!SET.preview || !audio_has_device()) idx = -1;
     if (idx == prevWant) return;
     prevWant = idx; prevWantAt = SDL_GetTicks() + 450;
-    if (idx < 0 || idx != prevPlaying) { if (audio_preview_on()) audio_preview_stop(0.4); prevPlaying = -1; }
+    if ((idx >= 0 && idx != prevPlaying) || (idx < 0 && prevPlaying >= 0)) { if (audio_preview_on()) audio_preview_stop(0.4); prevPlaying = -1; menuPlaying = 0; }
+}
+void app_guitar_lick(void) { if (!nLicks || !SET.menuMusic) return; lickWanted = 1; if (menuPlaying && audio_preview_on()) audio_preview_stop(0.25); menuPlaying = 0; }
+static int menu_music_wanted(void) {
+    if (!SET.menuMusic || !bankFound || !nMenu || !audio_has_device()) return 0;
+    if (A.screen == SC_SETLIST && prevWant >= 0) return 0;
+    switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: return 1;
+        case SC_OPTIONS: case SC_CONTROLS: return A.optionsFrom != SC_PAUSE; default: return 0; }
 }
 static void preview_tick(void) {
     double now = SDL_GetTicks();
     if (prevThread && prevJob.done) { SDL_WaitThread(prevThread, NULL); prevThread = NULL;
-        if (prevJob.idx == prevWant && prevWant >= 0 && A.screen == SC_SETLIST && prevJob.fsb) {
-            audio_preview_stop(0); /* the callback is done with the old bytes once this returns */ free(prevBytes); free(prevDat); free(prevFsb.streams); memset(&prevFsb, 0, sizeof prevFsb); prevBytes = prevJob.fsb; prevDat = prevJob.dat; prevJob.fsb = prevJob.dat = NULL;
+        if (prevJob.kind == JOB_MENU) {
+            if (prevJob.fsb && menu_music_wanted() && !audio_preview_on()) { audio_preview_stop(0); free(menuBytes); menuBytes = prevJob.fsb; prevJob.fsb = NULL; audio_preview(menuBytes, prevJob.fl, -2, 0); menuPlaying = 1; prevPlaying = -1; }
+        } else if (prevJob.idx == prevWant && prevWant >= 0 && A.screen == SC_SETLIST && prevJob.fsb) {
+            audio_preview_stop(0); /* the callback is done with the old bytes once this returns */ free(prevBytes); free(prevDat); free(prevFsb.streams); memset(&prevFsb, 0, sizeof prevFsb); prevBytes = prevJob.fsb; prevDat = prevJob.dat; prevJob.fsb = prevJob.dat = NULL; menuPlaying = 0;
             if (gh3_fsb_read(prevBytes, prevJob.fl, prevDat, prevJob.dl, lib.songs[prevJob.idx].name, &prevFsb) == 0) { size_t sz; const uint8_t *mp3 = gh3_fsb_extract(&prevFsb, FSB_PREVIEW, &sz);
                 if (!mp3) mp3 = gh3_fsb_extract(&prevFsb, FSB_SONG, &sz);
-                if (mp3) { audio_preview(mp3, sz, -4); prevPlaying = prevJob.idx; } } }
+                if (mp3) { audio_preview(mp3, sz, -4, 1); prevPlaying = prevJob.idx; } } }
         free(prevJob.fsb); free(prevJob.dat); prevJob.fsb = prevJob.dat = NULL; }
-    if (!prevThread && prevWant >= 0 && prevWant != prevPlaying && now >= prevWantAt && A.screen == SC_SETLIST) { memset(&prevJob, 0, sizeof prevJob); prevJob.idx = prevWant; prevThread = SDL_CreateThread(preview_worker, "preview", NULL); }
+    if (menuPlaying && !audio_preview_on()) menuPlaying = 0;   /* the track ended (or a song took the mixer) */
+    int menuWant = menu_music_wanted();
+    if (menuPlaying && !menuWant) { audio_preview_stop(0.6); menuPlaying = 0; }
+    if (prevThread) return;
+    if (prevWant >= 0 && prevWant != prevPlaying && now >= prevWantAt && A.screen == SC_SETLIST) { memset(&prevJob, 0, sizeof prevJob); prevJob.kind = JOB_PREVIEW; prevJob.idx = prevWant; prevThread = SDL_CreateThread(preview_worker, "preview", NULL); }
+    else if (menuWant && !menuPlaying && !audio_preview_on()) { int pick;
+        if (lickWanted) { pick = licks[rand() % nLicks]; lickWanted = 0; }
+        else { do pick = menuTracks[rand() % nMenu]; while (nMenu > 1 && pick == menuLast); menuLast = pick; }
+        memset(&prevJob, 0, sizeof prevJob); prevJob.kind = JOB_MENU; prevJob.idx = pick; prevThread = SDL_CreateThread(preview_worker, "menu-music", NULL); }
 }
-static void preview_shutdown(void) { if (prevThread) { SDL_WaitThread(prevThread, NULL); prevThread = NULL; } free(prevJob.fsb); free(prevJob.dat); free(prevBytes); free(prevDat); free(prevFsb.streams); }
+static void menu_selftest(void) {   /* --menutest: reads the menu music index and decodes each track and lick */
+    bank_index(); if (!bankFound) { puts("no STREAMS/streamall.fsb.xen"); return; }
+    for (int k = 0; k < nMenu + nLicks; k++) { memset(&prevJob, 0, sizeof prevJob); prevJob.kind = JOB_MENU; prevJob.idx = k < nMenu ? menuTracks[k] : licks[k - nMenu]; preview_worker(NULL);
+        printf("%s: ", bank.streams[prevJob.idx].name); fflush(stdout); if (!prevJob.fsb) { puts("not read"); continue; }
+        audio_preview(prevJob.fsb, prevJob.fl, -2, 0); audio_selftest(); audio_stop(); free(prevJob.fsb); prevJob.fsb = NULL; }
+}
+static void preview_shutdown(void) { if (prevThread) { SDL_WaitThread(prevThread, NULL); prevThread = NULL; } audio_preview_stop(0); free(prevJob.fsb); free(prevJob.dat); free(prevBytes); free(prevDat); free(prevFsb.streams); free(menuBytes); free(bank.streams); free(bank.bytes); }
 
 /* ---- playing ---- */
 void app_begin_song(void) {
     char err[300]; app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
     if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return; }
-    app_apply_volumes(); audio_play(0, 2600); input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
+    double from = 0; if (A.mode == MODE_PRACTICE && A.practiceSec > 0 && A.practiceSec <= A.S.sd.nmarkers) from = A.S.sd.markers[A.practiceSec - 1].t;
+    if (from > 0) { gh3_run *r = &A.S.run; int i = 0; while (i < r->nnotes && r->notes[i].t < from) i++; r->idx = r->botIdx = i; }   /* the notes before the section are not played */
+    app_apply_volumes(); audio_play(from, 2600); input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
     A.screen = SC_PLAY; A.S.section[0] = 0; A.resumeAt = 0; A.S.run.held = 0;
 }
 void app_resume_play(void) { A.screen = SC_PLAY; A.resumeAt = SDL_GetTicks() + 1600; audio_sfx(SFX_TICK); }
@@ -224,7 +278,7 @@ static void finish_song(double now) {
     gh3_run *r = &A.S.run; int total = r->nnotes; A.resultPct = total ? (int)(100.0 * r->hits / total + 0.5) : 0; A.resultScore = (long)r->score;
     A.resultStars = r->failed ? 0 : game_stars(r->score, A.S.chart.base); A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.newRecord = 0;
     if (r->failed) { audio_fade_out(1.5); audio_sfx(SFX_FAIL); }
-    else if (!r->autoPlay && !SET.noFail) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars); app_refresh_career(1); }
+    else if (!r->autoPlay && !SET.noFail && A.mode != MODE_PRACTICE) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars, A.mode == MODE_CAREER); app_refresh_career(A.mode == MODE_CAREER); }
     A.screen = SC_RESULTS;
 }
 
@@ -259,10 +313,17 @@ static void headless_init(void) { gfx_init(NULL, cfg.W, cfg.H); art_init(cfg.H >
 static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     headless_init(); A.selDiff = 1; app_refresh_career(0);
     A.cursor = 0; while (A.cursor < A.nrows && A.rows[A.cursor].kind == 0) A.cursor++; A.cursor += 2; A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier;
-    gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist");
+    A.screen = SC_TITLE; A.titleAt = -400; gfx_begin(); screens_draw(0); gfx_end(); save_named("title");
+    A.screen = SC_MAIN; A.mainRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("main");
+    A.screen = SC_TRAINING; A.trainRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("training");
+    A.screen = SC_TOPROCK; A.topDiff = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("toprockers");
+    A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_menu");
+    A.screen = SC_SETLIST; A.mode = MODE_CAREER; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist");
+    A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_quick"); A.mode = MODE_CAREER;
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
-    A.screen = SC_OPTIONS; A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
+    A.mode = MODE_PRACTICE; A.practiceSec = 3; A.setupRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = 0;
+    A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
     A.screen = SC_CALIB; A.calN = 9; for (int i = 0; i < 9; i++) A.calDiff[i] = 40 + (i % 3) * 6; A.calLastDiff = 46; A.calLastTapAt = -100; gfx_begin(); screens_draw(0); gfx_end(); save_named("calib");
     double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
@@ -300,6 +361,7 @@ int main(int argc, char **argv) {
     if (cfg.dump) { if (!A.libOk) { puts(libErr); return 1; } dump(); return 0; }
     if (cfg.frames > 0) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
     if (cfg.screens) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
+    if (cfg.menutest) { SDL_Init(0); menu_selftest(); return 0; }
     if (cfg.audiotest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
         char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }
 
@@ -323,7 +385,8 @@ int main(int argc, char **argv) {
     if (audio_open()) SDL_Log("no audio device"); app_apply_volumes();
     open_pads();
     gh3_sfx_hook = sfx_hook; gh3_mute_hook = mute_hook;
-    if (!A.libOk) { snprintf(A.errMsg, sizeof A.errMsg, "%s", libErr); A.screen = SC_ERROR; } else { app_refresh_career(0); screens_build_rows(); app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); }
+    bank_index(); srand(SDL_GetTicks() ^ (unsigned)time(NULL));
+    if (!A.libOk) { snprintf(A.errMsg, sizeof A.errMsg, "%s", libErr); A.screen = SC_ERROR; } else { app_refresh_career(0); screens_build_rows(); A.screen = SC_TITLE; A.titleAt = SDL_GetTicks(); }
     Uint32 last = SDL_GetTicks(), fpsAt = last; int fpsN = 0;
     while (running) {
         double now = SDL_GetTicks(); SDL_Event ev;
