@@ -20,6 +20,7 @@
 #include "battle.h"
 #include "cheats.h"
 #include "practice.h"
+#include "charsel.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -158,6 +159,7 @@ static int magazine(double T) {
     const ga_font *small = ga_font_get("fontgrid_text_a11"), *text = ga_font_get("fontgrid_text_a4"), *a3 = ga_font_get("fontgrid_text_a3"); int m = mag_of();
     gfx_sprite *bg = ga_img(m == 7 ? "song_summary_bg_hell" : "song_summary_bg"); if (!bg) bg = ga_img("song_summary_bg"); if (!bg || !small || !text) return 0;
     const gh3_run *r = &A.S.run; const unsigned char *P = SS1[m]; char b[200], nm[64]; int prac = A.mode == MODE_PRACTICE;
+    spr_s(charsel_photo(NULL), 125, 34, 640, 640, WHITE);   /* the chosen rocker's photo on the cover, under the page (finPhoto: the page shows it through its cover) */
     spr_s(bg, 0, 0, 1280, 720, WHITE);
     snprintf(nm, sizeof nm, "song_summary_logo_%s", MAGS[m]); spr(nm, 158, 25, 0, 0, WHITE);
     snprintf(nm, sizeof nm, "song_summary_sidebar_%s", MAGS[m]); spr(nm, 858, 130, 0, 0, WHITE);

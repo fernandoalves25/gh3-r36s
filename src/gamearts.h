@@ -12,6 +12,8 @@ size_t ga_memory(void);                                  /* bytes of decoded pix
 /* pictures (.img) by the name the game's scripts use ("menu_main_bg"); NULL when missing. Decoded once, cached. */
 gfx_sprite *ga_img(const char *name);
 int ga_img_fb(const char *name, fb_t *out);              /* the decoded pixels (fb_init'ed here; caller frees); 0 when fine */
+gfx_sprite *ga_img_key(uint32_t key);                    /* a picture by its name's key, for those the scripts name only by key (the character hub's frame) */
+int ga_img_key_fb(uint32_t key, fb_t *out);
 /* highway textures by material name ("sys_Gem2D_Green"): from the richest .tex bank through the .scn files */
 gfx_sprite *ga_mat(const char *material);
 int ga_mat_fb(const char *material, fb_t *out);

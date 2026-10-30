@@ -18,6 +18,7 @@
 #include "app.h"
 #include "settings.h"
 #include "battle.h"
+#include "charsel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -409,11 +410,17 @@ static void song_load(const char *name) {
 }
 
 /* ------------------------------------------------------------------ who plays */
-static const char *guitarist_name(void) { const char *e = getenv("R3D_BAND_GUITARIST"); return e && *e ? e : "Axel"; }   /* the game's default player-1 character (what it falls back to) */
+static const profile *guitarist(void) {   /* the player's rocker, outfit and guitar from the character hub (charsel.c; R3D_BAND_GUITARIST=Name overrides the rocker); Axel when missing, as the game falls back */
+    static profile **made; static int nmade; const char *e = getenv("R3D_BAND_GUITARIST"); const profile *p = profile_named(e && *e ? e : charsel_rocker(), BAND_GUITARIST); if (!p) p = profile_named("Axel", -1); if (!p) return NULL;
+    profile q = *p; char body[48], anims[48], inst[48]; charsel_paks(q.name, body, anims, inst, sizeof body);
+    if (*body) { snprintf(q.body, sizeof q.body, "%s", body); snprintf(q.anims, sizeof q.anims, "%s", anims); } if (*inst) snprintf(q.inst, sizeof q.inst, "%s", inst);
+    for (int i = 0; i < nmade; i++) if (!memcmp(made[i], &q, sizeof q)) return made[i];   /* one copy per combination: the same pointer while nothing changes */
+    made = realloc(made, (nmade + 1) * sizeof *made); made[nmade] = malloc(sizeof q); *made[nmade] = q; return made[nmade++];
+}
 void r3d_band_select(void) {
     if (!G.ready || !SET.band3d) return; Uint32 t0 = SDL_GetTicks(); keys_init();
     if (!lib_load()) return; files_open(); if (!F.hasGlobal) { SDL_Log("band: no ZONES/global.pak + global.pab: no skeletons"); return; }
-    const profile *want[BAND_ROLES] = { NULL }; want[BAND_GUITARIST] = profile_named(guitarist_name(), BAND_GUITARIST); if (!want[BAND_GUITARIST]) want[BAND_GUITARIST] = profile_named("Axel", -1);
+    const profile *want[BAND_ROLES] = { NULL }; want[BAND_GUITARIST] = guitarist();
     for (int r = 1; r < BAND_ROLES; r++) for (int i = 0; i < L.npf && !want[r]; i++) if (L.pf[i].role == r) want[r] = &L.pf[i];
     int si = A.selSong; const char *song = "";
     if (A.lib && si >= 0 && si < A.lib->nsongs) { song = A.lib->songs[si].name;

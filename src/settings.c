@@ -32,6 +32,7 @@ int settings_save(void) {
             SET.tap ? 0 : 1, SET.lefty, SET.hyper, SET.noFail, SET.stageFx, SET.showFps, SET.preview, SET.volMusic, SET.volGuitar, SET.volSfx, SET.menuMusic, SET.offsetMs, SET.bgDim, SET.unlockAll, SET.theme);
     fprintf(f, "videos_abertura=%d\nabertura_carreira_vista=%d\npalco_3d=%d\nbanda_3d=%d\npalco_3d_resolucao=%d\n", SET.introMovies, SET.careerIntro, SET.stage3d, SET.band3d, SET.stage3dRes);
     fprintf(f, "easy_expert=%d\nprecision=%d\ntrapacas_codigos=%d\n", SET.easyExpert, SET.precision, SET.cheatCodes);
+    fprintf(f, "roqueiro=%s\nvisual=%08x\nguitarra=%08x\n", SET.rocker, SET.outfit, SET.guitar);
     for (int a = 0; a < ACT_N; a++) for (int s = 0; s < BIND_SLOTS; s++) { char b[40]; bind_to_str(&SET.binds[a][s], b, sizeof b); fprintf(f, "controle_%s_%d=%s\n", ACTKEY[a], s + 1, b); }
     fclose(f); return 0;
 }
@@ -48,6 +49,7 @@ int settings_load(void) {
         else if (!strcmp(k, "atraso_ms")) SET.offsetMs = n < -300 ? -300 : n > 300 ? 300 : n; else if (!strcmp(k, "escurecer_fundo")) SET.bgDim = n < 0 ? 0 : n > 100 ? 100 : n;
         else if (!strcmp(k, "videos_abertura")) SET.introMovies = !!n; else if (!strcmp(k, "abertura_carreira_vista")) SET.careerIntro = !!n; else if (!strcmp(k, "palco_3d")) SET.stage3d = !!n; else if (!strcmp(k, "banda_3d")) SET.band3d = !!n; else if (!strcmp(k, "palco_3d_resolucao")) SET.stage3dRes = n < 0 ? 0 : n > 2 ? 2 : n;
         else if (!strcmp(k, "liberar_tudo")) SET.unlockAll = !!n; /* tema= of older files is ignored: the Original look is the only one */
+        else if (!strcmp(k, "roqueiro")) snprintf(SET.rocker, sizeof SET.rocker, "%s", v); else if (!strcmp(k, "visual")) SET.outfit = (unsigned)strtoul(v, NULL, 16); else if (!strcmp(k, "guitarra")) SET.guitar = (unsigned)strtoul(v, NULL, 16);
         else if (!strcmp(k, "easy_expert")) SET.easyExpert = !!n; else if (!strcmp(k, "precision")) SET.precision = !!n; else if (!strcmp(k, "trapacas_codigos")) SET.cheatCodes = n;
         else if (!strncmp(k, "controle_", 9)) { for (int a = 0; a < ACT_N; a++) { size_t L = strlen(ACTKEY[a]); if (!strncmp(k + 9, ACTKEY[a], L) && k[9 + L] == '_') { int s = atoi(k + 10 + L) - 1; if (s >= 0 && s < BIND_SLOTS) str_to_bind(v, &SET.binds[a][s]); } } }
     }

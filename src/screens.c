@@ -13,6 +13,7 @@
 #include "cheats.h"
 #include "tutorial.h"
 #include "orig_setup.h"
+#include "charsel.h"
 #include "orig_setlist.h"
 #include "orig_loading.h"
 #include "original.h"
@@ -361,7 +362,7 @@ static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = 
 void screens_draw(double now) {
     switch (A.screen) { case SC_TITLE: draw_title(now); break; case SC_MAIN: draw_main(now); break; case SC_TRAINING: draw_training(now); break; case SC_TOPROCK: draw_toprock(now); break;
         case SC_SETLIST: draw_setlist(now); break; case SC_SETUP: draw_setup(now); break; case SC_OPTIONS: draw_options(now); break; case SC_CONTROLS: draw_controls(now); break;
-        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CHEATS: cheats_draw(now); break; case SC_TUTORIAL: tutorial_frame(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; case SC_BATTLE: battle_screen_draw(now); break; case SC_LOADING: loading_draw(now); break; default: draw_error(now); }
+        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CHARSEL: charsel_draw(now); break; case SC_CHEATS: cheats_draw(now); break; case SC_TUTORIAL: tutorial_frame(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; case SC_BATTLE: battle_screen_draw(now); break; case SC_LOADING: loading_draw(now); break; default: draw_error(now); }
     draw_note(now);
 }
 
@@ -370,9 +371,12 @@ static void go_options(int from) { A.optionsFrom = from; A.screen = SC_OPTIONS; 
 static void to_setlist(double now) {
     if (A.moviePending[0] && A.mode == MODE_CAREER) { char m[48]; snprintf(m, sizeof m, "%s", A.moviePending); A.moviePending[0] = 0; app_play_movie(m, SC_SETLIST); return; }   /* a tier's cutscene first */
     A.moviePending[0] = 0; A.screen = SC_SETLIST; app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); if (A.unlockPending && A.mode == MODE_CAREER) { A.unlockPending = 0; A.unlockAt = now; audio_sfx(SFX_FANFARE); } }
-static void open_mode(int mode, double now) { A.mode = mode; app_refresh_career(0); screens_build_rows(); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH);
-    if (mode == MODE_CAREER && !SET.careerIntro && app_movie_exists(A.lib->careerMovie)) { SET.careerIntro = 1; settings_save(); app_play_movie(A.lib->careerMovie, SC_SETLIST); return; }   /* the career's opening movie, the first time */
+void screens_mode_go(double now) {
+    if (A.mode == MODE_CAREER && !SET.careerIntro && app_movie_exists(A.lib->careerMovie)) { SET.careerIntro = 1; settings_save(); app_play_movie(A.lib->careerMovie, SC_SETLIST); return; }   /* the career's opening movie, the first time */
     to_setlist(now); }
+static void open_mode(int mode, double now) { A.mode = mode; app_refresh_career(0); screens_build_rows(); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH);
+    if (mode != MODE_PRACTICE && charsel_open(now)) return;   /* the character hub first, as the game does */
+    screens_mode_go(now); }
 static void to_main(void) { A.screen = SC_MAIN; A.confirmQuit = 0; app_preview(-1); }
 static void leave_options(void) { settings_save(); app_apply_volumes(); if (A.optionsFrom == SC_PAUSE) A.screen = SC_PAUSE; else { A.screen = SC_MAIN; A.mainRow = MM_OPTIONS; } }
 void screens_enter(int screen, double now) {
@@ -406,6 +410,7 @@ void screens_event(int in, double now) {
         else if (in == IN_Y && A.mode == MODE_CAREER) store_open(now);
         else if (in == IN_BACK) { to_main(); audio_sfx(SFX_BACK); }
     } else if (A.screen == SC_STORE) store_event(in, now);
+    else if (A.screen == SC_CHARSEL) charsel_event(in, now);
     else if (A.screen == SC_SETUP) { if (encore_event(in, now)) return; int rows[8], nr = setup_rows(rows);
         if (menu_move(in, &A.setupRow, nr)) return;
         if (in == IN_LEFT || in == IN_RIGHT) { audio_sfx(SFX_MOVE); setup_change(rows[A.setupRow], in == IN_RIGHT ? 1 : -1); }

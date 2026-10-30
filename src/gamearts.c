@@ -75,8 +75,15 @@ static gfx_sprite *bake_fb(fb_t *f) { memUsed += (size_t)f->w * f->h * 4; if (ti
 size_t ga_memory(void) { return memUsed; }
 
 /* ---- .img ---- */
-int ga_img_fb(const char *name, fb_t *out) {
-    if (!ga_ok()) return -1; const ent_t *e = find_ent(K_IMG, gh3_qbkey(name)); size_t n; uint8_t *b = slice(e, &n); if (!b) return -1;
+static int img_fb(uint32_t key, const char *name, fb_t *out);
+int ga_img_fb(const char *name, fb_t *out) { return ga_ok() ? img_fb(gh3_qbkey(name), name, out) : -1; }
+int ga_img_key_fb(uint32_t key, fb_t *out) { return ga_ok() ? img_fb(key, "(key)", out) : -1; }
+gfx_sprite *ga_img_key(uint32_t k) {
+    if (!ga_ok()) return NULL; cache_t *c = cache_find(K_IMG, k); if (c) return c->s;
+    fb_t f; if (img_fb(k, "(key)", &f)) { cache_add(K_IMG, k, NULL); return NULL; } return cache_add(K_IMG, k, bake_fb(&f))->s;
+}
+static int img_fb(uint32_t key, const char *name, fb_t *out) {
+    const ent_t *e = find_ent(K_IMG, key); size_t n; uint8_t *b = slice(e, &n); if (!b) return -1;
     double t0 = timing ? now_ms() : 0; size_t o = n > 0x20 ? be32(b + 0x1c) : 0; if (!o) o = 0x28; int r = o < n ? ga_decode_dds(b + o, n - o, out) : -1; free(b);
     if (timing) fprintf(stderr, "[arts] img %-36s %4dx%-4d %6.1f ms\n", name, r ? 0 : out->w, r ? 0 : out->h, now_ms() - t0);
     return r;

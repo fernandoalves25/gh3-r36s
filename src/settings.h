@@ -31,6 +31,8 @@ typedef struct {
     int stage3d;        /* the game's venue in 3D behind the highway (only the gh3-3d build draws it; the 2D build ignores it) */
     int band3d;         /* the band on that stage (gh3-3d: the game's characters, skinned and animated) */
     int stage3dRes;     /* the size the 3D venue is drawn at before it is stretched under the highway: 0 Alta (the screen's), 1 Média (3/4), 2 Baixa (1/2) */
+    char rocker[24];    /* the player's character (charsel.c): a musician profile's NAME ("Axel", "Satan"…); "" = Axel */
+    unsigned outfit, guitar;   /* its outfit (musician_body desc_id) and guitar (musician_instrument desc_id); 0 = the rocker's own */
     bind_t binds[ACT_N][BIND_SLOTS];
 } settings_t;
 extern settings_t SET;
