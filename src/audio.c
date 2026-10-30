@@ -12,6 +12,7 @@ typedef struct {
     short pcm[MINIMP3_MAX_SAMPLES_PER_FRAME]; int pcmLen, pcmPos, channels, hz;
     float level, gain, target; double durationMs;
     int64_t produced; /* frames handed to the mixer since play */
+    int primed; float acc, pl, pr, cl, cr;   /* a stream at another rate than 44.1 kHz: its two frames around the read position */
 } stream_t;
 
 static SDL_AudioDeviceID dev; static SDL_AudioSpec spec; static stream_t S[BUS_N];
@@ -112,6 +113,15 @@ static void mix_stretched(float *l, float *r) {
     if (s->on) { s->gain += (s->target - s->gain) * 0.002f; float sl = f[0], sr = f[1]; ps_process(&sl, &sr); float g = s->level * s->gain * busGain[BUS_PLAYER]; *l += sl * g; *r += sr * g; }
     *l += f[2]; *r += f[3];
 }
+static int read_frame(stream_t *s, float *l, float *r) { if (!pull(s)) return 0; if (s->channels >= 2) { *l = s->pcm[s->pcmPos] * (1.0f / 32768); *r = s->pcm[s->pcmPos + 1] * (1.0f / 32768); s->pcmPos += 2; } else { *l = *r = s->pcm[s->pcmPos++] * (1.0f / 32768); } return 1; }
+static int frame_of(stream_t *s, float *l, float *r) { /* the next frame at 44.1 kHz: a stream at another rate (the 48 kHz voice clips of streamall) is read on at its own pace, linearly interpolated */
+    if (s->primed == 2) return read_frame(s, l, r);
+    if (!s->primed) { if (!read_frame(s, &s->pl, &s->pr)) return 0; if (s->hz == 44100 || s->hz <= 0) { s->primed = 2; *l = s->pl; *r = s->pr; return 1; } s->primed = 1; s->acc = 0; if (!read_frame(s, &s->cl, &s->cr)) { s->cl = s->pl; s->cr = s->pr; } }
+    else if (s->ended && s->pcmPos >= s->pcmLen && s->acc >= 1) return 0;
+    *l = s->pl + (s->cl - s->pl) * s->acc; *r = s->pr + (s->cr - s->pr) * s->acc; s->acc += (float)s->hz / 44100.0f;
+    while (s->acc >= 1) { if (!read_frame(s, &s->pl, &s->pr) && s->ended) { s->acc = 1; break; } float tl = s->pl, tr = s->pr; s->pl = s->cl; s->pr = s->cr; s->cl = tl; s->cr = tr; s->acc -= 1; }
+    return 1;
+}
 static void voice_start(int kind) {
     int slot = -1; for (int v = 0; v < VOICES; v++) if (!voices[v].on) { slot = v; break; }
     if (slot < 0) { int oldest = 0; for (int v = 1; v < VOICES; v++) if (voices[v].t > voices[oldest].t) oldest = v; slot = oldest; }
@@ -129,8 +139,7 @@ static void callback(void *ud, Uint8 *out, int len) {
             if (mixed >= 0 && stretching) mix_stretched(&l, &r);
             else if (mixed >= 0) for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue;
                 s->gain += (s->target - s->gain) * 0.002f;
-                if (!pull(s)) { if (preview && !loop && b == BUS_PLAYER) { running = 0; preview = 0; } continue; }
-                float sl, sr; if (s->channels >= 2) { sl = s->pcm[s->pcmPos] * (1.0f / 32768); sr = s->pcm[s->pcmPos + 1] * (1.0f / 32768); s->pcmPos += 2; } else { sl = sr = s->pcm[s->pcmPos++] * (1.0f / 32768); }
+                float sl, sr; if (!frame_of(s, &sl, &sr)) { if (preview && !loop && b == BUS_PLAYER) { running = 0; preview = 0; } continue; }
                 if (b == BUS_PLAYER && !preview) ps_process(&sl, &sr);
                 float g = s->level * s->gain * busGain[preview ? BUS_BAND : b]; l += sl * g; r += sr * g; s->produced++; }
             if (fadeStep) { fadeGain -= fadeStep; if (fadeGain <= 0) { fadeGain = 0; if (preview) { running = 0; preview = 0; fadeStep = 0; } } }
@@ -170,7 +179,7 @@ void audio_play(double from, double lead) {
     if (dev) SDL_LockAudioDevice(dev);
     rate = rateNext; rateNext = 1; stretching = rate < 0.999; if (stretching) stretch_init(&ST, rate); else rate = 1;
     fromMs = from; leadMs = lead; mixed = -(int64_t)(lead / rate / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0;
-    for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue; mp3dec_init(&s->dec); s->pos = 0; s->pcmLen = s->pcmPos = 0; s->ended = 0; s->produced = 0; s->gain = s->target = 1; if (from > 0) skip_to(s, from); }
+    for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue; mp3dec_init(&s->dec); s->pos = 0; s->pcmLen = s->pcmPos = 0; s->ended = 0; s->produced = 0; s->primed = 0; s->gain = s->target = 1; if (from > 0) skip_to(s, from); }
     estOn = 0; running = 1; cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed; playTicks = SDL_GetTicks();
     if (dev) SDL_UnlockAudioDevice(dev);
 }

@@ -16,6 +16,7 @@ typedef struct {
     double whammy, whamMoveAt;
     int botIdx; double botRelease;
     int lastHitMask, hitSerial;
+    void *battle;                    /* a boss battle's side of this run (battle.h), NULL otherwise */
 } gh3_run;
 
 typedef struct { int autoPlay, noStrum, noFail, silent, bass; double endMs; double speed; int hyper; } gh3_runopts;

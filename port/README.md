@@ -46,7 +46,13 @@ A lista de músicas é a carreira do jogo, liberada como no original:
 - Os 8 sets abrem em ordem; cada set tem 4 músicas, uma batalha em alguns (Tom Morello, Slash, Lou) e um encore.
 - Complete **2 músicas no Fácil, 3 no Médio e as 4 no Difícil e no Expert** para liberar a batalha e depois o encore.
 - O encore (ou a última batalha) fecha o set e abre o seguinte. O progresso é separado por dificuldade (← → ou L1/R1 na lista).
-- As batalhas são tocadas como músicas normais (a trilha do chefe toca junto), sem os ataques do modo batalha.
+- As batalhas são como no jogo (na Carreira e no Jogo rápido, na guitarra solo): o chefe toca a guitarra base na pista
+  da direita. Completar uma frase de notas de batalha dá um ataque (até 3); o botão de star power lança o de cima.
+  Ataques: amp sobrecarregado (a pista treme e as notas piscam), corda arrebentada (aperte o traste quebrado até
+  consertar), dificuldade maior, notas dobradas, inversão canhota, alavanca (mexa a alavanca até liberar os trastes) e
+  roubo de poder. Os medidores só mexem durante um ataque; vence quem fizer o outro falhar. Contra o Lou, perto do
+  fim vem o Dreno Mortal (é preciso derrubá-lo antes), e depois de vencido ele ainda precisa ser "acabado" no resto
+  da música. Antes da batalha toca a fala do chefe (de `STREAMS/`); A pula.
 - Antes do encore a plateia pede bis (o coro "encore" do próprio jogo, de cada palco); A começa a música na hora.
 - **Dinheiro**: a carreira paga pelas estrelas, com a tabela do jogo (3/4/5 estrelas: Fácil $75/$175/$300, Médio
   $150/$350/$600, Difícil $300/$700/$1200, Expert $450/$1050/$1800). Repetir uma música só paga a diferença quando você

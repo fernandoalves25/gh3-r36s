@@ -1,4 +1,5 @@
 #include "game.h"
+#include "battle.h"
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
@@ -39,7 +40,7 @@ void game_new(gh3_run *r, gh3_chart *chart, const gh3_tuning *tn, int diff, cons
 static int topFret(int held) { for (int b = 16; b; b >>= 1) if (held & b) return b; return 0; }
 static int matches(int held, const gh3_note *n) { return n->n == 1 ? topFret(held) == n->mask : held == n->mask; }
 static int addStar(gh3_run *r, double amount, double perf) {
-    if (r->spOn) return 0; double was = r->sp; r->sp = fmin(1, was + amount);
+    if (r->spOn || r->battle) return 0;   /* a battle has power-ups instead */ double was = r->sp; r->sp = fmin(1, was + amount);
     if (was < 0.5 && r->sp >= 0.5) { r->spReadyAt = perf; if (!r->autoPlay) sfx(r, "ready"); }
     return 1;
 }
@@ -52,7 +53,8 @@ static void hitNote(gh3_run *r, gh3_note *n, double t, int hammered, double perf
     r->score += 50.0 * n->n * game_mult(r);
     r->health = fmin(2, r->health + (r->spOn && r->d.star ? r->d.star : r->d.good));
     if (n->sus) { r->sus = n; n->beat = gh3_beatpos(r->chart->fretbars, r->chart->nfret, n->t); } else if (r->sus && r->sus != n) r->sus = NULL;
-    if (n->star >= 0) { gh3_phrase *p = &r->chart->phrases[n->star]; p->hit++; if (!p->failed && !p->done && p->hit >= p->total) { p->done = 1; if (addStar(r, 0.25, perf)) r->spFlash = perf; } }
+    if (n->star >= 0) { gh3_phrase *p = &r->chart->phrases[n->star]; p->hit++; if (!p->failed && !p->done && p->hit >= p->total) { p->done = 1; if (r->battle) battle_award(r, n, perf); else if (addStar(r, 0.25, perf)) r->spFlash = perf; } }
+    if (r->battle) battle_judge(r, n, 1);
     r->chain = skipped ? 0 : n->mask; r->hasPending = 0;
     r->nhist = 0;
     if (hammered) {
@@ -66,6 +68,7 @@ static void missNote(gh3_run *r, gh3_note *n, double perf) {
     n->missed = 1; streakLost(r); r->chain = 0; r->misses++; r->health += r->d.bad; r->missFlash = perf;
     if (n->star >= 0) r->chart->phrases[n->star].failed = 1;
     r->sus = NULL; mute(r, 1);
+    if (r->battle) battle_judge(r, n, 0);
 }
 static void overstrum(gh3_run *r, double perf) {
     streakLost(r); r->chain = 0; r->overstrums++; r->health += r->d.bad; r->missFlash = perf;
@@ -106,6 +109,7 @@ static void onFretChange(gh3_run *r, double t, double perf) {
     tryHammer(r, t, perf);
 }
 void game_set_frets(gh3_run *r, int held, double t, double perf) {
+    if (r->battle) held = battle_frets(r, held);   /* a broken string (or the whammy attack) takes frets out of play */
     if (held == r->held) return;
     if (r->nhist == 16) { memmove(r->hist, r->hist + 1, 15 * sizeof r->hist[0]); r->nhist = 15; }
     r->hist[r->nhist].held = r->held; r->hist[r->nhist].until = t; r->nhist++;
@@ -129,13 +133,13 @@ void game_strum(gh3_run *r, double t, double perf) {
 }
 static void starOn(gh3_run *r, double perf) { r->spOn = 1; r->spAt = perf; sfx(r, "deployed"); }
 static void starOff(gh3_run *r, double perf) { r->sp = 0; r->spOn = 0; r->spOffAt = perf; sfx(r, "staroff"); }
-void game_star(gh3_run *r, double perf) { if (!r->spOn && r->sp >= 0.5 && !r->finished) starOn(r, perf); }
+void game_star(gh3_run *r, double perf) { if (r->battle) { battle_fire(r, perf); return; } if (!r->spOn && r->sp >= 0.5 && !r->finished) starOn(r, perf); }
 void game_whammy(gh3_run *r, double v, double perf) { if (v < 0) v = 0; if (v > 1) v = 1; if (fabs(v - r->whammy) > 0.02) r->whamMoveAt = perf; r->whammy = v; }
 void game_step(gh3_run *r, double t, double perf) {
     r->now = t;
     if (r->autoPlay) {
         if (r->botRelease >= 0 && t >= r->botRelease) { r->held = 0; r->botRelease = -1; }
-        while (r->botIdx < r->nnotes && r->notes[r->botIdx].t <= t) { gh3_note *n = &r->notes[r->botIdx++]; if (n->hit || n->missed) continue; r->held = n->mask; r->botRelease = n->t + fmax(90, n->sus); hitNote(r, n, t, 0, perf, 0); }
+        while (r->botIdx < r->nnotes && r->notes[r->botIdx].t <= t) { gh3_note *n = &r->notes[r->botIdx++]; if (n->hit || n->missed) continue; if (n->bflags & BN_BOTMISS) { missNote(r, n, perf); continue; } /* (a boss under attack misses some) */ r->held = n->mask; r->botRelease = n->t + fmax(90, n->sus); hitNote(r, n, t, 0, perf, 0); }
         if (!r->spOn && r->sp >= 0.5) starOn(r, perf);
     } else if (r->hasPending && t - r->pending > r->tn->strumBefore + INPUT_SLOP) r->hasPending = 0;
     for (gh3_note *n = nextNote(r); n && t > n->t + n->lateW + (r->autoPlay ? 0 : MISS_HOLD); n = nextNote(r)) { missNote(r, n, perf); if (r->hasPending) { r->hasPending = 0; overstrum(r, perf); } }

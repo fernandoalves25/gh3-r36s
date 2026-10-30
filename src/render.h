@@ -10,6 +10,13 @@ const char *render_theme_name(int theme);       /* themes: 0 pixel art, 1 HD (sm
 void render_game(gh3_run *r, double perf, const hud_info *hi);
 void render_backdrop(double perf, int stageFx); /* the stage alone, for the menus */
 void render_stars(int cx, int y, int n, int scale, double revealT);   /* n of 5 stars, revealed one by one when revealT >= 0 */
+/* battles: with RL.on, render_game(r, perf, NULL) draws that run's highway alone, narrowed by q round x = cx, moved by
+ * dx, dy (Amp Overload), its frets mirrored (flip: Lefty Flip) and its gems flickering (flick) */
+typedef struct { int on; float cx, q, dx, dy; int flip, flick; } render_lane_t;
+extern render_lane_t RL;
+void render_lane_xy(int fret, float z, float *x, float *y, float *s);   /* a point of the highway RL places (z 0: the strike line) */
+float render_lane_hw(void);                                             /* its half width at the strike line */
+void render_stage(double perf, float pulse, float energy, int stageFx); /* the stage alone, undimmed */
 #define C_INK RGB(240, 234, 223)
 #define C_MUTED RGB(163, 156, 176)
 #define C_AMP RGB(233, 176, 76)
