@@ -351,7 +351,7 @@ void r3d_band_zone(const char *zone, const gh3_pakent *ents, int n, const r3d_li
                 for (int r = 0; r < BAND_ROLES; r++) if (nk == want[r]) Z.role[r] = w;
                 if (ck == K_WAY) { Z.pts = realloc(Z.pts, (Z.npts + 1) * sizeof *Z.pts); Z.pts[Z.npts].key = nk; Z.pts[Z.npts].p = w; Z.npts++; } } }
         gh3_qb_free_sections(s, ns); }
-    for (int i = 0; i < nlights; i++) if (lights[i].band) { Z.lights = realloc(Z.lights, (Z.nlights + 1) * sizeof *Z.lights); Z.lights[Z.nlights++] = lights[i]; }
+    for (int i = 0; i < nlights; i++) if (lights[i].band && !lights[i].crowd) {   /* not the crowd group's, which light the figures off-world at x = -500 */  Z.lights = realloc(Z.lights, (Z.nlights + 1) * sizeof *Z.lights); Z.lights[Z.nlights++] = lights[i]; }
     SDL_Log("band: %s: places %s%s%s%s, %d waypoints, %d band lights", zone, Z.role[0].has ? "G" : "-", Z.role[1].has ? "B" : "-", Z.role[2].has ? "D" : "-", Z.role[3].has ? "V" : "-", Z.npts, Z.nlights);
     place_all();
 }
