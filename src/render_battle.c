@@ -9,6 +9,7 @@
 #include "ui.h"
 #include "input.h"
 #include "audio.h"
+#include "overlay.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -144,6 +145,7 @@ static void draw_end(double now) {
     int W = A.W, H = A.H; double age = now - BTL.phaseAt; char sub[120] = "";
     if (BTL.on) render_battle(now, 0); else { gh3_run *r = &A.S.run; render_game(r, now, NULL); }
     ui_dim(W, H, (int)fmin(150, age / 4));
+    overlay_draw(now, W, H);   /* the game's own movie for the moment (Player1_wins, Satan-Battle_WIN...), under the words; without it, the words alone */
     const char *tx = BTL.banner; int sc = 5; while (sc > 2 && gfx_text_w(tx, sc) > W - 30) sc--;
     int pop = age < 220 ? (int)((1 - age / 220) * 3) : 0, s2 = sc + pop; int jx = (int)(sinf((float)age / 90) * 3), jy = (int)(cosf((float)age / 70) * 2);
     uint32_t col = BTL.endKind == 0 ? C_BAD : BTL.endKind == 3 ? RGB(255, 215, 90) : C_INK;

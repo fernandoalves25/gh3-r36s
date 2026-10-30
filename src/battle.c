@@ -4,6 +4,7 @@
 #include "app.h"
 #include "audio.h"
 #include "render.h"
+#include "overlay.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -224,19 +225,19 @@ static void intro_done(void) { audio_clear(); BTL.phase = BPH_NONE; introSkip = 
 int battle_end(double now) {
     gh3_run *r = &A.S.run;
     if (!BTL.on) {   /* the devil's last part played through: the golden guitar */
-        if (BTL.finishing > 0 && !r->failed && !legendShown) { legendShown = 1; snprintf(BTL.banner, sizeof BTL.banner, "Você é uma lenda do rock!"); BTL.endKind = 3; BTL.phaseMs = 4400; /* TODO movie: Golden_Guitar */ audio_fade_out(0.5); audio_sfx(SFX_DEVIL_DIE); A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1; }
+        if (BTL.finishing > 0 && !r->failed && !legendShown) { legendShown = 1; snprintf(BTL.banner, sizeof BTL.banner, "Você é uma lenda do rock!"); BTL.endKind = 3; BTL.phaseMs = 4400; overlay_play("Golden_Guitar", now); audio_fade_out(0.5); audio_sfx(SFX_DEVIL_DIE); A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1; }
         return 0; }
     if (BTL.shown) return 0;
     if (!BTL.won) r->failed = 1;   /* a battle is won only by making the boss fail */
     BTL.over = 1; audio_fade_out(0.3);
-    if (BTL.won && BTL.finishAt > 0) { snprintf(BTL.banner, sizeof BTL.banner, "Agora acabe com ele!"); BTL.endKind = 2; BTL.phaseMs = 2800; /* TODO movie: Satan-Battle_WIN */ }
-    else if (BTL.won) { snprintf(BTL.banner, sizeof BTL.banner, "Você arrasou!"); BTL.endKind = 1; BTL.phaseMs = 4300; /* TODO movie: Player1_wins */ audio_sfx(SFX_WIN_P1); }
-    else { snprintf(BTL.banner, sizeof BTL.banner, "%s arrasou!", BTL.boss->name); BTL.endKind = 0; BTL.phaseMs = 4300; /* TODO movie: Satan-Battle_LOSS (Lou), Player2_wins */ audio_sfx(SFX_WIN_P2); }
+    if (BTL.won && BTL.finishAt > 0) { snprintf(BTL.banner, sizeof BTL.banner, "Agora acabe com ele!"); BTL.endKind = 2; BTL.phaseMs = 2800; overlay_play("Satan-Battle_WIN", now); }
+    else if (BTL.won) { snprintf(BTL.banner, sizeof BTL.banner, "Você arrasou!"); BTL.endKind = 1; BTL.phaseMs = 4300; overlay_play("Player1_wins", now); audio_sfx(SFX_WIN_P1); }
+    else { snprintf(BTL.banner, sizeof BTL.banner, "%s arrasou!", BTL.boss->name); BTL.endKind = 0; BTL.phaseMs = 4300; overlay_play(BTL.devil ? "Satan-Battle_LOSS" : "Player2_wins", now); audio_sfx(SFX_WIN_P2); }
     A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1;
 }
 static void results_count(void) { gh3_run *r = &A.S.run; int n = r->nnotes; while (n > 0 && !r->notes[n - 1].hit && !r->notes[n - 1].missed) n--; r->nnotes = n; }   /* the results count the notes the battle got to */
 static void end_done(double now) {
-    BTL.phase = BPH_NONE;
+    BTL.phase = BPH_NONE; overlay_close();
     if (BTL.endKind == 2) { BTL.finishNext = (int)BTL.finishAt; app_begin_song(); return; }   /* now finish him: the rest of the song */
     if (BTL.on) results_count(); BTL.shown = 1; A.screen = SC_PLAY; app_finish_song(now);
 }
@@ -268,9 +269,17 @@ void battle_headless(int frames, int every, int miss, void (*save)(const char *n
     verbose = 0;
     printf("battle over at %.0f ms after %d frames (%d saved): %s; meters %.2f / %.2f; attacks %d by the player, %d by %s; hits %d, misses %d; boss hits %d, misses %d\n", t, f, saved, BTL.won ? "WON" : r->failed ? "LOST (the player failed)" : "LOST (the boss lasted)",
         r->health, BTL.cpuRun.health, BTL.me.fired, BTL.cpu.fired, BTL.boss->name, r->hits, r->misses, BTL.cpuRun.hits, BTL.cpuRun.misses);
-    if (battle_end(perf)) for (int k = 0; k < 2; k++) { double at = perf + (k ? 2000 : 150); gfx_begin(); battle_screen_draw(at); gfx_end(); snprintf(nm, sizeof nm, "end_%d", k); save(nm); }
+    static const int AT[7] = { 150, 400, 800, 1200, 1700, 2300, 3000 };   /* the banner and its movie (decoded here, exactly the frame due) */
+    overlay_sync(1);
+    if (battle_end(perf)) for (int k = 0; k < 7; k++) { gfx_begin(); battle_screen_draw(perf + AT[k]); gfx_end(); snprintf(nm, sizeof nm, "end_%04d", AT[k]); save(nm); }
     printf("banner: %s%s\n", BTL.banner, BTL.endKind == 2 ? " (then the rest of the song)" : "");
-    if (BTL.endKind != 2) { BTL.phase = BPH_NONE; results_count(); BTL.shown = 1; A.screen = SC_PLAY; app_finish_song(perf); A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save("results"); }
+    int finish = BTL.endKind == 2; overlay_close();
+    if (finish) {   /* Lou failed: the rest of the song is not played here, but its end is shown, the golden guitar */
+        BTL.on = 0; BTL.finishing = (int)BTL.finishAt; r->failed = 0; legendShown = 0; perf += 5000;
+        if (battle_end(perf)) for (int k = 0; k < 7; k++) { gfx_begin(); battle_screen_draw(perf + AT[k]); gfx_end(); snprintf(nm, sizeof nm, "legend_%04d", AT[k]); save(nm); }
+        printf("then (the rest of the song taken as played): %s\n", BTL.banner); overlay_close(); }
+    overlay_sync(0);
+    if (!finish) { BTL.phase = BPH_NONE; results_count(); BTL.shown = 1; A.screen = SC_PLAY; app_finish_song(perf); A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save("results"); }
 }
 void battle_dump(const gh3_library *lib) {
     const gh3_battledata *B = &lib->battle;
