@@ -4,3 +4,4 @@ build/
 *.png
 DATA/
 frames/
+!docs/*.png
