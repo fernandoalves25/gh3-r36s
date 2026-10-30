@@ -21,6 +21,8 @@
 #include "input.h"
 #include "career.h"
 #include "app.h"
+#include "practice.h"
+#include "stretch.h"
 
 /* ------------------------------------------------------------------ files */
 typedef struct { char lower[300]; char path[600]; size_t size; } fentry;
@@ -53,7 +55,7 @@ static uint8_t *read_data(const char *dir, const char *name, size_t *len) { cons
 /* ------------------------------------------------------------------ config */
 typedef struct {
     char data[520]; int W, H, fullscreen, vsync, soft;
-    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens; char outdir[520];
+    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens, stretchtest; char outdir[520];
 } cfg_t;
 static cfg_t cfg;
 static void cfg_defaults(void) {
@@ -72,6 +74,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--dump")) cfg.dump = 1;
         else if (!strcmp(a, "--audiotest")) cfg.audiotest = 1;
         else if (!strcmp(a, "--menutest")) cfg.menutest = 1;
+        else if (!strcmp(a, "--stretchtest")) cfg.stretchtest = 1;
         else if (!strcmp(a, "--screens")) { cfg.screens = 1; snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
         else if (!strcmp(a, "--song")) { snprintf(cfg.song, sizeof cfg.song, "%s", v); i++; }
         else if (!strcmp(a, "--diff")) { cfg.diff = diff_index(v); i++; }
@@ -86,7 +89,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--windowed")) cfg.fullscreen = 0;
         else if (!strcmp(a, "--fullscreen")) cfg.fullscreen = 1;
         else if (!strcmp(a, "--size")) { sscanf(v, "%dx%d", &cfg.W, &cfg.H); i++; }
-        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
+        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--stretchtest [--song NAME]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
     }
 }
 
@@ -129,6 +132,11 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
     gh3_runopts o; memset(&o, 0, sizeof o); o.autoPlay = autoPlay; o.noStrum = SET.tap; o.silent = !withAudio; o.bass = p == 1; o.noFail = SET.noFail || A.mode == MODE_PRACTICE; o.hyper = SET.hyper;
     const gh3_note *last = &S->chart.notes[S->chart.nnotes - 1];
     double endMs = last->t + last->sus + 3000; if (S->durationMs > 1000 && S->durationMs < endMs) endMs = S->durationMs;
+    if (withAudio && A.mode == MODE_PRACTICE) { /* practice: only the sections chosen, and no star power (the game has none in practice) */
+        double from, to; practice_range(&S->sd, A.practiceSec, A.practiceEnd, endMs, &from, &to); gh3_chart *c = &S->chart; int k = 0;
+        for (int i = 0; i < c->nnotes; i++) if (c->notes[i].t >= from - 1 && c->notes[i].t < to) { c->notes[k] = c->notes[i]; c->notes[k].star = -1; k++; }
+        if (!k) { snprintf(err, errCap, "Esse trecho não tem notas nesta parte"); return -1; }
+        c->nnotes = k; if (to + 120 < endMs) endMs = to + 120; }
     o.endMs = endMs; o.speed = 100;
     game_new(&S->run, &S->chart, &lib.tuning, diff, &o);
     S->loaded = 1; return 0;
@@ -240,17 +248,20 @@ static void preview_shutdown(void) { if (prevThread) { SDL_WaitThread(prevThread
 void app_begin_song(void) {
     char err[300]; app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
     if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return; }
-    double from = 0; if (A.mode == MODE_PRACTICE && A.practiceSec > 0 && A.practiceSec <= A.S.sd.nmarkers) from = A.S.sd.markers[A.practiceSec - 1].t;
-    if (from > 0) { gh3_run *r = &A.S.run; int i = 0; while (i < r->nnotes && r->notes[i].t < from) i++; r->idx = r->botIdx = i; }   /* the notes before the section are not played */
-    app_apply_volumes(); audio_play(from, 2600); input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
+    app_apply_volumes();
+    if (A.mode == MODE_PRACTICE) { /* the notes outside the sections are gone (load_song); the clock runs at the speed chosen */
+        double sp = PRACTICE_SPEED[A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0], from, to, at, lead;
+        practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, 1e12, &from, &to); practice_lead(from, sp, &at, &lead); audio_set_speed(sp); audio_play(at, lead); }
+    else audio_play(0, 2600);
+    input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
     A.screen = SC_PLAY; A.S.section[0] = 0; A.resumeAt = 0; A.S.run.held = 0;
 }
 void app_resume_play(void) { A.screen = SC_PLAY; A.resumeAt = SDL_GetTicks() + 1600; audio_sfx(SFX_TICK); }
 /* the clock notes are drawn and judged on: what is heard, less the lag the player measured (Calibrar atraso) */
-static double song_time(void) { return audio_song_ms() - SET.offsetMs; }
+static double song_time(void) { return audio_song_ms() - SET.offsetMs * audio_speed(); }   /* (the lag is real time: slowed, fewer song ms) */
 static int heldMask = 0;
 static void play_event(SDL_Event *ev, double now, double songT) {
-    double te = songT - (now - ev->common.timestamp); /* the song's clock when the press happened */
+    double te = songT - (now - ev->common.timestamp) * audio_speed(); /* the song's clock when the press happened */
     gh3_run *r = &A.S.run; inev_t evs[4]; int n = input_translate(ev, evs, 4);
     for (int i = 0; i < n; i++) { int a = evs[i].action, pr = evs[i].pressed;
         if (a <= ACT_FRET4) { if (pr) heldMask |= 1 << a; else heldMask &= ~(1 << a); game_set_frets(r, heldMask, te, now); }
@@ -278,6 +289,7 @@ static void finish_song(double now) {
     gh3_run *r = &A.S.run; int total = r->nnotes; A.resultPct = total ? (int)(100.0 * r->hits / total + 0.5) : 0; A.resultScore = (long)r->score;
     A.resultStars = r->failed ? 0 : game_stars(r->score, A.S.chart.base); A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.newRecord = 0;
     if (r->failed) { audio_fade_out(1.5); audio_sfx(SFX_FAIL); }
+    else if (A.mode == MODE_PRACTICE) audio_fade_out(0.8);   /* the run may end mid-song, at its last section */
     else if (!r->autoPlay && !SET.noFail && A.mode != MODE_PRACTICE) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars, A.mode == MODE_CAREER); app_refresh_career(A.mode == MODE_CAREER); }
     A.screen = SC_RESULTS;
 }
@@ -322,7 +334,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_quick"); A.mode = MODE_CAREER;
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
-    A.mode = MODE_PRACTICE; A.practiceSec = 3; A.setupRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = 0;
+    A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
     A.screen = SC_CALIB; A.calN = 9; for (int i = 0; i < 9; i++) A.calDiff[i] = 40 + (i % 3) * 6; A.calLastDiff = 46; A.calLastTapAt = -100; gfx_begin(); screens_draw(0); gfx_end(); save_named("calib");
@@ -362,6 +374,13 @@ int main(int argc, char **argv) {
     if (cfg.frames > 0) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
     if (cfg.screens) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
     if (cfg.menutest) { SDL_Init(0); menu_selftest(); return 0; }
+    if (cfg.stretchtest) { SDL_Init(0); int bad = stretch_selftest(); if (*cfg.song && A.libOk) { int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i;   /* and a song through the mixer at each speed */
+            char e[300]; if (si < 0) puts("song not found"); else if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { practice_bench(A.S.durationMs);
+                A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 4; int all = A.S.chart.nnotes; double from, to, at, lead;   /* and a practice run of sections 3 to 4 played by the bot */
+                if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) puts(e); else { gh3_run *r = &A.S.run; practice_range(&A.S.sd, 3, 4, 1e12, &from, &to); practice_lead(from, 0.5, &at, &lead);
+                    double t = at - lead; while (!r->finished && t < 1e7) { game_step(r, t, t); t += 1000.0 / 60; }
+                    printf("practice sections 3-4 (%.0f..%.0f ms) at 50%%: sound from %.0f ms after a %.0f ms count-in (song ms); %d of the song's %d notes, first %d last %d; run ends at %.0f ms, %d hits, %d misses\n",
+                        from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses); } } } return bad ? 1 : 0; }
     if (cfg.audiotest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
         char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }
 

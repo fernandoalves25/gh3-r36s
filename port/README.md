@@ -30,7 +30,10 @@ jogadores e não abrem no R36S. Nos menus tocam as 11 músicas de menu do própr
 pasta os menus ficam em silêncio).
 
 - **Jogo rápido**: qualquer música já liberada na carreira, em qualquer dificuldade. O recorde conta, a carreira não muda.
-- **Treino > Treinar música**: escolha a seção onde começar ("Começar em"). A música não falha e nada é salvo.
+- **Treino > Treinar música**: escolha as seções ("Começar em" e "Terminar em") e a velocidade, como no jogo: Normal,
+  Devagar (80%), Mais devagar (67%) e Bem devagar (50%). Abaixo da velocidade normal a música toca mais lenta no mesmo
+  tom, a pista corre mais devagar e as janelas de acerto ficam do mesmo tamanho em tempo de música (mais largas no
+  relógio). Não falha, não tem Star Power e nada é salvo; no fim, "Mudar o treino" volta à escolha do trecho.
   Os tutoriais narrados aparecem, mas ainda não foram portados.
 
 ## Carreira
@@ -93,7 +96,7 @@ Organizadas como no jogo:
 ## O que ainda não tem
 
 - A arte e os cenários 3D do próprio jogo, os vídeos, a loja, o modo batalha com ataques, co-op e multiplayer, os tutoriais
-  narrados e o treino em velocidade reduzida.
+  narrados. No treino lento o jogo troca a banda pelos seus samples de bateria; aqui a banda toca, esticada.
 - Os efeitos sonoros são sintetizados (menus, erros, star power); a guitarra silencia ao errar como no jogo.
 
 ## Compilar do código

@@ -25,6 +25,11 @@ void audio_fade_out(double sec);
 void audio_selftest(void);
 void audio_set_bend(double amount);               /* whammy bend of the player track, 0..1 (only while a sustain is held) */
 void audio_metronome(double periodMs, double leadMs); /* calibration: clicks at song time 0, period, 2 period... (audio_song_ms is their clock) */
+/* practice: the next audio_play runs the song at this speed (< 1: slower at the same pitch; only that play). The clock
+ * stays in song ms, running at audio_speed() of real time; audio_play's lead is in song ms too. */
+void audio_set_speed(double speed);
+double audio_speed(void);
+void audio_render(float *out, int frames);        /* tests: mixes stereo frames without a device */
 /* effects */
 void audio_sfx(int kind);
 void audio_set_sfx_gain(double gain);

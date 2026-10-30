@@ -6,6 +6,7 @@
 #include "ui.h"
 #include "input.h"
 #include "audio.h"
+#include "practice.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,31 +140,41 @@ static void draw_setlist(double now) {
     if (A.unlockAt > 0 && now - A.unlockAt < 4500) { float a = now - A.unlockAt > 3500 ? (float)(1 - (now - A.unlockAt - 3500) / 1000) : 1; int w = gfx_text_w(A.unlockMsg, 2) + 40; ui_panel(W / 2 - w / 2, H / 2 - 30, w, 60, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_CROWN), W / 2 - w / 2 + 10, H / 2 - 20, 1, RGB(255, 255, 255), a); gfx_text_sh_center(W / 2 + 10, H / 2 - 11, 2, A.unlockMsg, fb_alpha(C_INK, a), C_SHADOW); }
 }
 /* ------------------------------------------------------------------ setup */
-enum { SR_DIFF, SR_PART, SR_SECTION, SR_STRUM, SR_HYPER, SR_PLAY };
-static int setup_rows(int *out) { int n = 0; out[n++] = SR_DIFF; out[n++] = SR_PART; if (A.mode == MODE_PRACTICE) out[n++] = SR_SECTION; out[n++] = SR_STRUM; out[n++] = SR_HYPER; out[n++] = SR_PLAY; return n; }
+enum { SR_DIFF, SR_PART, SR_SECTION, SR_STRUM, SR_HYPER, SR_PLAY, SR_END, SR_SPEED };
+static int setup_rows(int *out) { int n = 0; out[n++] = SR_DIFF; out[n++] = SR_PART; if (A.mode == MODE_PRACTICE) { out[n++] = SR_SECTION; out[n++] = SR_END; out[n++] = SR_SPEED; } out[n++] = SR_STRUM; out[n++] = SR_HYPER; out[n++] = SR_PLAY; return n; }
 static void section_name(int k, char *out, size_t n) { if (k <= 0 || k > A.S.sd.nmarkers) snprintf(out, n, "Do começo"); else { const char *t = app_section_at(A.S.sd.markers[k - 1].t); snprintf(out, n, "%d. %s", k, *t ? t : "Seção"); } }
+/* practice: the last section runs from the first one chosen to the one before the last ("Até o fim" covers that) */
+static void end_change(int d) { int lo = A.practiceSec > 1 ? A.practiceSec : 1, hi = A.S.sd.nmarkers - 1, cnt = 1 + (hi >= lo ? hi - lo + 1 : 0);
+    int i = A.practiceEnd >= lo && A.practiceEnd <= hi ? A.practiceEnd - lo : cnt - 1; i = (i + cnt + d) % cnt; A.practiceEnd = i == cnt - 1 ? 0 : lo + i; }
 static void draw_setup(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; const gh3_song *s = &A.lib->songs[A.selSong]; char b[200], t[160];
     song_title(s, t, sizeof t); ui_header(W, "PREPARAR", NULL);
     gfx_text_sh(16, 70, 3, t, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s%s%s", s->artist, *s->year ? " • " : "", s->year); gfx_text_sh(16, 106, 1, b, C_MUTED, C_SHADOW);
-    int rows[6], nr = setup_rows(rows), step = nr > 5 ? 34 : 40; char hv[16], sec[80];
+    int rows[8], nr = setup_rows(rows), step = nr > 6 ? 32 : nr > 5 ? 34 : 40, y0 = nr > 6 ? 122 : 132; char hv[16], sec[80], endv[80], spv[40];
     if (SET.hyper) snprintf(hv, sizeof hv, "+%d", SET.hyper); else snprintf(hv, sizeof hv, "Normal"); section_name(A.practiceSec, sec, sizeof sec);
+    if (A.practiceEnd > 0) section_name(A.practiceEnd, endv, sizeof endv); else snprintf(endv, sizeof endv, "Até o fim");
+    int spk = A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(spv, sizeof spv, "%s (%d%%)", PRACTICE_SPEED_NAME[spk], (int)lround(PRACTICE_SPEED[spk] * 100));
     int lock = app_song_lock(A.selTier, A.selSong);
-    for (int i = 0; i < nr; i++) { int y = 132 + i * step, r = rows[i];
+    for (int i = 0; i < nr; i++) { int y = y0 + i * step, r = rows[i];
         switch (r) { case SR_DIFF: ui_option(30, y, W - 60, "Dificuldade", diff_name_pt(A.selDiff), A.setupRow == i, 1); break; case SR_PART: ui_option(30, y, W - 60, "Parte", part_name(s, A.selPart), A.setupRow == i, 1); break;
             case SR_SECTION: ui_option(30, y, W - 60, "Começar em", sec, A.setupRow == i, 1); break; case SR_STRUM: ui_option(30, y, W - 60, "Palhetada", SET.tap ? "Toque livre" : "Normal", A.setupRow == i, 1); break;
+            case SR_END: ui_option(30, y, W - 60, "Terminar em", endv, A.setupRow == i, 1); break; case SR_SPEED: ui_option(30, y, W - 60, "Velocidade", spv, A.setupRow == i, 1); break;
             case SR_HYPER: ui_option(30, y, W - 60, "Velocidade da pista", hv, A.setupRow == i, 1); break;
             default: if (A.setupRow == i) ui_panel(22, y - 8, W - 44, 34, lock ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_text_sh_center(W / 2, y, 2, lock ? "Bloqueada nesta dificuldade" : A.mode == MODE_PRACTICE ? "♪  Treinar!  ♪" : "♪  Tocar!  ♪", lock ? C_MUTED : (A.setupRow == i ? C_INK : C_AMP), C_SHADOW); } }
     /* the record and the chart */
-    const record_t *rc = records_get(s->name, A.selDiff, A.selPart); int y = 344;
+    const record_t *rc = records_get(s->name, A.selDiff, A.selPart); int y = nr > 6 ? 376 : 344;
     ui_panel(16, y, W - 32, 62, UI_PANEL_FLAT);
-    if (A.mode == MODE_PRACTICE) { gfx_text_sh(28, y + 10, 1, "Treino: a música não falha e nada é salvo.", C_SP, C_SHADOW);
-        if (rc) { char n[32], st[32]; fmt_num(rc->score, n, sizeof n); stars_str(rc->stars, st); snprintf(b, sizeof b, "Seu recorde: %s pontos  %s", n, st); gfx_text(28, y + 28, 1, b, C_MUTED); } }
+    if (A.mode == MODE_PRACTICE) { gfx_text_sh(28, y + 10, 1, "Treino: não falha, sem Star Power, nada é salvo.", C_SP, C_SHADOW);
+        if (rc) { char n[32], st[32]; fmt_num(rc->score, n, sizeof n); stars_str(rc->stars, st); snprintf(b, sizeof b, "Seu recorde: %s pontos  %s", n, st); gfx_text(28, y + 28, 1, b, C_MUTED); }
+        const gh3_partdiff *pd = A.S.sd.parts[A.selPart][A.selDiff].raw ? &A.S.sd.parts[A.selPart][A.selDiff] : &A.S.sd.parts[A.selPart ? 0 : 1][A.selDiff];   /* the stretch chosen: its notes and how long it takes */
+        double end = A.S.sd.nfret ? A.S.sd.fretbars[A.S.sd.nfret - 1] : 0, from, to; practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, end, &from, &to); int cnt = 0;
+        for (int i = 0; i + 2 < pd->nraw; i += 3) cnt += pd->raw[i] >= from - 1 && pd->raw[i] < to;
+        int sec2 = (int)((to - from) / PRACTICE_SPEED[spk] / 1000 + 0.5); snprintf(b, sizeof b, "Trecho: %d notas • %d:%02d a %d%% da velocidade", cnt, sec2 / 60, sec2 % 60, (int)lround(PRACTICE_SPEED[spk] * 100)); gfx_text(28, y + 44, 1, b, C_LINE); }
     else if (rc) { char n[32], st[32]; fmt_num(rc->score, n, sizeof n); stars_str(rc->stars, st); snprintf(b, sizeof b, "Seu recorde: %s pontos  %s", n, st); gfx_text_sh(28, y + 10, 1, b, C_AMP, C_SHADOW);
         snprintf(b, sizeof b, "%d%% das notas • maior sequência %d • tocada %d %s", rc->pct, rc->streak, rc->plays, rc->plays == 1 ? "vez" : "vezes"); gfx_text(28, y + 28, 1, b, C_MUTED); }
     else { gfx_text_sh(28, y + 10, 1, "Ainda sem recorde nesta parte e dificuldade.", C_MUTED, C_SHADOW); }
     int charted = A.S.sd.parts[A.selPart][A.selDiff].raw != NULL; int notes = charted ? A.S.sd.parts[A.selPart][A.selDiff].nraw / 3 : (A.S.sd.parts[A.selPart ? 0 : 1][A.selDiff].raw ? A.S.sd.parts[A.selPart ? 0 : 1][A.selDiff].nraw / 3 : 0);
-    snprintf(b, sizeof b, "%s em %s: %d notas%s", part_name(s, A.selPart), diff_name_pt(A.selDiff), notes, charted ? "" : " (esta parte usa a partitura da outra)"); gfx_text(28, y + 44, 1, b, C_LINE);
+    snprintf(b, sizeof b, "%s em %s: %d notas%s", part_name(s, A.selPart), diff_name_pt(A.selDiff), notes, charted ? "" : " (esta parte usa a partitura da outra)"); if (A.mode != MODE_PRACTICE) gfx_text(28, y + 44, 1, b, C_LINE);
     static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Tocar", "Voltar", "Mudar" }; ui_hints(H - 24, W, bt, tx, 3);
 }
 /* ------------------------------------------------------------------ options */
@@ -292,10 +303,10 @@ static void draw_results(double now) {
     gfx_text(W / 2 - 200, y + 52, 1, "Palhetadas erradas", C_MUTED); snprintf(b, sizeof b, "%d", r->overstrums); gfx_text_sh_right(W / 2 + 200, y + 49, 2, b, r->overstrums ? C_BAD : C_GOOD, C_SHADOW);
     ui_bar(W / 2 - 200, y + 14, 180, 6, A.resultPct / 100.0f, A.resultPct >= 95 ? C_GOOD : A.resultPct >= 80 ? C_AMP : C_BAD);
     if (A.newRecord && !r->failed && T > 1.9) { float k = (float)fmin(1, (T - 1.9) / 0.3); int w = 230; ui_panel(W / 2 - w / 2, 356 - (int)(10 * (1 - k)), w, 32, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_CROWN), W / 2 - w / 2 + 10, 362, 1, RGB(255, 255, 255), 1); gfx_text_sh(W / 2 - w / 2 + 40, 362, 2, "NOVO RECORDE!", C_INK, C_SHADOW); }
-    if (A.mode == MODE_PRACTICE) gfx_text_center(W / 2, 362, 1, "Treino: nada é salvo.", C_SP);
+    if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, sizeof b, "Treino a %d%% da velocidade: nada é salvo.", (int)lround(PRACTICE_SPEED[k] * 100)); gfx_text_center(W / 2, 362, 1, b, C_SP); }
     else if (SET.noFail && !r->failed) gfx_text_center(W / 2, 362, 1, "Modo sem falhar: não vale para recordes nem para a carreira.", C_MUTED);
     else if (A.mode == MODE_QUICK && !r->failed && !A.newRecord) gfx_text_center(W / 2, 362, 1, "Jogo rápido: o recorde conta, a carreira não muda.", C_MUTED);
-    const char *it[2] = { "Tocar de novo", "Lista de músicas" }; int by = 404;
+    const char *it[2] = { "Tocar de novo", A.mode == MODE_PRACTICE ? "Mudar o treino" : "Lista de músicas" }; int by = 404;
     for (int i = 0; i < 2; i++) { int x = W / 2 - 236 + i * 244; if (i == A.resRow) ui_panel(x, by - 7, 228, 30, UI_PANEL_AMBER); gfx_text_sh_center(x + 114, by, 2, it[i], i == A.resRow ? C_INK : C_MUTED, C_SHADOW); }
     static const char *bt[2] = { "A", "← →" }, *tx[2] = { "Confirmar", "Escolher" }; ui_hints(H - 22, W, bt, tx, 2);
 }
@@ -329,7 +340,8 @@ static void leave_options(void) { settings_save(); app_apply_volumes(); if (A.op
 static int menu_move(int in, int *row, int n) { if (in == IN_UP) { *row = (*row + n - 1) % n; audio_sfx(SFX_MOVE); return 1; } if (in == IN_DOWN) { *row = (*row + 1) % n; audio_sfx(SFX_MOVE); return 1; } return 0; }
 static void setup_change(int r, int d) { const gh3_song *s = &A.lib->songs[A.selSong];
     switch (r) { case SR_DIFF: A.selDiff = (A.selDiff + 4 + d) % 4; app_refresh_career(0); break; case SR_PART: A.selPart = (s->hasRhythm || A.S.sd.parts[1][A.selDiff].raw) ? !A.selPart : 0; break;
-        case SR_SECTION: A.practiceSec = (A.practiceSec + A.S.sd.nmarkers + 1 + d) % (A.S.sd.nmarkers + 1); break; case SR_STRUM: SET.tap = !SET.tap; break; case SR_HYPER: SET.hyper = (SET.hyper + 6 + d) % 6; break; } }
+        case SR_SECTION: A.practiceSec = (A.practiceSec + A.S.sd.nmarkers + 1 + d) % (A.S.sd.nmarkers + 1); if (A.practiceEnd && A.practiceEnd < A.practiceSec) A.practiceEnd = A.practiceSec < A.S.sd.nmarkers ? A.practiceSec : 0; break;
+        case SR_END: end_change(d); break; case SR_SPEED: A.practiceSpeed = (A.practiceSpeed + PRACTICE_SPEEDS + d) % PRACTICE_SPEEDS; break; case SR_STRUM: SET.tap = !SET.tap; break; case SR_HYPER: SET.hyper = (SET.hyper + 6 + d) % 6; break; } }
 void screens_event(int in, double now) {
     if (A.screen == SC_TITLE) { if (in == IN_OK || in == IN_X || in == IN_Y) { audio_sfx(SFX_OK); app_guitar_lick(); A.screen = SC_MAIN; } else if (in == IN_BACK) { A.screen = SC_MAIN; A.mainRow = MM_EXIT; A.confirmQuit = 1; } }
     else if (A.screen == SC_MAIN) {
@@ -344,14 +356,14 @@ void screens_event(int in, double now) {
     } else if (A.screen == SC_TRAINING) {
         if (menu_move(in, &A.trainRow, TR_N)) return;
         if (in == IN_BACK) { A.screen = SC_MAIN; audio_sfx(SFX_BACK); }
-        else if (in == IN_OK) { if (A.trainRow == TR_TUTORIAL) { audio_sfx(SFX_BACK); note(now, "Os tutoriais narrados ainda não foram portados."); } else { A.practiceSec = 0; open_mode(MODE_PRACTICE, now); } }
+        else if (in == IN_OK) { if (A.trainRow == TR_TUTORIAL) { audio_sfx(SFX_BACK); note(now, "Os tutoriais narrados ainda não foram portados."); } else { A.practiceSec = A.practiceEnd = 0; open_mode(MODE_PRACTICE, now); } }
     } else if (A.screen == SC_SETLIST) {
         if (in == IN_UP || in == IN_DOWN) { int was = A.cursor; move_cursor(in == IN_UP ? -1 : 1); if (A.cursor != was) { audio_sfx(SFX_MOVE); app_preview(A.rows[A.cursor].idx); } }
         else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { A.selDiff = (A.selDiff + 4 + ((in == IN_RIGHT || in == IN_R) ? 1 : -1)) % 4; app_refresh_career(0); audio_sfx(SFX_MOVE); }
         else if (in == IN_OK && A.cursor < A.nrows) { int lock = row_lock(A.cursor); if (lock) { audio_sfx(SFX_BACK); snprintf(A.unlockMsg, sizeof A.unlockMsg, "%s", A.mode != MODE_CAREER ? "Libere esta música na carreira primeiro" : lock == LOCK_TIER ? "Termine o set anterior primeiro" : lock == LOCK_BOSS ? "Complete mais músicas do set para a batalha" : "Complete o set (e a batalha) para o encore"); A.unlockAt = now; return; }
-            A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier; A.practiceSec = 0; if (app_prepare_song(A.selSong) == 0) { int rows[6]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; audio_sfx(SFX_OK); } }
+            A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier; A.practiceSec = A.practiceEnd = 0; if (app_prepare_song(A.selSong) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; audio_sfx(SFX_OK); } }
         else if (in == IN_BACK) { to_main(); audio_sfx(SFX_BACK); }
-    } else if (A.screen == SC_SETUP) { int rows[6], nr = setup_rows(rows);
+    } else if (A.screen == SC_SETUP) { int rows[8], nr = setup_rows(rows);
         if (menu_move(in, &A.setupRow, nr)) return;
         if (in == IN_LEFT || in == IN_RIGHT) { audio_sfx(SFX_MOVE); setup_change(rows[A.setupRow], in == IN_RIGHT ? 1 : -1); }
         else if (in == IN_OK) { if (rows[A.setupRow] != SR_PLAY && rows[A.setupRow] != SR_PART) { setup_change(rows[A.setupRow], 1); audio_sfx(SFX_MOVE); return; } if (rows[A.setupRow] == SR_PART) { setup_change(SR_PART, 1); audio_sfx(SFX_MOVE); return; }
@@ -390,7 +402,9 @@ void screens_event(int in, double now) {
         else if (in == IN_BACK) app_resume_play();
     } else if (A.screen == SC_RESULTS) {
         if (in == IN_LEFT || in == IN_RIGHT) { A.resRow = !A.resRow; audio_sfx(SFX_MOVE); }
-        else if (in == IN_OK) { audio_sfx(SFX_OK); if (A.resRow == 0) { if (app_song_lock(A.selTier, A.selSong)) { app_session_free(); to_setlist(now); } else app_begin_song(); } else { app_session_free(); to_setlist(now); } }
+        else if (in == IN_OK) { audio_sfx(SFX_OK); if (A.resRow == 0) { if (app_song_lock(A.selTier, A.selSong)) { app_session_free(); to_setlist(now); } else app_begin_song(); }
+            else if (A.mode == MODE_PRACTICE) { if (app_prepare_song(A.selSong) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; } }   /* other sections or speed, same song */
+            else { app_session_free(); to_setlist(now); } }
         else if (in == IN_BACK) { app_session_free(); audio_sfx(SFX_BACK); to_setlist(now); }
     } else if (A.screen == SC_CALIB) {
         if (in == IN_OK) { if (A.calN >= 6) { SET.offsetMs = app_calib_result(); settings_save(); audio_sfx(SFX_FANFARE); } else audio_sfx(SFX_BACK); app_calib_stop(); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_CALIB; }
