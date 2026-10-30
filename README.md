@@ -28,7 +28,7 @@ O passo a passo, os controles e as opções estão em [port/README.md](port/READ
 Num Linux (ou WSL) com SDL2, `aarch64-linux-gnu-gcc` e um sysroot aarch64 com SDL2 (glibc até 2.30):
 
 ```
-make            # build/gh3 para o PC, com modos sem janela: --dump, --frames, --screens
+make            # build/gh3 para o PC, com modos sem janela: --dump, --frames, --screens, --stretchtest
 make port       # build/gh3.aarch64 e o zip do PortMaster em build/port/
 ```
 

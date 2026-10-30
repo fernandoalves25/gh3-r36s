@@ -21,6 +21,7 @@ typedef struct {
     row_t *rows; int nrows, cursor, scroll;
     int screen, setupRow, pauseRow, optRow, optCat, ctlRow, ctlSlot, capturing, resRow, preset, optionsFrom, confirmQuit;
     int mode, mainRow, trainRow, topDiff, topScroll, practiceSec; double titleAt, noteAt; char note[120];   /* note: a short line shown over a menu */
+    int practiceEnd, practiceSpeed;          /* practice: the last section (0 = to the end) and PRACTICE_SPEED[] index */
     unsigned char *quickOpen;                /* per song: opened by the career on some difficulty (Quickplay, Practice) */
     int selSong, selDiff, selPart, selTier;
     char errMsg[300];

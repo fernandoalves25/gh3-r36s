@@ -2,6 +2,7 @@
 #define MINIMP3_IMPLEMENTATION
 #define MINIMP3_NO_SIMD
 #include "minimp3.h"
+#include "stretch.h"
 #include <SDL.h>
 #include <string.h>
 #include <math.h>
@@ -21,6 +22,10 @@ static double fromMs = 0, leadMs = 0;
 static Uint64 cbTicks = 0; static int64_t cbMixed = 0; static SDL_SpinLock lock = 0;
 static double est = 0, estAt = 0; static int estOn = 0; static Uint32 playTicks = 0;
 static int64_t metroFrames = 0;    /* > 0: the calibration metronome clicks every metroFrames of song time */
+/* practice below full speed: the song clock runs at `rate` of real time and the song buses go through the stretcher
+ * (pitch kept): the player's track as one stereo pair (its miss mute, volume and whammy are applied after, in real
+ * time), the band and the other track mixed as the second pair */
+static double rate = 1, rateNext = 1; static int stretching = 0; static stretch_t ST;
 
 /* ---- the whammy bend: the player track goes through a two-tap delay-line pitch shifter (two read heads drifting
  * through a 40 ms window, crossfaded with triangle windows that always sum to 1). The bend is a level 0..1 set by the
@@ -93,6 +98,18 @@ static int pull(stream_t *s) { /* refill s->pcm; returns 0 at end */
     }
     return 1;
 }
+static void st_src(void *ud, float *f) { /* the next frame of song for the stretcher */
+    (void)ud; f[0] = f[1] = f[2] = f[3] = 0;
+    for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on || !pull(s)) continue;
+        float sl, sr; if (s->channels >= 2) { sl = s->pcm[s->pcmPos] * (1.0f / 32768); sr = s->pcm[s->pcmPos + 1] * (1.0f / 32768); s->pcmPos += 2; } else { sl = sr = s->pcm[s->pcmPos++] * (1.0f / 32768); }
+        s->produced++;
+        if (b == BUS_PLAYER) { f[0] = sl; f[1] = sr; } else { s->gain += (s->target - s->gain) * 0.002f; float g = s->level * s->gain * busGain[b]; f[2] += sl * g; f[3] += sr * g; } }
+}
+static void mix_stretched(float *l, float *r) {
+    float f[ST_CH]; stretch_frame(&ST, f, st_src, NULL); stream_t *s = &S[BUS_PLAYER];
+    if (s->on) { s->gain += (s->target - s->gain) * 0.002f; float sl = f[0], sr = f[1]; ps_process(&sl, &sr); float g = s->level * s->gain * busGain[BUS_PLAYER]; *l += sl * g; *r += sr * g; }
+    *l += f[2]; *r += f[3];
+}
 static void voice_start(int kind) {
     int slot = -1; for (int v = 0; v < VOICES; v++) if (!voices[v].on) { slot = v; break; }
     if (slot < 0) { int oldest = 0; for (int v = 1; v < VOICES; v++) if (voices[v].t > voices[oldest].t) oldest = v; slot = oldest; }
@@ -106,7 +123,8 @@ static void callback(void *ud, Uint8 *out, int len) {
     for (int i = 0; i < frames; i++) {
         float l = 0, r = 0;
         if (running && !paused) {
-            if (mixed >= 0) for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue;
+            if (mixed >= 0 && stretching) mix_stretched(&l, &r);
+            else if (mixed >= 0) for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue;
                 s->gain += (s->target - s->gain) * 0.002f;
                 if (!pull(s)) { if (preview && !loop && b == BUS_PLAYER) { running = 0; preview = 0; } continue; }
                 float sl, sr; if (s->channels >= 2) { sl = s->pcm[s->pcmPos] * (1.0f / 32768); sr = s->pcm[s->pcmPos + 1] * (1.0f / 32768); s->pcmPos += 2; } else { sl = sr = s->pcm[s->pcmPos++] * (1.0f / 32768); }
@@ -143,10 +161,11 @@ void audio_set_stream(int bus, const uint8_t *mp3, size_t size, double levelDb) 
     s->level = (float)pow(10, levelDb / 20); s->gain = s->target = 1;
     if (dev) SDL_UnlockAudioDevice(dev);
 }
-void audio_clear(void) { if (dev) SDL_LockAudioDevice(dev); running = 0; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0; for (int b = 0; b < BUS_N; b++) S[b].on = 0; if (dev) SDL_UnlockAudioDevice(dev); }
+void audio_clear(void) { if (dev) SDL_LockAudioDevice(dev); running = 0; stretching = 0; rate = 1; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0; for (int b = 0; b < BUS_N; b++) S[b].on = 0; if (dev) SDL_UnlockAudioDevice(dev); }
 void audio_play(double from, double lead) {
     if (dev) SDL_LockAudioDevice(dev);
-    fromMs = from; leadMs = lead; mixed = -(int64_t)(lead / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0;
+    rate = rateNext; rateNext = 1; stretching = rate < 0.999; if (stretching) stretch_init(&ST, rate); else rate = 1;
+    fromMs = from; leadMs = lead; mixed = -(int64_t)(lead / rate / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0;
     for (int b = 0; b < BUS_N; b++) { stream_t *s = &S[b]; if (!s->on) continue; mp3dec_init(&s->dec); s->pos = 0; s->pcmLen = s->pcmPos = 0; s->ended = 0; s->produced = 0; s->gain = s->target = 1; if (from > 0) skip_to(s, from); }
     estOn = 0; running = 1; cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed; playTicks = SDL_GetTicks();
     if (dev) SDL_UnlockAudioDevice(dev);
@@ -156,7 +175,7 @@ void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping)
     for (int b = 0; b < BUS_N; b++) S[b].on = 0;
     stream_t *s = &S[BUS_PLAYER]; memset(s, 0, sizeof *s); mp3dec_init(&s->dec); s->data = mp3; s->size = size; s->on = mp3 && size > 0;
     s->level = (float)pow(10, levelDb / 20); s->gain = 0; s->target = 1;
-    fromMs = 0; leadMs = 0; mixed = 0; fadeStep = 0; fadeGain = 1; paused = 0; preview = 1; loop = looping; running = s->on; estOn = 0;
+    rate = 1; stretching = 0; fromMs = 0; leadMs = 0; mixed = 0; fadeStep = 0; fadeGain = 1; paused = 0; preview = 1; loop = looping; running = s->on; estOn = 0;
     if (dev) SDL_UnlockAudioDevice(dev);
 }
 void audio_preview_stop(double sec) { if (dev) SDL_LockAudioDevice(dev); if (preview && running) { if (sec <= 0) { running = 0; preview = 0; } else fadeStep = (float)(1.0 / (sec * 44100)); } if (dev) SDL_UnlockAudioDevice(dev); }
@@ -168,7 +187,7 @@ void audio_sfx(int kind) {
 void audio_metronome(double periodMs, double lead) {
     if (dev) SDL_LockAudioDevice(dev);
     for (int b = 0; b < BUS_N; b++) S[b].on = 0;
-    fromMs = 0; leadMs = lead; mixed = -(int64_t)(lead / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0; preview = 0; loop = 0;
+    rate = 1; stretching = 0; fromMs = 0; leadMs = lead; mixed = -(int64_t)(lead / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0; preview = 0; loop = 0;
     metroFrames = (int64_t)(periodMs / 1000.0 * 44100 + 0.5); estOn = 0; running = 1; cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed; playTicks = SDL_GetTicks();
     if (dev) SDL_UnlockAudioDevice(dev);
 }
@@ -191,17 +210,20 @@ void audio_fade_out(double sec) { if (sec <= 0) sec = 0.01; fadeStep = (float)(1
 double audio_duration_ms(void) { double d = 0; for (int b = 0; b < BUS_N; b++) if (S[b].on) { /* MP3 CBR guess: 128 kbps */ double est = S[b].size / 16000.0 * 1000; if (est > d) d = est; } return d; }
 double audio_song_ms(void) {
     if (!running) return fromMs - leadMs;
-    if (!dev) return fromMs - leadMs + (paused ? 0 : (double)(SDL_GetTicks() - playTicks)); /* no sound card: the wall clock keeps the game going */
+    if (!dev) return fromMs - leadMs + (paused ? 0 : (double)(SDL_GetTicks() - playTicks) * rate); /* no sound card: the wall clock keeps the game going */
     SDL_AtomicLock(&lock); Uint64 ct = cbTicks; int64_t cm = cbMixed; SDL_AtomicUnlock(&lock);
     double now = (double)SDL_GetPerformanceCounter() / SDL_GetPerformanceFrequency() * 1000;
     double cbAt = (double)ct / SDL_GetPerformanceFrequency() * 1000;
     double heard = (double)(cm - spec.samples) / 44100.0 * 1000; /* the buffer handed over at the callback is heard about one buffer later */
-    double raw = fromMs + heard + (paused ? 0 : now - cbAt);
+    double raw = fromMs + (heard + (paused ? 0 : now - cbAt)) * rate;   /* below full speed a real ms is `rate` ms of song */
     /* the device hands buffers over in bursts, so the raw position jitters by a buffer or more: the clock returned
      * follows the wall clock and is pulled gently toward the audio, never runs backwards, and snaps only on a big jump */
     if (!estOn) { est = raw; estAt = now; estOn = 1; return est; }
-    double e = est + (paused ? 0 : now - estAt); double err = raw - e;
+    double e = est + (paused ? 0 : now - estAt) * rate; double err = raw - e;
     if (fabs(err) > 150) e = raw; else { e += err * 0.025; if (e < est) e = est; }
     est = e; estAt = now;
     return est;
 }
+void audio_set_speed(double r) { rateNext = r > 0.2 && r < 1 ? r : 1; }
+double audio_speed(void) { return rate; }
+void audio_render(float *out, int frames) { callback(NULL, (Uint8 *)out, frames * (int)(sizeof(float) * 2)); }
