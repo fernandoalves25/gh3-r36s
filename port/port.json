@@ -3,6 +3,7 @@
   "name": "gh3-r36s.zip",
   "items": [
     "GH3.sh",
+    "GH3 3D.sh",
     "gh3"
   ],
   "items_opt": [],
@@ -11,8 +12,8 @@
     "porter": [
       "Fernando Alves"
     ],
-    "desc": "A native player for Guitar Hero III's own PC data files, in pixel art and in Portuguese: the career with its tiers, battles and encores unlocked like the game, records and stars, lead guitar or bass, four difficulties, hammer-ons, sustains and star power with the game's note-judging rules, song previews, configurable controls and options. Bring your own copy of the game's DATA folder.",
-    "inst": "Copy the game's DATA folder (at least PAK/, SONGS/ and MUSIC/) to ports/gh3/DATA/. See README.md.",
+    "desc": "A native player for Guitar Hero III's own PC data files, in pixel art and in Portuguese (GH3 3D: the same with the game's own venues drawn in 3D behind the highway): the career with its tiers, battles and encores unlocked like the game, records and stars, lead guitar or bass, four difficulties, hammer-ons, sustains and star power with the game's note-judging rules, song previews, configurable controls and options. Bring your own copy of the game's DATA folder.",
+    "inst": "Copy the game's DATA folder (at least PAK/, SONGS/ and MUSIC/; ZONES/ for the 3D stage) to ports/gh3/DATA/. See README.md.",
     "genres": [
       "music",
       "rhythm"

@@ -48,7 +48,9 @@ enum { PU_LIGHTNING, PU_DIFFUP, PU_DOUBLE, PU_STEAL, PU_LEFTY, PU_STRING, PU_WHA
 typedef struct { uint32_t key; int id; char title[48], alt[48]; double weight, weightLow, drain; int immediate, bolt, noAi; double repair[4], flicker[4], kill[4]; } gh3_powerup;   /* id: PU_* or -1 */
 typedef struct { int songIdx; char name[48]; uint32_t powerups[16]; int npowerups; double gain[4], loss[4], miss[4], whammySpeed[4], stringSpeed[4], stringMiss[4]; } gh3_boss;
 typedef struct { gh3_powerup *pu; int npu; gh3_boss *bosses; int nbosses; int max; double offset[4], good[4], bad[4]; } gh3_battledata;
-typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; char careerMovie[48]; gh3_battledata battle; } gh3_library;   /* careerMovie: the career's initial_movie */
+typedef struct { char zone[24]; uint32_t tex[16]; int n; } gh3_zonecrowd;   /* a venue's crowd panel textures (<zone>_crowd_models textureasset keys): the flat stand-ins the game paints the crowd on */
+typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; char careerMovie[48]; gh3_battledata battle; gh3_zonecrowd crowd[12]; int ncrowd; } gh3_library;   /* careerMovie: the career's initial_movie */
+const gh3_zonecrowd *gh3_library_crowd(const gh3_library *lib, const char *zone);   /* NULL when the venue lists none */
 const gh3_boss *gh3_library_boss(const gh3_library *lib, int songIdx);   /* the boss of a battle song, or NULL */
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib);
 const char *gh3_library_text(const gh3_library *lib, uint32_t key);   /* a string section of the main script pak (section names and the like) */
@@ -68,6 +70,7 @@ typedef struct {
     gh3_marker *markers; int nmarkers;
     gh3_partdiff parts[4][4];
     gh3_cue *cues; int ncues;
+    int (*cams)[3]; int ncams;   /* _cameras_notes: [time ms, midinote, duration] camera cuts, by time (the 3D stage; the note names a shot list through cameracuts_notemapping) */
 } gh3_songdata;
 int gh3_songpak_read(const uint8_t *pak, size_t len, const char *name, gh3_songdata *sd);
 void gh3_songdata_free(gh3_songdata *sd);
