@@ -5,7 +5,8 @@
  *     explode_text_array_elements) while the song's magazine lands: the one of the tier the song is in, its logo and
  *     sidebar, the song and band on the cover, the notes hit in the burst, the score box with the stars (fx_stars, as
  *     the other themes) and the difficulty, the note streak, the two choices with the magazine's highlight and icon,
- *     and the detailed breakdown (notes, overstrums, star power, the best and worst sections) on the page.
+ *     a third choice, MAIS ESTATÍSTICAS, opening the detailed breakdown on its own sheet (the notes, star power, the
+ *     multiplier, each section's notes and share hit, the best and worst sections).
  *   * Failed: the song failed window over the stage, on the pause frame: the title banner, the song, how far it went
  *     and on which difficulty (a battle: the boss won), the choices in the dialog box.
  * The career's pay, the new record and the notes of practice / no fail / quickplay keep their place on it. */
@@ -125,33 +126,57 @@ static void you_rock(double T) {
         txt(f, L[i], u, v, ks * 1.3f, ks * 1.2f, 0, 0.5f, 0.5f, BLK); txt(f, L[i], u, v, ks, ks, 0, 0.5f, 0.5f, RGB(223, 223, 223)); }
     GA = g;
 }
-/* ---- the detailed breakdown (create_detailed_stats_menu's rows), on slips of the detail sheet pasted on the page:
- * label left, number right, every other row shaded; the best section green, the worst red */
-#define ROWS 4
-typedef struct { char lab[96], val[48]; uint32_t col; } drow_t;
-static void slip(const drow_t *rw, int n, float u, float v, float w, float rowH) {
-    const ga_font *f = ga_font_get("fontgrid_text_a4"); if (!f || n <= 0) return; float h = n * rowH + 8;
-    gfx_rect(X(u + 3), Y(v + 3), w * S, h * S, RGBA(0, 0, 0, (int)(60 * GA))); gfx_rect(X(u), Y(v), w * S, h * S, fb_alpha(RGB(240, 240, 236), GA));
-    spr("song_summary_detail_sheet_bottom", u - 2, v + h - w / 8 * 0.3f, w + 4, w / 8, RGB(240, 240, 236));   /* its torn edge */
-    float sy = rowH * 0.78f / ga_font_size(f);
-    for (int i = 0; i < n; i++) { float y = v + 4 + i * rowH; if (i & 1) gfx_rect(X(u + 4), Y(y), (w - 8) * S, rowH * S, RGBA(0, 0, 0, (int)(26 * GA)));
-        float vw = tw(f, rw[i].val) * sy, lw = tw(f, rw[i].lab) * sy, room = w - 22 - vw - 8, k = lw > room ? room / lw : 1;
-        txt(f, rw[i].lab, u + 10, y + rowH * 0.1f, sy * k, sy, 0, 0, 0, RGB(75, 75, 75)); txt(f, rw[i].val, u + w - 10, y + rowH * 0.1f, sy, sy, 0, 1, 0, rw[i].col); }
-}
-static void detail(void) {
-    const gh3_run *r = &A.S.run; drow_t a[ROWS], s[2]; int n = 0, m = 0; const uint32_t ink = RGB(75, 75, 75);
-#define ROW(arr, cnt, c, l, ...) do { snprintf(arr[cnt].lab, sizeof arr[cnt].lab, "%s", l); snprintf(arr[cnt].val, sizeof arr[cnt].val, __VA_ARGS__); arr[cnt++].col = c; } while (0)
-    ROW(a, n, ink, "NOTAS ACERTADAS", "%d/%d", r->hits, r->nnotes);
-    ROW(a, n, r->overstrums ? RGB(165, 0, 0) : ink, "PALHETADAS ERRADAS", "%d", r->overstrums);
-    if (BTL.on) ROW(a, n, ink, "ATAQUES", "%d SEUS, %d DELE", BTL.me.fired, BTL.cpu.fired);
-    else { const gh3_chart *ch = &A.S.chart; int done = 0; for (int i = 0; i < ch->nphrases; i++) done += ch->phrases[i].done != 0; ROW(a, n, ink, "FRASES DE STAR POWER", "%d/%d", done, ch->nphrases); }
-    sec_t sc[64]; int ns = sections(sc, 64);
-    if (ns > 1) { int hi = 0, lo = 0; for (int i = 1; i < ns; i++) { if (sc[i].hit * sc[hi].total > sc[hi].hit * sc[i].total) hi = i; if (sc[i].hit * sc[lo].total < sc[lo].hit * sc[i].total) lo = i; }
-        if (sc[hi].hit * sc[lo].total != sc[lo].hit * sc[hi].total) { char nm[96]; upper(sc[hi].name, nm, sizeof nm); ROW(s, m, RGB(20, 150, 0), nm, "%d %%", sc[hi].hit * 100 / sc[hi].total);
-            upper(sc[lo].name, nm, sizeof nm); ROW(s, m, RGB(165, 0, 0), nm, "%d %%", sc[lo].hit * 100 / sc[lo].total); } }
+/* ---- MORE STATS (create_detailed_stats_menu, as the browser port's drawDetail lays it out): the sheet of paper on the
+ * table, "ANÁLISE DETALHADA" at its top, the run's numbers, then each section of the song with its notes and its share
+ * hit, the best green and the worst red, every other row shaded; up and down move the sheet (menu_detailed_stats_move_screen) */
+typedef struct { char lab[96], mid[32], val[48]; uint32_t col; int gap; } drow_t;
+static int more_rows(drow_t *rw, int cap) {
+    const gh3_run *r = &A.S.run; const gh3_chart *ch = &A.S.chart; int n = 0; const uint32_t ink = RGB(75, 75, 75);
+#define ROW(c, l, ...) do { if (n < cap) { memset(&rw[n], 0, sizeof rw[n]); snprintf(rw[n].lab, sizeof rw[n].lab, "%s", l); snprintf(rw[n].val, sizeof rw[n].val, __VA_ARGS__); rw[n++].col = c; } } while (0)
+    ROW(ink, "NOTAS ACERTADAS", "%d/%d", r->hits, r->nnotes);
+    if (BTL.on) ROW(ink, "ATAQUES LANÇADOS", "%d", BTL.me.fired);
+    else { int done = 0; for (int i = 0; i < ch->nphrases; i++) done += ch->phrases[i].done != 0; ROW(ink, "FRASES DE STAR POWER", "%d/%d", done, ch->nphrases);
+        int m = ch->base > 0 ? (int)(r->score / ch->base) : 1; ROW(ink, "MULTIPLICADOR MÉDIO", "%d X", m < 1 ? 1 : m); }
+    ROW(ink, "MAIOR SEQUÊNCIA", "%d", r->best);
+    ROW(r->overstrums ? RGB(165, 0, 0) : ink, "PALHETADAS ERRADAS", "%d", r->overstrums);
+    sec_t sc[96]; int ns = sections(sc, 96), hi = 0, lo = 0;
+    for (int i = 1; i < ns; i++) { if (sc[i].hit * sc[hi].total > sc[hi].hit * sc[i].total) hi = i; if (sc[i].hit * sc[lo].total < sc[lo].hit * sc[i].total) lo = i; }
+    int mark = ns > 1 && sc[hi].hit * sc[lo].total != sc[lo].hit * sc[hi].total;
+    for (int i = 0; i < ns && n < cap; i++) { char nm[96]; upper(sc[i].name && *sc[i].name ? sc[i].name : "SEÇÃO", nm, sizeof nm);
+        int pct = sc[i].hit * 100 / sc[i].total; uint32_t c = mark && pct == sc[hi].hit * 100 / sc[hi].total ? RGB(20, 165, 0) : mark && pct == sc[lo].hit * 100 / sc[lo].total ? RGB(165, 0, 0) : ink;
+        ROW(c, nm, "%d %%", pct); snprintf(rw[n - 1].mid, sizeof rw[n - 1].mid, "%d/%d", sc[i].hit, sc[i].total); if (i == 0) rw[n - 1].gap = 1; }
 #undef ROW
-    slip(a, n, 650, 244, 312, 22);   /* under the choices */
-    slip(s, m, 652, 500, 212, 22);   /* under the note streak */
+    return n;
+}
+static int more_stats(double now) {
+    const ga_font *font = ga_font_get("fontgrid_text_a3"), *small = ga_font_get("fontgrid_text_a4"); if (!font) font = small; if (!font || !ga_img("song_summary_detail_bg")) return 0;
+    S = 0.6f; OX = (A.W - 1280 * S) / 2; OY = 0; GA = 1;   /* the sheet's whole width on the screen, its edges too */
+    static drow_t rw[112]; int n = more_rows(rw, 112), gaps = 0; for (int i = 0; i < n; i++) gaps += rw[i].gap;
+    const float RH = 44, yEnd = 340 + n * RH + gaps * 22, maxY = fmaxf(0, yEnd + 170 - A.H / S);
+    if (A.resMoreY > maxY) A.resMoreY = maxY; if (A.resMoreY < 0) A.resMoreY = 0;
+    float sy0 = OY; for (int i = 0; i < 4; i++) spr("song_summary_detail_bg", 0, i * 240, 1280, 240, WHITE);   /* the table */
+    OY = sy0 - A.resMoreY * S;
+    spr("song_summary_detail_sheet_top", 140, 50, 0, 0, WHITE);
+    gfx_rect(X(139), Y(304), 976 * S, (yEnd - 304 + 70) * S, RGB(255, 255, 255));
+    for (float y = 304; y < yEnd + 40; y += 128) { spr("song_summary_detail_sheet_l", 129, y, 32, 128, WHITE); spr("song_summary_detail_sheet_r", 1087, y + 35, 64, 128, WHITE); }
+    spr("song_summary_detail_sheet_bottom", 129, yEnd + 40, 1016, 128, WHITE);
+    const uint32_t HEAD = RGB(118, 29, 30); int prac = A.mode == MODE_PRACTICE;
+    if (prac) txt(font, "SEÇÕES DO TREINO", 250, 125, 1.7f, 2.25f, 0, 0, 0, HEAD);
+    else { txt(font, "ANÁLISE", 250, 125, 2.75f, 2.75f, 0, 0, 0, HEAD); txt(font, "DETALHADA", 250, 215, 2.75f, 2.75f, 0, 0, 0, HEAD); }
+    { char t[200]; if (A.S.song->isBoss) { const char *p = strstr(A.S.song->title, "vs."); snprintf(t, sizeof t, "Batalha %s", p ? p : A.S.song->title); } else snprintf(t, sizeof t, "%s", A.S.song->title);   /* whose numbers they are */
+      char u[200]; upper(t, u, sizeof u); float w = tw(small, u) * 0.7f, k = w > 380 ? 0.7f * 380 / w : 0.7f; txt(small, u, 1030, prac ? 222 : 140, k, 0.7f, 0, 1, 0, RGB(75, 75, 75));
+      upper(DIFF_UP[A.S.diff < 0 ? 0 : A.S.diff > 3 ? 3 : A.S.diff], u, sizeof u); txt(small, u, 1030, prac ? 258 : 180, 0.6f, 0.6f, 0, 1, 0, RGB(118, 29, 30)); }
+    float y = 340; int hl = 1;
+    for (int i = 0; i < n; i++) { if (rw[i].gap) y += 22; if (Y(y + RH) < 0 || Y(y) > A.H) { y += RH; hl = !hl; continue; }
+        if (hl) gfx_rect(X(225), Y(y - 4), 830 * S, (RH - 4) * S, RGBA(0, 0, 0, 26)); hl = !hl;
+        float lw = tw(font, rw[i].lab), vw = tw(font, rw[i].val);
+        txt(font, rw[i].lab, 250, y, lw > 500 ? 500 / lw : 1, 1, 0, 0, 0, RGB(75, 75, 75));
+        if (rw[i].mid[0]) txt(font, rw[i].mid, 820, y, 0.85f, 0.85f, 0, 1, 0, RGB(130, 130, 130));   /* the section's notes */
+        txt(font, rw[i].val, 1030, y, vw > 200 ? 200 / vw : 1, 1, 0, 1, 0, rw[i].col);
+        y += RH; }
+    S = 0.6f; OY = sy0;
+    static const char *bt[2] = { "↑↓", "A" }, *tx[2] = { "Mover a folha", "Continuar" }; ui_hints(A.H - 22, A.W, bt, tx, 2);
+    return 1;
 }
 /* ---- won: the magazine */
 static int magazine(double T) {
@@ -181,12 +206,11 @@ static int magazine(double T) {
       snprintf(b, sizeof b, "%d", st); txt(text, b, sp[0], sp[1], sp[2], sp[3], 0, 0, 0, SSC[P[8]]);
       float w = tw(small, "sequência"), h = ga_font_size(small), k = fminf(80 / w, 35 / h); txt(small, "sequência", 732, 425, k, k, 0, 0, 0, SSC[P[9]]); }
     /* the choices (np_create_options_menu): the highlight and the magazine's own icon on the chosen one */
-    static const float NP[6][3] = { { 680, 168, 1 }, { 680, 201, 0.5f }, { 680, 234, 0.5f }, { 680, 266, 0 }, { 680, 162, 0 }, { 680, 195, 0 } };
-    const char *items[2] = { "TOCAR DE NOVO", second_item() }; int first = prac ? 4 : 0; float off = prac ? -6 : 0;
-    for (int i = 0; i < 2; i++) { float x = NP[first + i][0], y = NP[first + i][1] + off, rot = NP[first + i][2]; int on = i == A.resRow;
+    static const float NP[7][3] = { { 680, 168, 1 }, { 680, 201, 0.5f }, { 680, 234, 0.5f }, { 680, 266, 0 }, { 680, 162, 0 }, { 680, 195, 0 }, { 680, 228, 0 } };
+    const char *items[3] = { "TOCAR DE NOVO", second_item(), "MAIS ESTATÍSTICAS" }; int first = prac ? 4 : 0; float off = prac ? -6 : 0;
+    for (int i = 0; i < 3; i++) { float x = NP[first + i][0], y = NP[first + i][1] + off, rot = NP[first + i][2]; int on = i == A.resRow;
         if (on) { spr("song_summary_menu_hilite", x - 30, y + 5, 320, 40, SSC[P[10]]); snprintf(nm, sizeof nm, "song_summary_menu_icon_%s", MAGS[m]); spr(nm, x + 195, y - 17, 80, 80, WHITE); }
         if (on) txt_sh(small, items[i], x, y, i ? 0.8f : 0.85f, 0.7f, rot, 0, 0, SSC[OFF], 2); else txt(small, items[i], x, y, i ? 0.8f : 0.85f, 0.7f, rot, 0, 0, BLK); }
-    detail();
     return 1;
 }
 /* ---- failed: the song failed window */
@@ -226,6 +250,7 @@ int orig_results_draw(double now) {
     if (!ga_ok() || !A.S.song) return 0; int W = A.W, H = A.H; double T = (now - A.resultsAt) / 1000; const gh3_run *r = &A.S.run; char b[200];
     S = fmaxf(W / 1280.0f, H / 720.0f); OX = (W - 1280 * S) / 2; OY = (H - 720 * S) / 2; GA = 1;
     if (r->failed) { if (!failed_window(T)) return 0; hints(); return 1; }
+    if (A.resMore) return more_stats(now);
     /* the magazine lands: a little large and see-through at first, over the stage */
     float k = T < 0.45 ? (float)(T / 0.45) : 1, e = 1 - (1 - k) * (1 - k), z = 1 + 0.12f * (1 - e);
     if (k < 1) { if (!ga_img("song_summary_bg")) return 0; render_backdrop(now, SET.stageFx); }

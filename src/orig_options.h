@@ -8,10 +8,11 @@
 #define ORIG_OPTIONS_H
 #include <stddef.h>
 /* the options menu (A.optCat < 0) and a category's page. The tables are screens.c's: category names and help, each
- * category's items (-1 ends them; categories 0 Audio, 2 Controller, 3 Video have pages), item names and help, an item's
+ * category's items (-1 ends them; categories 0 Audio, 1 Video, 4 Controller have pages; the poster has twelve strips), item names and help, an item's
  * value as shown ("70%", "Ligada", "Não", "+0 ms"; "" for an action) and whether a category is closed (opened from the pause) */
 int orig_options_draw(double now, const char *const *catLabel, const char *const *catHelp, const int (*catItems)[8], int ncat,
     const char *const *optLabel, const char *const *optHelp, void (*value)(int item, char *out, size_t n), int (*off)(int cat));
 int orig_calib_draw(double now);       /* Calibrar atraso: the lane with the clicks, the explanation on the game's paper */
 int orig_controls_draw(double now);    /* the bindings on the controller poster, the live test under them */
+int orig_whammy_draw(double now);      /* Calibrar alavanca: the controller's castle poster, the steps and the stick's gauge on the calibration paper */
 #endif
