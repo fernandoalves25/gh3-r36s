@@ -538,7 +538,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
         screens_event(IN_L, 0); A.cursor = c1; } A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
       store_open(0); store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store"); store_event(IN_OK, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_buy"); store_event(IN_BACK, 0);
       store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos");
-      store_event(IN_RIGHT, 0); store_event(IN_RIGHT, 0); for (int k = 0; k < 20; k++) store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_guitars_setlist");   /* the guitars from the set list, scrolled */
+      store_event(IN_RIGHT, 0); store_event(IN_RIGHT, 0); for (int k = 0; k < 2; k++) store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_guitars_setlist");   /* the guitars from the set list, on the longest story (V-Factor) */
       store_event(IN_LEFT, 0); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); screens_set_tab(0); A.cursor = c0; A.scroll = 0;
       charsel_screens(save_named); }   /* the character hub, its lists, the store's rockers / guitars / finishes */
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }

@@ -132,6 +132,22 @@ void store_open_at(int c, const char *key, int backTo) {
     make_list(); store_refresh(A.lib); A.screen = SC_STORE; confirm = 0; back = backTo; cat = c >= 0 && c < NCAT ? c : 0; top = 0; app_preview(-1); audio_sfx(SFX_WHOOSH);
     for (int i = 0, n = count(); key && *key && i < n; i++) { const char *t, *s, *in_, *wy; int p, h; char k[72]; item_x(i, &t, &s, &p, &h, &in_, &wy, k, sizeof k); if (!strcmp(k, key)) sel[cat] = i; }
 }
+/* an item's story kept inside h: wrapped to w, the lines drawn closer (down to 10 px) when they do not fit, and the
+ * last one cut with "…" when even that is too tall; returns the lines it had */
+static int fit_box(int x, int y, int w, int h, const char *s, uint32_t c) {
+    static char ln[24][256]; int n = 0; ln[0][0] = 0;
+    while (*s && n < 24) { const char *p = s; while (*p == ' ') p++; const char *e = p; while (*e && *e != ' ' && *e != '\n') e++; int wl = (int)(e - p); if (wl > 127) wl = 127;
+        char t[400]; snprintf(t, sizeof t, "%s%s%.*s", ln[n], ln[n][0] ? " " : "", wl, p);
+        if (ln[n][0] && gfx_text_w(t, 1) > w) { if (++n == 24) break; snprintf(ln[n], sizeof ln[n], "%.*s", wl, p); } else snprintf(ln[n], sizeof ln[n], "%s", t);
+        s = e; if (*s == '\n') { s++; if (ln[n][0] && ++n < 24) ln[n][0] = 0; } }
+    if (n < 24 && ln[n][0]) n++;
+    int pitch = n > 1 ? (h - 11) / (n - 1) : FONT_LINE; if (pitch > FONT_LINE) pitch = FONT_LINE; if (pitch < 10) pitch = 10;
+    int fit = (h - 11) / pitch + 1, k = n < fit ? n : fit;
+    for (int i = 0; i < k; i++) { char *l = ln[i]; char cut[260];
+        if (i == k - 1 && k < n) { snprintf(cut, sizeof cut, "%s…", l); while (gfx_text_w(cut, 1) > w && strlen(l) > 0) { l[strlen(l) - 1] = 0; while (*l && ((unsigned char)l[strlen(l) - 1] & 0xC0) == 0x80) l[strlen(l) - 1] = 0; snprintf(cut, sizeof cut, "%s…", l); } l = cut; }   /* (whole UTF-8 letters off) */
+        gfx_text(x, y + i * pitch, 1, l, c); }
+    return n;
+}
 void store_draw(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; const gh3_library *lib = A.lib; char b[320], c[32];
     snprintf(b, sizeof b, "Seu dinheiro: %s", store_cash_str()); ui_header(W, "LOJA", b);
@@ -141,7 +157,7 @@ void store_draw(double now) {
       for (int k = 0; k < NCAT; k++) { if (k && !count_of(k)) continue; int w = gfx_text_w(CAT[k], big ? 2 : 1) + (big ? 28 : 18); if (k == cat) ui_panel(x, 64, w, big ? 28 : 22, UI_PANEL_AMBER);
           gfx_text_sh(x + (big ? 14 : 9), big ? 71 : 70, big ? 2 : 1, CAT[k], k == cat ? C_INK : C_MUTED, C_SHADOW); x += w + gap; }
       if (big) gfx_text_right(W - 16, 76, 1, "L1 / R1 ou ← →", C_LINE); }
-    int pH = cat >= 2 ? 140 : 94, py = H - 52 - pH;   /* the item's panel over the hints: the guitars' longest text is 7 lines, and a line under it says where they are chosen */
+    int pH = cat >= 2 ? 140 : 94, py = H - 52 - pH;   /* the item's panel over the hints: the guitars' longest story is 7 lines (V-Factor, in Portuguese too), and a line under it says where they are chosen */
     int n = count(), rowH = 24, y0 = 102, vis = (py - 16 - y0) / rowH, *s = &sel[cat];
     if (*s >= n) *s = n ? n - 1 : 0; if (*s < top) top = *s; if (*s >= top + vis) top = *s - vis + 1; if (top < 0) top = 0;
     for (int i = top, y = y0; i < n && i < top + vis; i++, y += rowH) { const char *title, *sub; int price, have, on = i == *s; uint32_t sc;
@@ -160,7 +176,7 @@ void store_draw(double now) {
         else if (cat >= 2 && *sub) snprintf(b, sizeof b, "%s • %s", title, sub); else snprintf(b, sizeof b, "%s", title);
         if (cat == 2) { char k[72]; const char *t, *u, *in_, *wy; int p, h; item_x(*s, &t, &u, &p, &h, &in_, &wy, k, sizeof k); gfx_sprite *ph = charsel_photo(k + 9);   /* "roqueiro:<name>": the rocker's photo beside the text */
             if (ph) { gfx_blit(ph, 0, 0, gfx_sprite_w(ph), gfx_sprite_h(ph), 20, py + 5, 84, 84, RGB(255, 255, 255), 1); tx0 = 114; } }
-        gfx_text_sh(tx0, py + 8, 1, b, C_AMP, C_SHADOW); gfx_text_box(tx0, py + 26, W - 26 - tx0, 1, why ? why : info && *info ? info : cat ? "" : "Uma das músicas bônus do jogo.", why ? C_BAD : C_MUTED); }
+        gfx_text_sh(tx0, py + 8, 1, b, C_AMP, C_SHADOW); fit_box(tx0, py + 26, W - 26 - tx0, cat >= 2 ? pH - 52 : pH - 32, why ? why : info && *info ? info : cat ? "" : "Uma das músicas bônus do jogo.", why ? C_BAD : C_MUTED); }
     else gfx_text_box(26, py + 10, W - 52, 1, "Os itens da loja não estão no qb.pak desta cópia do jogo.", C_MUTED);
     if (cat >= 2) { gfx_rect(26, py + pH - 22, W - 52, 1, C_LINE); gfx_text_center(W / 2, py + pH - 17, 1, back == SC_CHARSEL ? "B volta à escolha do roqueiro e da guitarra." : "Escolha o roqueiro e a guitarra ao entrar na Carreira ou no Jogo rápido.", C_MUTED); }   /* inside the panel, clear of the hints */
     { const char *title, *sub; int price = 0, have = 0; if (n) item(*s, &title, &sub, &price, &have);
