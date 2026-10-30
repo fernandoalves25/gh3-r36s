@@ -6,7 +6,7 @@
 #include "game.h"
 #include "settings.h"
 #include "career.h"
-enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR };
+enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR, SC_BATTLE /* a boss battle's intro card and end banners (battle.c) */ };
 /* the main menu's ways to play, as in the game: Career moves the career, Quickplay plays any song the career has
  * opened (scores kept, career untouched), Practice plays a song from a chosen section (nothing saved) */
 enum { MODE_CAREER, MODE_QUICK, MODE_PRACTICE };
@@ -37,6 +37,7 @@ typedef struct {
 extern app_t A;
 /* services of main.c */
 void app_begin_song(void);
+void app_finish_song(double now);      /* the run is over: the results (a battle shows its banner first) */
 int app_prepare_song(int songIdx);     /* loads the chart for the setup screen (no audio); 0 when fine */
 int app_song_lock(int tier, int songIdx);   /* LOCK_* for the current mode */
 void app_guitar_lick(void);            /* one of the game's guitar licks (the title screen's Start), then the menu music again */

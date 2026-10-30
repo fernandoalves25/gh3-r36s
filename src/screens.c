@@ -6,6 +6,7 @@
 #include "ui.h"
 #include "input.h"
 #include "audio.h"
+#include "battle.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -272,7 +273,7 @@ static void draw_controls(double now) {
 }
 /* ------------------------------------------------------------------ pause / results / error */
 static void draw_pause(double now) {
-    hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 0, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail }; render_game(&A.S.run, now, &hi);
+    hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 0, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail }; if (BTL.on) render_battle(now, 0); else render_game(&A.S.run, now, &hi);
     int W = A.W, H = A.H; ui_dim(W, H, 170); ui_panel(W / 2 - 140, 120, 280, 230, UI_PANEL_DARK);
     gfx_text_title(W / 2 - gfx_text_w("PAUSA", 4) / 2, 134, 4, "PAUSA", C_INK, C_SHADOW, 3);
     const char *it[4] = { "Continuar", "Reiniciar", "Opções", "Sair da música" };
@@ -283,7 +284,8 @@ static void draw_results(double now) {
     ui_header(W, r->failed ? "QUE PENA…" : "VOCÊ ARRASOU!", NULL);
     song_title(A.S.song, b, sizeof b); gfx_text_sh_center(W / 2, 70, 2, b, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s • %s • %s", A.S.song->artist, part_name(A.S.song, A.S.part), diff_name_pt(A.S.diff)); gfx_text_center(W / 2, 96, 1, b, C_MUTED);
     fmt_num((long)r->score, n, sizeof n); gfx_text_title(W / 2 - gfx_text_w(n, 5) / 2, 120, 5, n, r->failed ? C_MUTED : C_AMP, C_SHADOW, 4); gfx_text_center(W / 2, 180, 1, "PONTOS", C_MUTED);
-    if (!r->failed) render_stars(W / 2, 200, A.resultStars, 3, T);
+    if (BTL.on) battle_result_lines(W / 2, 194);   /* a battle: who won and the attacks */
+    else if (!r->failed) render_stars(W / 2, 200, A.resultStars, 3, T);
     else { gfx_sprite_draw(art_get(ART_SKULL), W / 2, 216, 1.5f, RGB(255, 255, 255), 1); gfx_text_center(W / 2, 236, 1, "A plateia vaiou… tente de novo!", C_BAD); }
     int total = r->nnotes, hit = r->hits; int y = 256;
     ui_panel(W / 2 - 220, y - 8, 440, 96, UI_PANEL_FLAT);
@@ -316,7 +318,7 @@ static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = 
 void screens_draw(double now) {
     switch (A.screen) { case SC_TITLE: draw_title(now); break; case SC_MAIN: draw_main(now); break; case SC_TRAINING: draw_training(now); break; case SC_TOPROCK: draw_toprock(now); break;
         case SC_SETLIST: draw_setlist(now); break; case SC_SETUP: draw_setup(now); break; case SC_OPTIONS: draw_options(now); break; case SC_CONTROLS: draw_controls(now); break;
-        case SC_PAUSE: draw_pause(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; default: draw_error(now); }
+        case SC_PAUSE: draw_pause(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; case SC_BATTLE: battle_screen_draw(now); break; default: draw_error(now); }
     draw_note(now);
 }
 
@@ -331,6 +333,7 @@ static void setup_change(int r, int d) { const gh3_song *s = &A.lib->songs[A.sel
     switch (r) { case SR_DIFF: A.selDiff = (A.selDiff + 4 + d) % 4; app_refresh_career(0); break; case SR_PART: A.selPart = (s->hasRhythm || A.S.sd.parts[1][A.selDiff].raw) ? !A.selPart : 0; break;
         case SR_SECTION: A.practiceSec = (A.practiceSec + A.S.sd.nmarkers + 1 + d) % (A.S.sd.nmarkers + 1); break; case SR_STRUM: SET.tap = !SET.tap; break; case SR_HYPER: SET.hyper = (SET.hyper + 6 + d) % 6; break; } }
 void screens_event(int in, double now) {
+    if (A.screen == SC_BATTLE) { battle_input(in, now); return; }
     if (A.screen == SC_TITLE) { if (in == IN_OK || in == IN_X || in == IN_Y) { audio_sfx(SFX_OK); app_guitar_lick(); A.screen = SC_MAIN; } else if (in == IN_BACK) { A.screen = SC_MAIN; A.mainRow = MM_EXIT; A.confirmQuit = 1; } }
     else if (A.screen == SC_MAIN) {
         if (A.confirmQuit) { if (in == IN_OK) app_quit(); else if (in == IN_BACK || in == IN_X || in == IN_Y) { A.confirmQuit = 0; audio_sfx(SFX_BACK); } return; }

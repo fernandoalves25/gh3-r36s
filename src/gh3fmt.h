@@ -39,7 +39,13 @@ typedef struct { char title[96]; int *songIdx; int nsongs; int tab; int career, 
 typedef struct { double lookahead, good, bad, star; } gh3_diff;
 typedef struct { double hmScale, early, late, hamEarly, hamLate, strumBefore, formBefore, susShorten, split, spDrain; gh3_diff diffs[4]; } gh3_tuning;
 typedef struct { uint32_t id; char *s; } gh3_text;
-typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; } gh3_library;
+/* boss battles (battlemode_powerups, the boss's Boss_*_Props, battle_<diff>_drain_offset, health_change_*_boss_*) */
+enum { PU_LIGHTNING, PU_DIFFUP, PU_DOUBLE, PU_STEAL, PU_LEFTY, PU_STRING, PU_WHAMMY, PU_DEATH, PU_KINDS };
+typedef struct { uint32_t key; int id; char title[48], alt[48]; double weight, weightLow, drain; int immediate, bolt, noAi; double repair[4], flicker[4], kill[4]; } gh3_powerup;   /* id: PU_* or -1 */
+typedef struct { int songIdx; char name[48]; uint32_t powerups[16]; int npowerups; double gain[4], loss[4], miss[4], whammySpeed[4], stringSpeed[4], stringMiss[4]; } gh3_boss;
+typedef struct { gh3_powerup *pu; int npu; gh3_boss *bosses; int nbosses; int max; double offset[4], good[4], bad[4]; } gh3_battledata;
+typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_battledata battle; } gh3_library;
+const gh3_boss *gh3_library_boss(const gh3_library *lib, int songIdx);   /* the boss of a battle song, or NULL */
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib);
 const char *gh3_library_text(const gh3_library *lib, uint32_t key);   /* a string section of the main script pak (section names and the like) */
 void gh3_default_tuning(gh3_tuning *t);
@@ -48,19 +54,22 @@ void gh3_default_tuning(gh3_tuning *t);
 extern const char *GH3_PART_INFIX[4];  /* "", "_rhythm", "_guitarcoop", "_rhythmcoop" */
 extern const char *GH3_PART_NAME[4];
 extern const char *GH3_DIFF_NAME[4];   /* easy, medium, hard, expert */
-typedef struct { int32_t *raw; int nraw; int (*star)[2]; int nstar; } gh3_partdiff;
+typedef struct { int32_t *raw; int nraw; int (*star)[2]; int nstar; int (*battle)[2]; int nbattle; } gh3_partdiff;   /* battle: the battle gems' phrases (_starbattlemode) */
 typedef struct { int t; uint32_t key; char text[64]; } gh3_marker;   /* text when the chart names the section itself, else key into the main pak's strings */
+typedef struct { int t; uint32_t scr; } gh3_cue;                      /* a timed script call of the song (_scripts) */
 typedef struct {
     char name[64];
     int32_t *fretbars; int nfret;
     int (*timesig)[3]; int nsig;
     gh3_marker *markers; int nmarkers;
     gh3_partdiff parts[4][4];
+    gh3_cue *cues; int ncues;
 } gh3_songdata;
 int gh3_songpak_read(const uint8_t *pak, size_t len, const char *name, gh3_songdata *sd);
 void gh3_songdata_free(gh3_songdata *sd);
 
-typedef struct { int t, len, mask, n, hopo, sus, star; int hit, missed, dropped; double lateW, hamLateW, beat; } gh3_note;
+typedef struct { int t, len, mask, n, hopo, sus, star; int hit, missed, dropped; double lateW, hamLateW, beat; int bflags; } gh3_note;   /* bflags: a battle's marks */
+enum { BN_FLIP = 1, BN_BOTMISS = 2, BN_DOUBLE = 4 };   /* Lefty Flip drew it mirrored; the autoplay (a boss under attack) misses it; Double Notes made it a chord */
 typedef struct { int t, end, total, hit, failed, done; } gh3_phrase;
 typedef struct { int t, strong; } gh3_bar;
 typedef struct { gh3_note *notes; int nnotes; gh3_phrase *phrases; int nphrases; gh3_bar *bars; int nbars; const int32_t *fretbars; int nfret; double base; int end; } gh3_chart;

@@ -21,6 +21,7 @@
 #include "input.h"
 #include "career.h"
 #include "app.h"
+#include "battle.h"
 
 /* ------------------------------------------------------------------ files */
 typedef struct { char lower[300]; char path[600]; size_t size; } fentry;
@@ -53,7 +54,7 @@ static uint8_t *read_data(const char *dir, const char *name, size_t *len) { cons
 /* ------------------------------------------------------------------ config */
 typedef struct {
     char data[520]; int W, H, fullscreen, vsync, soft;
-    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens; char outdir[520];
+    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens; char outdir[520]; int miss;
 } cfg_t;
 static cfg_t cfg;
 static void cfg_defaults(void) {
@@ -78,6 +79,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--part")) { cfg.part = !strcmp(v, "rhythm") || !strcmp(v, "bass") ? 1 : atoi(v); i++; }
         else if (!strcmp(a, "--frames")) { cfg.frames = atoi(v); i++; }
         else if (!strcmp(a, "--every")) { cfg.every = atoi(v); i++; }
+        else if (!strcmp(a, "--miss")) { cfg.miss = atoi(v); i++; }   /* a battle's autoplay misses that share of the notes */
         else if (!strcmp(a, "--out")) { snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
         else if (!strcmp(a, "--auto")) cfg.autoPlay = 1;
         else if (!strcmp(a, "--tap")) SET.tap = 1;
@@ -100,7 +102,7 @@ static void sfx_hook(const char *name) {
 static void mute_hook(int m) { audio_mute(BUS_PLAYER, m); }
 
 void app_session_free(void) {
-    session_t *S = &A.S; if (!audio_preview_on()) audio_clear(); /* a preview or menu track owns the mixer: none of the session's streams are on */ gh3_chart_free(&S->chart); gh3_songdata_free(&S->sd); free(S->pakBytes); free(S->fsbBytes); free(S->datBytes); free(S->fsb.streams);
+    session_t *S = &A.S; if (!audio_preview_on()) audio_clear(); /* a preview or menu track owns the mixer: none of the session's streams are on */ battle_free(); gh3_chart_free(&S->chart); gh3_songdata_free(&S->sd); free(S->pakBytes); free(S->fsbBytes); free(S->datBytes); free(S->fsb.streams);
     memset(S, 0, sizeof *S);
 }
 static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int withAudio, char *err, size_t errCap) {
@@ -252,10 +254,12 @@ static void preview_shutdown(void) { if (prevThread) { SDL_WaitThread(prevThread
 /* ---- playing ---- */
 void app_begin_song(void) {
     char err[300]; app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
+    if (battle_intro_start(A.selSong, SDL_GetTicks())) return;   /* a boss: his intro first (it comes back here) */
     if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return; }
     double from = 0; if (A.mode == MODE_PRACTICE && A.practiceSec > 0 && A.practiceSec <= A.S.sd.nmarkers) from = A.S.sd.markers[A.practiceSec - 1].t;
     if (from > 0) { gh3_run *r = &A.S.run; int i = 0; while (i < r->nnotes && r->notes[i].t < from) i++; r->idx = r->botIdx = i; }   /* the notes before the section are not played */
-    app_apply_volumes(); audio_play(from, 2600); input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
+    double lead = 2600; if (A.mode != MODE_PRACTICE) battle_start(A.selSong, &from, &lead);   /* a boss song is a battle (or the devil's last part) */
+    app_apply_volumes(); audio_play(from, lead); input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
     A.screen = SC_PLAY; A.S.section[0] = 0; A.resumeAt = 0; A.S.run.held = 0;
 }
 void app_resume_play(void) { A.screen = SC_PLAY; A.resumeAt = SDL_GetTicks() + 1600; audio_sfx(SFX_TICK); }
@@ -287,9 +291,10 @@ static int menu_event(SDL_Event *ev) {
 static SDL_GameController *pad;
 static void open_pads(void) { for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); if (pad) { SDL_Log("controller: %s", SDL_GameControllerName(pad)); break; } } }
 
-static void finish_song(double now) {
+void app_finish_song(double now) {
+    if (battle_end(now)) return;   /* a battle's banner first; it comes back here */
     gh3_run *r = &A.S.run; int total = r->nnotes; A.resultPct = total ? (int)(100.0 * r->hits / total + 0.5) : 0; A.resultScore = (long)r->score;
-    A.resultStars = r->failed ? 0 : game_stars(r->score, A.S.chart.base); A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.newRecord = 0;
+    A.resultStars = r->failed || BTL.on ? 0 : game_stars(r->score, A.S.chart.base);   /* (a battle is won or lost, without stars) */ A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.newRecord = 0;
     if (r->failed) { audio_fade_out(1.5); audio_sfx(SFX_FAIL); }
     else if (!r->autoPlay && !SET.noFail && A.mode != MODE_PRACTICE) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars, A.mode == MODE_CAREER); app_refresh_career(A.mode == MODE_CAREER); }
     A.screen = SC_RESULTS;
@@ -303,6 +308,7 @@ static void dump(void) {
     const gh3_tuning *tn = &lib.tuning;
     printf("tuning: early %.0f late %.0f hamEarly %.0f hamLate %.0f strumBefore %.0f formBefore %.0f susShorten %.2f split %.2f spDrain %.1f hmScale %.2f\n", tn->early, tn->late, tn->hamEarly, tn->hamLate, tn->strumBefore, tn->formBefore, tn->susShorten, tn->split, tn->spDrain, tn->hmScale);
     for (int d = 0; d < 4; d++) printf("  %-6s lookahead %.3f good %.4f bad %.4f star %.4f\n", GH3_DIFF_NAME[d], tn->diffs[d].lookahead, tn->diffs[d].good, tn->diffs[d].bad, tn->diffs[d].star);
+    bank_index(); battle_dump(&lib);
     if (!*cfg.song) return;
     int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i;
     if (si < 0) { printf("song %s not in the list\n", cfg.song); return; }
@@ -330,6 +336,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_MAIN; A.mainRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("main");
     A.screen = SC_TRAINING; A.trainRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("training");
     A.screen = SC_TOPROCK; A.topDiff = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("toprockers");
+    for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, "bosstom")) { BTL.songIdx = i; BTL.phase = BPH_INTRO; BTL.phaseAt = -2000; BTL.phaseMs = 15000; A.screen = SC_BATTLE; gfx_begin(); screens_draw(0); gfx_end(); save_named("battle_intro"); BTL.phase = BPH_NONE; }
     A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_menu");
     A.screen = SC_SETLIST; A.mode = MODE_CAREER; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist");
     A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_quick"); A.mode = MODE_CAREER;
@@ -342,7 +349,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
     snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(t)); A.screen = SC_PAUSE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("pause");
     for (; !A.S.run.finished; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
-    A.S.run.autoPlay = 0; finish_song(perf); A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
+    A.S.run.autoPlay = 0; app_finish_song(perf); A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
     printf("screens written to %s\n", cfg.outdir);
 }
 static void frames_mode(void) {
@@ -350,6 +357,7 @@ static void frames_mode(void) {
     if (si < 0) { fprintf(stderr, "song %s not in the list\n", cfg.song); exit(1); }
     char err[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 0, err, sizeof err)) { fprintf(stderr, "load: %s\n", err); exit(1); }
     headless_init();
+    { double from = 0, lead = 0; A.selSong = si; A.selPart = cfg.part; A.selDiff = cfg.diff; A.mode = MODE_CAREER; if (battle_start(si, &from, &lead) && BTL.on) { battle_headless(cfg.frames, cfg.every, cfg.miss, save_named); return; } }   /* a boss song: the battle */
     double t = -2000, perf = 0; int saved = 0; Uint32 t0 = SDL_GetTicks();
     for (int f = 0; f < cfg.frames; f++, t += 1000.0 / 60, perf += 1000.0 / 60) {
         game_step(&A.S.run, t, perf); { const char *wv = getenv("GH3_TEST_WHAMMY"); if (wv) A.S.run.whammy = atof(wv); }
@@ -413,16 +421,16 @@ int main(int argc, char **argv) {
             else if (A.screen == SC_PLAY) play_event(&ev, now, songT);
             else { if (screens_raw_event(&ev, now)) continue; int in = menu_event(&ev); if (in != IN_NONE) screens_event(in, now); }
         }
-        preview_tick();
+        preview_tick(); battle_frame(now);
         gfx_begin();
         if (A.screen == SC_PLAY) {
             gh3_run *r = &A.S.run;
             if (A.resumeAt > 0) { if (now >= A.resumeAt) { A.resumeAt = 0; audio_pause(0); input_reset_axes(); audio_sfx(SFX_GO); } else { static int lastTick = -1; int tk = (int)((A.resumeAt - now) / 1000); if (tk != lastTick) { lastTick = tk; } } }
-            if (A.resumeAt == 0) { songT = song_time(); game_step(r, songT, now); snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(songT)); }
+            if (A.resumeAt == 0) { songT = song_time(); game_step(r, songT, now); battle_tick(now); snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(songT)); }
             audio_set_bend(A.resumeAt == 0 && r->sus && !r->autoPlay && !r->failed ? r->whammy : 0);
-            hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail, A.starKeys }; render_game(r, now, &hi);
+            hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail, A.starKeys }; if (BTL.on) render_battle(now, 1); else render_game(r, now, &hi);
             if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); gfx_text_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, "Continuando…", C_AMP, C_SHADOW); }
-            else if (r->failed || r->finished) finish_song(now);
+            else if (r->failed || r->finished) app_finish_song(now);
         } else {
             if (A.screen == SC_RESULTS && !A.S.run.failed) { double T = (now - A.resultsAt) / 1000; int shown = (int)(T / 0.35) + 1; if (shown > A.resultStars) shown = A.resultStars; while (A.starsSounded < shown) { A.starsSounded++; audio_sfx(SFX_DING); } if (A.newRecord && A.starsSounded == A.resultStars && T > 1.9 && A.starsSounded < 99) { A.starsSounded = 99; audio_sfx(SFX_FANFARE); } }
             screens_draw(now);

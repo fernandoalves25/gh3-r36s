@@ -147,6 +147,33 @@ void gh3_default_tuning(gh3_tuning *t) {
     for (int i = 0; i < 4; i++) t->diffs[i] = D[i];
 }
 static int song_index(const gh3_library *lib, uint32_t key) { for (int i = 0; i < lib->nsongs; i++) if (lib->songs[i].key == key) return i; return -1; }
+/* boss battles, as the browser port reads them: the power-ups, each battle song's boss and the per-difficulty numbers */
+static int truthy(const qbv *v) { return v && !(v->kind == QB_INT && !v->i) && !(v->kind == QB_FLOAT && !v->f[0]); }
+static void perd(const qbv *st, const char *post, double *out) { for (int d = 0; d < 4; d++) { char nm[48]; snprintf(nm, sizeof nm, "%s%s", GH3_DIFF_NAME[d], post); out[d] = qb_num(qb_get(st, nm), 0); } }
+static void battle_read(const secmap *m, gh3_library *lib) {
+    static const char *IDS[PU_KINDS] = { "lightning", "difficultyup", "doublenotes", "powerupsteal", "leftynotes", "brokenstring", "whammyattack", "deathlick" };
+    gh3_battledata *B = &lib->battle; const qbv *pu = sec(m, "battlemode_powerups"); if (!pu || pu->kind != QB_ARRAY || !pu->narr) return;
+    B->pu = calloc(pu->narr, sizeof *B->pu);
+    for (int i = 0; i < pu->narr; i++) { const qbv *st = pu->arr[i]; uint32_t k; if (!qb_keyof(qb_get(st, "name"), &k)) continue; gh3_powerup *p = &B->pu[B->npu++];
+        p->key = k; p->id = -1; for (int j = 0; j < PU_KINDS; j++) if (gh3_qbkey(IDS[j]) == k) p->id = j;
+        cpystr(p->title, sizeof p->title, qb_str(qb_get(st, "name_text"))); cpystr(p->alt, sizeof p->alt, qb_str(qb_get(st, "alt_name_text")));
+        p->weight = qb_num(qb_get(st, "weight"), 0); p->weightLow = qb_num(qb_get(st, "weight_low"), 0); p->drain = qb_num(qb_get(st, "drain_time"), 0); if (p->drain <= 0) p->drain = 5000;
+        p->immediate = truthy(qb_get(st, "immediate")); p->bolt = truthy(qb_get(st, "fire_bolt")); p->noAi = truthy(qb_get(st, "no_ai_damage"));
+        perd(st, "_repair", p->repair); perd(st, "_flicker", p->flicker); perd(st, "_kill_rate", p->kill); }
+    B->bosses = calloc(lib->nsongs ? lib->nsongs : 1, sizeof *B->bosses);
+    for (int s = 0; s < lib->nsongs; s++) { if (!lib->songs[s].isBoss) continue; const qbv *st = secmap_get(m, lib->songs[s].bossKey); if (!st || st->kind != QB_STRUCT) continue;
+        gh3_boss *b = &B->bosses[B->nbosses]; b->songIdx = s; const char *nm = qb_str(qb_get(st, "character_name")); cpystr(b->name, sizeof b->name, *nm ? nm : "O chefe");
+        const qbv *l = qb_get(st, "powerups"); if (l && l->kind == QB_ARRAY) for (int k = 0; k < l->narr && b->npowerups < 16; k++) { uint32_t pk; if (!qb_keyof(l->arr[k], &pk)) continue; for (int j = 0; j < B->npu; j++) if (B->pu[j].key == pk) { b->powerups[b->npowerups++] = pk; break; } }
+        perd(qb_get(st, "gainpernote"), "", b->gain); perd(qb_get(st, "losspernote"), "", b->loss); perd(qb_get(st, "powerupmissednote"), "", b->miss);
+        perd(qb_get(st, "whammyspeed"), "", b->whammySpeed); perd(qb_get(st, "brokenstringspeed"), "", b->stringSpeed); perd(qb_get(st, "brokenstringmissednote"), "", b->stringMiss);
+        B->nbosses++; }
+    B->max = (int)num(m, "max_num_powerups", 3);
+    for (int d = 0; d < 4; d++) { char nm[64];
+        snprintf(nm, sizeof nm, "battle_%s_drain_offset", GH3_DIFF_NAME[d]); B->offset[d] = num(m, nm, 0);
+        snprintf(nm, sizeof nm, "health_change_good_boss_%s", GH3_DIFF_NAME[d]); B->good[d] = num(m, nm, 0.015);
+        snprintf(nm, sizeof nm, "health_change_bad_boss_%s", GH3_DIFF_NAME[d]); B->bad[d] = num(m, nm, -0.04); }
+}
+const gh3_boss *gh3_library_boss(const gh3_library *lib, int si) { for (int i = 0; i < lib->battle.nbosses; i++) if (lib->battle.bosses[i].songIdx == si) return lib->battle.bosses[i].npowerups ? &lib->battle.bosses[i] : NULL; return NULL; }
 
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib) {
     memset(lib, 0, sizeof *lib); gh3_default_tuning(&lib->tuning);
@@ -236,6 +263,7 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
     tn->hamEarly = num(&m, "hammer_time_early", 0.083) * 1000; tn->hamLate = num(&m, "hammer_time_late", 0.083) * 1000;
     tn->strumBefore = num(&m, "strum_before_forming", 0.034) * 1000; tn->formBefore = num(&m, "form_before_strumming", 0.025) * 1000;
     tn->susShorten = num(&m, "whammy_shorten", 0.25); tn->split = num(&m, "split_late_percent", 0.5); tn->spDrain = num(&m, "star_power_drain_rate", 12.5);
+    battle_read(&m, lib);
     for (int i = 0; i < ne; i++) if (keep[i]) gh3_qb_free_sections(keep[i], keepn[i]);
     free(keep); free(keepn); free(m.a); free(ents);
     return lib->nsongs ? 0 : -1;
@@ -274,11 +302,16 @@ int gh3_songpak_read(const uint8_t *pak, size_t len, const char *name, gh3_songd
         snprintf(suf, sizeof suf, "%s_%s_star", GH3_PART_INFIX[p], GH3_DIFF_NAME[d]);
         const qbv *s = arrsec(best, bestn, sd->name, suf);
         if (s) { pd->star = calloc(s->narr, sizeof *pd->star); for (int i = 0; i < s->narr; i++) { const qbv *e = s->arr[i]; if (e && e->kind == QB_ARRAY && e->narr >= 2) { pd->star[pd->nstar][0] = arr_int(e, 0); pd->star[pd->nstar][1] = arr_int(e, 1); pd->nstar++; } } }
+        snprintf(suf, sizeof suf, "%s_%s_starbattlemode", GH3_PART_INFIX[p], GH3_DIFF_NAME[d]);
+        if ((s = arrsec(best, bestn, sd->name, suf))) { pd->battle = calloc(s->narr, sizeof *pd->battle); for (int i = 0; i < s->narr; i++) { const qbv *e = s->arr[i]; if (e && e->kind == QB_ARRAY && e->narr >= 2) { pd->battle[pd->nbattle][0] = arr_int(e, 0); pd->battle[pd->nbattle][1] = arr_int(e, 1); pd->nbattle++; } } }
     }
+    if ((a = arrsec(best, bestn, sd->name, "_scripts"))) { sd->cues = calloc(a->narr, sizeof *sd->cues);
+        for (int i = 0; i < a->narr; i++) { const qbv *e = a->arr[i]; const qbv *t = qb_get(e, "time"); uint32_t k; if (!t || !qb_keyof(qb_get(e, "scr"), &k)) continue; sd->cues[sd->ncues].t = (int)qb_num(t, 0); sd->cues[sd->ncues].scr = k; sd->ncues++; }
+        for (int i = 1; i < sd->ncues; i++) { gh3_cue c = sd->cues[i]; int j = i; while (j > 0 && sd->cues[j - 1].t > c.t) { sd->cues[j] = sd->cues[j - 1]; j--; } sd->cues[j] = c; } }
     gh3_qb_free_sections(best, bestn);
     return sd->nfret ? 0 : -1;
 }
-void gh3_songdata_free(gh3_songdata *sd) { free(sd->fretbars); free(sd->timesig); free(sd->markers); for (int p = 0; p < 4; p++) for (int d = 0; d < 4; d++) { free(sd->parts[p][d].raw); free(sd->parts[p][d].star); } memset(sd, 0, sizeof *sd); }
+void gh3_songdata_free(gh3_songdata *sd) { free(sd->fretbars); free(sd->timesig); free(sd->markers); free(sd->cues); for (int p = 0; p < 4; p++) for (int d = 0; d < 4; d++) { free(sd->parts[p][d].raw); free(sd->parts[p][d].star); free(sd->parts[p][d].battle); } memset(sd, 0, sizeof *sd); }
 
 /* ------------------------------------------------------------------ chart */
 double gh3_beatpos(const int32_t *fb, int nfb, double t) {

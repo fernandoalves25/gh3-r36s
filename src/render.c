@@ -198,16 +198,25 @@ void render_stars(int cx, int y, int n, int scale, double revealT) {
         float w = sw * k * pop; gfx_blit(lit ? full : empty, 0, 0, sw, sw, x0 + i * step + (sw * k - w) / 2, y + (sw * k - w) / 2, w, w, RGB(255, 255, 255), 1); }
 }
 
+/* a battle's highway: RL.on draws the lane alone (no stage, no HUD), narrowed by q round x = cx, shaken by dx, dy */
+render_lane_t RL;
+static view_t lane_view(void) { view_t v = V; if (RL.on) { v.cx = RL.cx + RL.dx; v.hw *= RL.q; v.vy += RL.dy; v.sy += RL.dy; v.horizon += RL.dy; } return v; }
+void render_lane_xy(int f, float z, float *x, float *y, float *s) { view_t v0 = V; V = lane_view(); proj(laneX(f, SET.lefty ^ RL.flip), z, x, y, s); V = v0; }
+float render_lane_hw(void) { return lane_view().hw; }
+void render_stage(double perf, float pulse, float energy, int fx) { stage(perf, pulse, 0, (int)(perf / 2400) % 5, fx, energy); }
+static unsigned flick_hash(unsigned x) { x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x; }
 static int lastMult = 1; static double multAt = -1e9;
 void render_game(gh3_run *r, double perf, const hud_info *hi) {
-    double t = r ? r->now : 0, L = r ? r->lookahead : 1500; int sp = r && r->spOn, lefty = hi && hi->lefty;
+    double t = r ? r->now : 0, L = r ? r->lookahead : 1500; int sp = r && r->spOn, lefty = hi ? hi->lefty : RL.on && SET.lefty;
+    view_t V0 = V; V = lane_view();
     float pulse = r && r->hasLastBeat ? 1 - (float)fmod(r->lastBeat, 1.0) : 0;
     int mult = r ? game_mult(r) : 1; if (mult != lastMult) { if (mult > lastMult) multAt = perf; lastMult = mult; }
     float energy = r ? (float)fmin(1, r->streak / 40.0) : 0;
-    stage(perf, pulse, sp, mult - 1, !hi || hi->stageFx, energy);
-    if (hi && hi->bgDim > 0) gfx_rect(0, 0, V.W, V.H, RGBA(8, 6, 12, (int)(hi->bgDim * 1.8)));
+    if (!RL.on) stage(perf, pulse, sp, mult - 1, !hi || hi->stageFx, energy);
+    if (!RL.on && hi && hi->bgDim > 0) gfx_rect(0, 0, V.W, V.H, RGBA(8, 6, 12, (int)(hi->bgDim * 1.8)));
     const theme_t *th = &TH[theme()];
-    gfx_blit(backSp[theme()][sp ? 1 : 0], 0, 0, (int)V.W, (int)V.H, 0, 0, V.W, V.H, RGB(255, 255, 255), 1);
+    if (RL.on) gfx_blit(backSp[theme()][sp ? 1 : 0], 0, 0, (int)V.W, (int)V.H, V.cx - V0.cx * RL.q, RL.dy, V.W * RL.q, V.H, RGB(255, 255, 255), 1);
+    else gfx_blit(backSp[theme()][sp ? 1 : 0], 0, 0, (int)V.W, (int)V.H, 0, 0, V.W, V.H, RGB(255, 255, 255), 1);
     float s;
     /* beat lines */
     if (r) { const gh3_bar *bars = r->chart->bars; int nb = r->chart->nbars;
@@ -219,7 +228,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
     /* fret targets */
     gfx_sprite *tu = th->tgt[0], *td = th->tgt[1]; int tw = gfx_sprite_w(tu), tgh = gfx_sprite_h(tu);
     float tgtW = V.hw * (theme() == 1 ? 0.4f : 0.36f), tscale = tgtW / tw;
-    for (int f = 0; f < 5; f++) { float px, py; proj(laneX(f, lefty), 0, &px, &py, &s); int down = r && (r->held & (1 << f));
+    for (int f = 0; f < 5; f++) { float px, py; proj(laneX(f, lefty ^ RL.flip), 0, &px, &py, &s); int down = r && (r->held & (1 << f));
         gfx_blit(down ? td : tu, 0, 0, tw, tgh, px - tgtW / 2, py - tgh * tscale * th->tgtAnchor, tgtW, tgh * tscale, FRET_COLORS[f], 1); }
     if (r) {
         const gh3_note *notes = r->notes; int n = r->nnotes;
@@ -231,7 +240,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             float z0 = (float)fmax(Z_NEAR, ((active ? fmax(t, nt->t) : nt->t) - t) / L), z1 = (float)fmin(1, (end - t) / L); if (z1 <= z0) continue;
             int dead = nt->missed || nt->dropped; float w = active ? 0.065f : 0.045f;
             float wob = active ? (float)r->whammy : 0;   /* the tail waves while the whammy bends it, as in the PS2 game */
-            for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float x = laneX(f, lefty);
+            for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float x = laneX(f, lefty ^ !!(nt->bflags & BN_FLIP));
                 uint32_t c = dead ? RGBA(120, 114, 134, 128) : fb_alpha(sp ? C_SP : FRET_COLORS[f], (active ? 1 : 0.85f) * fade(z0 * 0.6f));
                 float y0, y1, xx, ss; proj(x, z0, &xx, &y0, &ss); proj(x, z1, &xx, &y1, &ss); int slices = (int)((y0 - y1) / 6) + 1; if (slices > 40) slices = 40;
                 for (int k = 0; k < slices; k++) { float za = z0 + (z1 - z0) * k / slices, zb = z0 + (z1 - z0) * (k + 1) / slices, cxp, ya, yb, sa;
@@ -243,15 +252,16 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
         for (int i = i1 - 1; i >= i0; i--) { const gh3_note *nt = &notes[i]; if (nt->hit) continue;
             float z = (float)((nt->t - t) / L); if (z < Z_NEAR) continue;
             const gh3_phrase *ph = nt->star >= 0 ? &r->chart->phrases[nt->star] : NULL; int star = ph && !ph->failed && !ph->done;
-            float alpha = nt->missed ? 0.3f : fade(z); int kind = star ? 2 : nt->hopo ? 1 : 0;
+            float alpha = nt->missed ? 0.3f : fade(z); int kind = star ? 2 : nt->hopo ? 1 : 0, nl = lefty ^ !!(nt->bflags & BN_FLIP);
+            if (RL.flick && !nt->missed && flick_hash((unsigned)(perf / 80) * 7919u + (unsigned)i) % 10 < (unsigned)RL.flick * 2) continue;   /* Amp Overload: the gems flicker */
             if (nt->n > 1) { float ax, bx, yy, ps; int lo = -1, hi2 = -1; for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { if (lo < 0) lo = f; hi2 = f; }
-                proj(laneX(lefty ? hi2 : lo, lefty), z, &ax, &yy, &ps); proj(laneX(lefty ? lo : hi2, lefty), z, &bx, &yy, &ps); gfx_rect(ax, yy - 2 * ps, bx - ax, 4 * ps + 1, fb_alpha(RGB(0xd0, 0xc8, 0xe0), alpha * 0.8f)); }
-            for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float px, py, ps; proj(laneX(f, lefty), z, &px, &py, &ps); gem(px, py, ps, nt->missed ? RGB(0x6d, 0x66, 0x7c) : (sp ? C_SP : FRET_COLORS[f]), kind, alpha); } }
+                proj(laneX(nl ? hi2 : lo, nl), z, &ax, &yy, &ps); proj(laneX(nl ? lo : hi2, nl), z, &bx, &yy, &ps); gfx_rect(ax, yy - 2 * ps, bx - ax, 4 * ps + 1, fb_alpha(RGB(0xd0, 0xc8, 0xe0), alpha * 0.8f)); }
+            for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float px, py, ps; proj(laneX(f, nl), z, &px, &py, &ps); gem(px, py, ps, nt->missed ? RGB(0x6d, 0x66, 0x7c) : (sp ? C_SP : FRET_COLORS[f]), kind, alpha); } }
         /* flames on hit; a held sustain keeps its frets burning */
         for (int f = 0; f < 5; f++) { float age = (float)((perf - r->flash[f]) / 260);
             if (r->sus && (r->sus->mask & (1 << f)) && (age < 0 || age >= 1)) age = 0.15f + 0.25f * (float)fmod(perf / 260.0, 1.0);
             if (age < 0 || age >= 1) continue;
-            float px, py; proj(laneX(f, lefty), 0, &px, &py, &s); int fr = age < 0.3f ? 0 : age < 0.65f ? 1 : 2;
+            float px, py; proj(laneX(f, lefty ^ RL.flip), 0, &px, &py, &s); int fr = age < 0.3f ? 0 : age < 0.65f ? 1 : 2;
             gfx_sprite *fl = sp ? th->spflame[fr] : th->flame[fr]; float fw = tgtW * (theme() == 1 ? 1.3f : 0.75f), fh = fw * gfx_sprite_h(fl) / gfx_sprite_w(fl);
             uint32_t tint = theme() == 1 ? (sp ? C_SP : RGB(255, 214, 140)) : RGB(255, 255, 255);
             gfx_blit(fl, 0, 0, gfx_sprite_w(fl), gfx_sprite_h(fl), px - fw / 2, py - fh * (theme() == 1 ? 0.62f : 0.85f) - age * tgtW * 0.3f, fw, fh, tint, 1 - age * 0.6f); }
@@ -299,6 +309,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             if (hi->fps > 0) { snprintf(b, sizeof b, "%d fps", hi->fps); gfx_text(W / 2 - 20, 6, 1, b, C_MUTED); }
         }
     }
+    V = V0;
 }
 
 /* calibration: the highway with a yellow gem on every metronome click; a tap flashes the strike line and shows how far off it was */
