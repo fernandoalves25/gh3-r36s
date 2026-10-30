@@ -23,7 +23,13 @@ void sfx_song_stop(void);                             /* everything of the song 
 /* sound events by their container key (practice.c: the drum kit of practice_notemapping) */
 int sfx_event_find(uint32_t containerKey);            /* its index in the table, -1 when it has none (or no bank) */
 int sfx_event_prepare(int idx);                       /* decodes its files now; 0 when none decodes */
+/* an event of the practice kit, by its <event>_struct (Instancelimit, NoRepeatFor) and its buss's vol (dB): from then on
+ * it plays on the kit's own voices, at most `limit` at once (stop_oldest), not again within noRepeatSec */
+void sfx_event_rules(int idx, int limit, double noRepeatSec, double bussDb);
 void sfx_event_fire(int idx, float level);            /* one of its files, now: from the audio callback (or under audio_lock) */
+void sfx_kit_mix(float *l, float *r, float gain);     /* the kit's voices, one frame, while the song plays (audio callback) */
+void sfx_kit_cut(void);                               /* the kit's voices off (under the audio lock: a new play) */
+int sfx_voices_on(int kit);                           /* tests: voices sounding, the kit's own (1) or the effects' (0) */
 void sfx_event_show(int idx);                         /* tests: its files (name, rate, length, peak, rms, vol, pitch) */
 int sfx_selftest(void);                               /* --sfxtest: lists and decodes every mapped sound; failures */
 #endif
