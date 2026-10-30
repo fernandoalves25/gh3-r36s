@@ -18,7 +18,7 @@ da carreira seguem as do jogo original.
 - Hammer-ons, sustains, star power, multiplicador e medidor de rock com as janelas de tempo do jogo.
 - Controles iguais ao Guitar Hero III de PS2 por padrão (trastes em L2, L1, R1, R2 e B), configuráveis, com cinco perfis.
 - Alavanca nos dois analógicos, que abaixa o tom das notas longas como no PS2.
-- Calibração do atraso do som, dois temas visuais, menus em português, prévia das músicas.
+- Calibração do atraso do som, três temas visuais (pixel art, HD suave e a arte 2D do próprio jogo), menus em português, prévia das músicas.
 
 ## Instalação
 

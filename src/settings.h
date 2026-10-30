@@ -8,7 +8,7 @@ enum { BIND_NONE = 0, BIND_BUTTON = 1, BIND_AXIS = 2, BIND_STICK = 3 };
 typedef struct { int type, id, dir; } bind_t;
 #define BIND_SLOTS 3
 #define SETTINGS_VERSION 3   /* 2: whammy on both sticks, offset = lag compensation; 3: frets on the shoulders as in the GH3 PS2 manual */
-#define THEME_N 2
+#define THEME_N 3   /* 0 pixel art, 1 HD, 2 Original (the game's own 2D art, original.c) */
 typedef struct {
     int tap;            /* 1 = notes play when their frets are held (no strumming) */
     int lefty;          /* mirror the highway */
@@ -24,7 +24,7 @@ typedef struct {
     int unlockAll;      /* every song open whatever the career says */
     int easyExpert, precision;   /* cheats of the game: hit windows doubled / halved (cheats.c) */
     int cheatCodes;     /* bit per cheat (the game's order) whose code was played on the cheats screen */
-    int theme;          /* 0 pixel art, 1 HD (smooth) */
+    int theme;          /* 0 pixel art, 1 HD (smooth), 2 Original (the game's art) */
     int introMovies;    /* the logos and the game's intro at start-up */
     int careerIntro;    /* the career's opening movie was shown (kept by Restaurar padrões) */
     bind_t binds[ACT_N][BIND_SLOTS];

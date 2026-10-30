@@ -6,6 +6,7 @@
 #include "fx.h"
 #include "ui.h"
 #include "settings.h"
+#include "original.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,9 +32,11 @@ static int PXS = 2;
 /* per-theme sprite sets: gem body + marks (plain, hopo, star), targets (up, down), flames (3 frames, normal and star power) */
 typedef struct { gfx_sprite *gemBody, *gemMarks[3], *tgt[2], *flame[3], *spflame[3]; float gemAnchor, tgtAnchor; } theme_t;
 static theme_t TH[THEME_N];
-static const char *THEME_NAMES[THEME_N] = { "Pixel art", "HD suave" };
+static const char *THEME_NAMES[THEME_N] = { "Pixel art", "HD suave", "Original" };
 const char *render_theme_name(int t) { return t >= 0 && t < THEME_N ? THEME_NAMES[t] : "?"; }
 static int theme(void) { return SET.theme >= 0 && SET.theme < THEME_N ? SET.theme : 0; }
+static int orig(void) { return SET.theme == 2 && orig_ready(); }   /* the Original theme with its art at hand */
+static void theme_tick(void) { static int last = -1; if (last == 2 && SET.theme != 2) { gfx_free_sprite(backSp[2][0]); gfx_free_sprite(backSp[2][1]); backSp[2][0] = backSp[2][1] = NULL; } last = SET.theme; orig_tick(); }
 
 /* ---- the HD theme: smooth shapes drawn by the software rasterizer, linear filtered ---- */
 #define HD_GEM_W 112
@@ -152,20 +155,32 @@ static gfx_sprite *bake_back(int th, int sp) {
     { float sx, sy2, ex, ey; proj(-1, 0, &sx, &sy2, &s); proj(1, 0, &ex, &ey, &s); if (th == 1) fb_line(&f, sx, sy2, ex, ey, 2.5f, fb_alpha(C_INK, 0.6f)); else { fb_rect(&f, (int)sx, (int)sy2 - 2, (int)(ex - sx), 4, fb_alpha(C_INK, 0.35f)); fb_rect(&f, (int)sx, (int)sy2 - 1, (int)(ex - sx), 2, fb_alpha(C_INK, 0.6f)); } }
     gfx_sprite *bs = gfx_bake(&f, th == 1); fb_free(&f); return bs;
 }
+static gfx_sprite *back(int th, int sp) {
+    if (!backSp[th][sp]) { if (th == 2 && orig()) { fb_t f; fb_init(&f, (int)V.W, (int)V.H); if (orig_bake_back(&f, proj, V.vy, V.sy, PERSP, Z_NEAR, sp) == 0) backSp[th][sp] = gfx_bake(&f, 1); fb_free(&f); }
+        if (!backSp[th][sp]) backSp[th][sp] = bake_back(th == 2 ? 1 : th, sp); }
+    return backSp[th][sp];
+}
 void render_init(int W, int H) {
     view_set(W, H); PXS = art_px();
-    bake_stage(); for (int t = 0; t < THEME_N; t++) { backSp[t][0] = bake_back(t, 0); backSp[t][1] = bake_back(t, 1); }
-    bake_theme_pixel(&TH[0]); bake_theme_hd(&TH[1]);
+    bake_stage(); for (int t = 0; t < 2; t++) { backSp[t][0] = bake_back(t, 0); backSp[t][1] = bake_back(t, 1); }
+    bake_theme_pixel(&TH[0]); bake_theme_hd(&TH[1]); TH[2] = TH[1];   /* the Original theme falls back on the HD sprites piece by piece */
 }
 static int lower_bound_notes(const gh3_note *a, int n, double t) { int lo = 0, hi = n; while (lo < hi) { int m = (lo + hi) >> 1; if (a[m].t < t) lo = m + 1; else hi = m; } return lo; }
 static int lower_bound_bars(const gh3_bar *a, int n, double t) { int lo = 0, hi = n; while (lo < hi) { int m = (lo + hi) >> 1; if (a[m].t < t) lo = m + 1; else hi = m; } return lo; }
 
 /* a gem: tinted body + untinted marks; x,y is where the gem sits on the lane, s the perspective scale */
-static void gem(float x, float y, float s, uint32_t color, int kind, float alpha) {
+static void gem(float x, float y, float s, uint32_t color, int kind, float alpha, int fret, int missed, int sp, double perf) {
+    if (orig()) { orig_gem(x, y, s, V.hw, fret, kind, sp, missed, alpha, perf); return; }
     const theme_t *t = &TH[theme()]; gfx_sprite *body = t->gemBody; int sw = gfx_sprite_w(body), sh = gfx_sprite_h(body);
-    float w = V.hw * (theme() == 1 ? 0.36f : 0.33f) * s, scale = w / sw, h = sh * scale, dx = x - w / 2, dy = y - h * t->gemAnchor;
+    float w = V.hw * (theme() >= 1 ? 0.36f : 0.33f) * s, scale = w / sw, h = sh * scale, dx = x - w / 2, dy = y - h * t->gemAnchor;
     gfx_blit(body, 0, 0, sw, sh, dx, dy, w, h, color, alpha);
     gfx_blit(t->gemMarks[kind], 0, 0, sw, sh, dx, dy, w, h, RGB(255, 255, 255), alpha);
+}
+/* a fret target at the strike line: lit while held, raised for an instant on a hit and while a sustain rings */
+static void target(const theme_t *th, int f, float px, float py, float tgtW, int down, int popped) {
+    if (orig()) { orig_target(px, py, V.hw, f, down, popped); return; }
+    gfx_sprite *tu = th->tgt[0], *td = th->tgt[1]; int tw = gfx_sprite_w(tu), tgh = gfx_sprite_h(tu); float tscale = tgtW / tw;
+    gfx_blit(down ? td : tu, 0, 0, tw, tgh, px - tgtW / 2, py - tgh * tscale * th->tgtAnchor, tgtW, tgh * tscale, FRET_COLORS[f], 1);
 }
 /* the stage behind the highway: baked backdrop plus crowd, lamps and beams that move with the music */
 static void stage(double perf, float pulse, int sp, int level, int fx, float energy) {
@@ -192,11 +207,12 @@ static void stage(double perf, float pulse, int sp, int level, int fx, float ene
 }
 
 void render_backdrop(double perf, int stageFx) {
+    theme_tick(); if (orig()) { orig_backdrop(perf, (int)V.W, (int)V.H); return; }
     float pulse = 0.5f + 0.5f * sinf((float)perf / 600.0f); int level = (int)(perf / 2400) % 5;
     stage(perf, pulse * 0.6f, 0, level, stageFx, 0.5f);
     gfx_rect(0, 0, V.W, V.H, RGBA(10, 8, 16, 190));
 }
-void render_stars(int cx, int y, int n, int scale, double revealT) { fx_stars(cx, y, n, 13 * scale + 1, revealT, theme() == 1); }
+void render_stars(int cx, int y, int n, int scale, double revealT) { fx_stars(cx, y, n, 13 * scale + 1, revealT, theme() >= 1); }
 
 /* a battle's highway: RL.on draws the lane alone (no stage, no HUD), narrowed by q round x = cx, shaken by dx, dy */
 render_lane_t RL;
@@ -207,7 +223,7 @@ void render_stage(double perf, float pulse, float energy, int fx) { stage(perf, 
 static unsigned flick_hash(unsigned x) { x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x; }
 static int lastMult = 1; static double multAt = -1e9;
 void render_game(gh3_run *r, double perf, const hud_info *hi) {
-    double t = r ? r->now : 0, L = r ? r->lookahead : 1500; int sp = r && r->spOn, lefty = hi ? hi->lefty : RL.on && SET.lefty;
+    theme_tick(); double t = r ? r->now : 0, L = r ? r->lookahead : 1500; int sp = r && r->spOn, lefty = hi ? hi->lefty : RL.on && SET.lefty;
     view_t V0 = V; V = lane_view();
     float pulse = r && r->hasLastBeat ? 1 - (float)fmod(r->lastBeat, 1.0) : 0;
     int mult = r ? game_mult(r) : 1; if (mult != lastMult) { if (mult > lastMult) multAt = perf; lastMult = mult; }
@@ -215,8 +231,8 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
     if (!RL.on) stage(perf, pulse, sp, mult - 1, !hi || hi->stageFx, energy);
     if (!RL.on && hi && hi->bgDim > 0) gfx_rect(0, 0, V.W, V.H, RGBA(8, 6, 12, (int)(hi->bgDim * 1.8)));
     const theme_t *th = &TH[theme()];
-    if (RL.on) gfx_blit(backSp[theme()][sp ? 1 : 0], 0, 0, (int)V.W, (int)V.H, V.cx - V0.cx * RL.q, RL.dy, V.W * RL.q, V.H, RGB(255, 255, 255), 1);
-    else gfx_blit(backSp[theme()][sp ? 1 : 0], 0, 0, (int)V.W, (int)V.H, 0, 0, V.W, V.H, RGB(255, 255, 255), 1);
+    if (RL.on) gfx_blit(back(theme(), sp ? 1 : 0), 0, 0, (int)V.W, (int)V.H, V.cx - V0.cx * RL.q, RL.dy, V.W * RL.q, V.H, RGB(255, 255, 255), 1);
+    else gfx_blit(back(theme(), sp ? 1 : 0), 0, 0, (int)V.W, (int)V.H, 0, 0, V.W, V.H, RGB(255, 255, 255), 1);
     float s;
     /* beat lines */
     if (r) { const gh3_bar *bars = r->chart->bars; int nb = r->chart->nbars;
@@ -224,12 +240,12 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             float z = (float)((bars[i].t - t) / L), px, py, qx, qy, ps; if (z < Z_NEAR) continue;
             proj(-1, z, &px, &py, &ps); proj(1, z, &qx, &qy, &s);
             float lw = (bars[i].strong ? 3.0f : 1.6f) * ps; if (lw < 1) lw = 1;
+            if (orig()) { orig_fretbar(px, qx, py, ps, bars[i].strong, fade(z)); continue; }
             gfx_rect(px, py - lw / 2, qx - px, lw, fb_alpha(C_INK, (bars[i].strong ? 0.5f : 0.2f) * fade(z))); } }
     /* fret targets */
-    gfx_sprite *tu = th->tgt[0], *td = th->tgt[1]; int tw = gfx_sprite_w(tu), tgh = gfx_sprite_h(tu);
-    float tgtW = V.hw * (theme() == 1 ? 0.4f : 0.36f), tscale = tgtW / tw;
+    float tgtW = V.hw * (theme() >= 1 ? 0.4f : 0.36f);
     for (int f = 0; f < 5; f++) { float px, py; proj(laneX(f, lefty ^ RL.flip), 0, &px, &py, &s); int down = r && (r->held & (1 << f));
-        gfx_blit(down ? td : tu, 0, 0, tw, tgh, px - tgtW / 2, py - tgh * tscale * th->tgtAnchor, tgtW, tgh * tscale, FRET_COLORS[f], 1); }
+        int popped = r && ((perf - r->flash[f] >= 0 && perf - r->flash[f] < 85) || (r->sus && (r->sus->mask & (1 << f)))); target(th, f, px, py, tgtW, down, popped); }
     if (r) {
         const gh3_note *notes = r->notes; int n = r->nnotes;
         int i0 = lower_bound_notes(notes, n, t + Z_NEAR * L - 40000), i1 = i0; while (i1 < n && notes[i1].t <= t + L) i1++;
@@ -246,6 +262,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
                 for (int k = 0; k < slices; k++) { float za = z0 + (z1 - z0) * k / slices, zb = z0 + (z1 - z0) * (k + 1) / slices, cxp, ya, yb, sa;
                     proj(x, za, &cxp, &ya, &sa); proj(x, zb, &cxp, &yb, &ss); float hw = w * V.hw * sa;
                     if (wob > 0.02f) cxp += sinf(za * 38.0f - (float)perf / 45.0f) * wob * V.hw * 0.05f * sa;
+                    if (orig()) { orig_tail_slice(f, sp, dead, cxp, yb, ya, hw * 2); if (k == slices - 1) orig_tail_cap(f, sp, dead, cxp, yb, hw * 2); continue; }
                     gfx_rect(cxp - hw, yb, hw * 2, ya - yb + 1, c);
                     if (active) gfx_rect(cxp - hw * 0.35f, yb, hw * 0.7f, ya - yb + 1, RGBA(255, 255, 255, 150 + (int)(60 * pulse))); } } }
         /* gems, far to near */
@@ -256,21 +273,22 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             if (RL.flick && !nt->missed && flick_hash((unsigned)(perf / 80) * 7919u + (unsigned)i) % 10 < (unsigned)RL.flick * 2) continue;   /* Amp Overload: the gems flicker */
             if (nt->n > 1) { float ax, bx, yy, ps; int lo = -1, hi2 = -1; for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { if (lo < 0) lo = f; hi2 = f; }
                 proj(laneX(nl ? hi2 : lo, nl), z, &ax, &yy, &ps); proj(laneX(nl ? lo : hi2, nl), z, &bx, &yy, &ps); gfx_rect(ax, yy - 2 * ps, bx - ax, 4 * ps + 1, fb_alpha(RGB(0xd0, 0xc8, 0xe0), alpha * 0.8f)); }
-            for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float px, py, ps; proj(laneX(f, nl), z, &px, &py, &ps); gem(px, py, ps, nt->missed ? RGB(0x6d, 0x66, 0x7c) : (sp ? C_SP : FRET_COLORS[f]), kind, alpha); } }
+            for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float px, py, ps; proj(laneX(f, nl), z, &px, &py, &ps); gem(px, py, ps, nt->missed ? RGB(0x6d, 0x66, 0x7c) : (sp ? C_SP : FRET_COLORS[f]), kind, alpha, f, nt->missed, sp, perf); } }
         /* sparks fly off a fret the moment its note is hit */
         { static double seen[5], susAt[5]; for (int f = 0; f < 5; f++) { float px, py; proj(laneX(f, lefty ^ RL.flip), 0, &px, &py, &s); uint32_t col = sp ? C_SP : FRET_COLORS[f];
-            if (r->flash[f] != seen[f]) { seen[f] = r->flash[f]; if (perf - r->flash[f] < 80 && perf >= r->flash[f]) fx_burst(px, py - tgtW * 0.15f, theme() == 1 ? 12 : 8, col, tgtW * 7, 420, 0.55f); }
+            if (r->flash[f] != seen[f]) { seen[f] = r->flash[f]; if (perf - r->flash[f] < 80 && perf >= r->flash[f]) fx_burst(px, py - tgtW * 0.15f, theme() >= 1 ? 12 : 8, col, tgtW * 7, 420, 0.55f); }
             /* a held sustain: a glow on the fret and a thin stream of sparks, as long as it is held */
             if (r->sus && (r->sus->mask & (1 << f))) { gfx_sprite *gl = art_get(ART_GLOW); float gw = tgtW * 1.7f, gh = gw * gfx_sprite_h(gl) / gfx_sprite_w(gl); gfx_blit(gl, 0, 0, gfx_sprite_w(gl), gfx_sprite_h(gl), px - gw / 2, py - gh / 2, gw, gh, col, 0.55f + 0.2f * (float)sin(perf / 70.0));
                 if (perf - susAt[f] > 45 || perf < susAt[f]) { susAt[f] = perf; fx_burst(px, py - tgtW * 0.1f, 2, col, tgtW * 4.5f, 320, 0.8f); } } } }
         /* flames on hit; a held sustain keeps its frets burning */
         for (int f = 0; f < 5; f++) { float age = (float)((perf - r->flash[f]) / 260);
+            if (orig()) { float px, py; proj(laneX(f, lefty ^ RL.flip), 0, &px, &py, &s); if (r->sus && (r->sus->mask & (1 << f))) orig_hold(px, py, V.hw, perf); if (age >= 0 && age < 1) orig_flame(px, py, V.hw, age, sp); continue; }
             if (r->sus && (r->sus->mask & (1 << f)) && (age < 0 || age >= 1)) age = 0.15f + 0.25f * (float)fmod(perf / 260.0, 1.0);
             if (age < 0 || age >= 1) continue;
             float px, py; proj(laneX(f, lefty ^ RL.flip), 0, &px, &py, &s); int fr = age < 0.3f ? 0 : age < 0.65f ? 1 : 2;
-            gfx_sprite *fl = sp ? th->spflame[fr] : th->flame[fr]; float fw = tgtW * (theme() == 1 ? 1.3f : 0.75f), fh = fw * gfx_sprite_h(fl) / gfx_sprite_w(fl);
-            uint32_t tint = theme() == 1 ? (sp ? C_SP : RGB(255, 214, 140)) : RGB(255, 255, 255);
-            gfx_blit(fl, 0, 0, gfx_sprite_w(fl), gfx_sprite_h(fl), px - fw / 2, py - fh * (theme() == 1 ? 0.62f : 0.85f) - age * tgtW * 0.3f, fw, fh, tint, 1 - age * 0.6f); }
+            gfx_sprite *fl = sp ? th->spflame[fr] : th->flame[fr]; float fw = tgtW * (theme() >= 1 ? 1.3f : 0.75f), fh = fw * gfx_sprite_h(fl) / gfx_sprite_w(fl);
+            uint32_t tint = theme() >= 1 ? (sp ? C_SP : RGB(255, 214, 140)) : RGB(255, 255, 255);
+            gfx_blit(fl, 0, 0, gfx_sprite_w(fl), gfx_sprite_h(fl), px - fw / 2, py - fh * (theme() >= 1 ? 0.62f : 0.85f) - age * tgtW * 0.3f, fw, fh, tint, 1 - age * 0.6f); }
         fx_draw(perf);
         float sa = (float)((perf - r->spFlash) / 500); if (sa >= 0 && sa < 1) gfx_rect(0, 0, V.W, V.H, fb_alpha(C_SP, 0.22f * (1 - sa)));
         float so = (float)((perf - r->spAt) / 320); if (so >= 0 && so < 1) gfx_rect(0, 0, V.W, V.H, fb_alpha(RGB(150, 238, 255), 0.4f * (1 - so) * (1 - so)));
@@ -278,16 +296,17 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
         if (t < 0 && hi && hi->showCountdown) { char b[16]; int n3 = (int)ceil(-t / 1000); snprintf(b, sizeof b, "%d", n3); float k = (float)fmod(-t, 1000) / 1000; int sc = 8 + (int)(3 * k); gfx_text_title((int)V.W / 2 - gfx_text_w(b, sc) / 2, (int)V.H / 2 - 50, sc, b, C_INK, C_SHADOW, 3); gfx_text_sh_center((int)V.W / 2, (int)V.H / 2 + 50, 2, "Prepare-se!", C_AMP, C_SHADOW); }
         /* HUD */
         if (hi) { int W = (int)V.W, H = (int)V.H; char b[64];
+            uint32_t mc = sp ? C_SP : mult >= 4 ? RGB(0xf2, 0x8d, 0x2d) : mult == 3 ? RGB(0xf3, 0xd2, 0x3b) : mult == 2 ? RGB(0x31, 0xc4, 0x66) : C_INK;
+            float bump = (float)((perf - multAt) / 350); float bs = bump >= 0 && bump < 1 ? 1 + 0.35f * (1 - bump) : 1;
             /* top left: the song */
             if (hi->title) gfx_text_sh(14, 10, 2, hi->title, C_INK, C_SHADOW);
             if (hi->artist) gfx_text_sh(14, 36, 1, hi->artist, C_MUTED, C_SHADOW);
             if (hi->section && *hi->section) { gfx_sprite_at(art_get(ART_NOTE), 14, 52, 1.0f / PXS * 1.0f, C_AMP, 1); gfx_text_sh(14 + 14, 50, 1, hi->section, C_AMP, C_SHADOW); }
+            if (orig()) orig_hud(r, hi, perf, W, H, mult, sp, pulse); else {
             /* top right: score panel */
             snprintf(b, sizeof b, "%ld", (long)r->score); int sw = gfx_text_w(b, 3); int pw = (sw > 120 ? sw : 120) + 24;
             ui_panel(W - 14 - pw, 8, pw, 52, 0); gfx_text_sh_right(W - 26, 16, 3, b, C_INK, C_SHADOW); gfx_text_right(W - 26, 46, 1, "PONTOS", C_MUTED);
             /* bottom left: multiplier badge and streak */
-            uint32_t mc = sp ? C_SP : mult >= 4 ? RGB(0xf2, 0x8d, 0x2d) : mult == 3 ? RGB(0xf3, 0xd2, 0x3b) : mult == 2 ? RGB(0x31, 0xc4, 0x66) : C_INK;
-            float bump = (float)((perf - multAt) / 350); float bs = bump >= 0 && bump < 1 ? 1 + 0.35f * (1 - bump) : 1;
             snprintf(b, sizeof b, "%d×", mult); int ms = (int)(5 * bs); ui_panel(14, H - 78, 92, 64, sp ? 2 : 0); gfx_text_title(22, H - 70 - (ms - 5) * 4, ms, b, mc, C_SHADOW, 3);
             snprintf(b, sizeof b, "%d seguidas", r->streak); gfx_text_sh(116, H - 36, 1, b, r->streak >= 10 ? C_AMP : C_MUTED, C_SHADOW);
             if (r->streak > 0) { int dots = r->streak % 10; if (mult >= 4 && !sp) dots = 10; for (int i = 0; i < 10; i++) gfx_rect(116 + i * 9, H - 48, 7, 7, i < dots ? mc : C_PANEL2); }
@@ -310,6 +329,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             gfx_rect(mx + 12 + 4 * cw - 2, my - 21, 2, 16, r->sp >= 0.5 ? C_INK : C_MUTED);   /* half: from here star power can be used */
             if (!sp && r->sp >= 0.5) { char sk[80]; snprintf(sk, sizeof sk, "STAR POWER: %s", hi->starKeys && *hi->starKeys ? hi->starKeys : "Select"); float k = 0.6f + 0.4f * sinf((float)perf / 110);
                 int tw2 = gfx_text_w(sk, 1) + 16; ui_panel(W - 14 - tw2, my - 58, tw2, 20, UI_PANEL_SP); gfx_text_sh_right(W - 22, my - 53, 1, sk, fb_alpha(C_INK, k), C_SHADOW); }
+            }
             /* messages in the middle */
             if (r->streakAt > -1e8 && perf - r->streakAt < 1500) { snprintf(b, sizeof b, "%d NOTAS SEGUIDAS!", r->streakN); gfx_text_title(W / 2 - gfx_text_w(b, 3) / 2, (int)(H * 0.24f), 3, b, C_AMP, C_SHADOW, 2); }
             else if (bump >= 0 && bump < 1 && mult > 1) { snprintf(b, sizeof b, "%d×!", mult); gfx_text_title(W / 2 - gfx_text_w(b, 4) / 2, (int)(H * 0.24f) - (int)(10 * bump), 4, b, mc, C_SHADOW, 2); }
@@ -324,11 +344,11 @@ void render_calib(double t, double period, double perf, int taps, double lastDif
     const theme_t *th = &TH[theme()]; double L = 1500; float s;
     stage(perf, 0.3f, 0, 2, SET.stageFx, 0.3f);
     gfx_rect(0, 0, V.W, V.H, RGBA(8, 6, 12, 120));
-    gfx_blit(backSp[theme()][0], 0, 0, (int)V.W, (int)V.H, 0, 0, V.W, V.H, RGB(255, 255, 255), 1);
-    gfx_sprite *tu = th->tgt[0]; int tw = gfx_sprite_w(tu), tgh = gfx_sprite_h(tu); float tgtW = V.hw * (theme() == 1 ? 0.4f : 0.36f), tscale = tgtW / tw;
-    { float px, py; proj(laneX(2, 0), 0, &px, &py, &s); gfx_blit(tu, 0, 0, tw, tgh, px - tgtW / 2, py - tgh * tscale * th->tgtAnchor, tgtW, tgh * tscale, FRET_COLORS[2], 1); }
+    gfx_blit(back(theme(), 0), 0, 0, (int)V.W, (int)V.H, 0, 0, V.W, V.H, RGB(255, 255, 255), 1);
+    float tgtW = V.hw * (theme() >= 1 ? 0.4f : 0.36f);
+    { float px, py; proj(laneX(2, 0), 0, &px, &py, &s); target(th, 2, px, py, tgtW, 0, 0); }
     for (long k = (long)floor((t + Z_NEAR * L) / period); k * period <= t + L; k++) { if (k < 0) continue; float z = (float)((k * period - t) / L); if (z < Z_NEAR) continue;
-        float px, py, ps; proj(laneX(2, 0), z, &px, &py, &ps); gem(px, py, ps, k % 4 == 0 ? FRET_COLORS[4] : FRET_COLORS[2], 0, fade(z)); }
+        float px, py, ps; proj(laneX(2, 0), z, &px, &py, &ps); gem(px, py, ps, k % 4 == 0 ? FRET_COLORS[4] : FRET_COLORS[2], 0, fade(z), k % 4 == 0 ? 4 : 2, 0, 0, perf); }
     float age = (float)((perf - lastTapPerf) / 300);
     if (taps > 0 && age >= 0 && age < 1) { float sx, sy2, ex, ey; proj(-1, 0, &sx, &sy2, &s); proj(1, 0, &ex, &ey, &s); uint32_t c = fabs(lastDiff) < 35 ? C_GOOD : fabs(lastDiff) < 80 ? C_AMP : C_BAD;
         gfx_rect(sx, sy2 - 3, ex - sx, 6, fb_alpha(c, 0.8f * (1 - age))); }

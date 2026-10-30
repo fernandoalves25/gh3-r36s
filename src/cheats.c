@@ -100,7 +100,7 @@ void cheats_draw(double now) {
     static const char *bt[3] = { "← →", "A", "B" }, *tx[3] = { "Mudar", "Escolher", "Voltar" }; ui_hints(H - 24, W, bt, tx, 3);
     if (entry) { int pw = 460, ph = 190, px = W / 2 - pw / 2, y0 = H / 2 - ph / 2;
         ui_dim(W, H, 150); ui_panel(px, y0, pw, ph, UI_PANEL_SP);
-        gfx_text_title(W / 2 - gfx_text_w("TOQUE O CÓDIGO", 3) / 2, y0 + 12, 3, "TOQUE O CÓDIGO", C_INK, C_SHADOW, 2);
+        ui_title(W / 2 - gfx_text_w("TOQUE O CÓDIGO", 3) / 2, y0 + 12, 3, "TOQUE O CÓDIGO", C_INK, C_SHADOW, 2);
         gfx_text_center(W / 2, y0 + 50, 1, "Segure os trastes do acorde e palhete. Start sai.", C_SP);
         for (int f = 0; f < 5; f++) gfx_rect(W / 2 - 70 + f * 28, y0 + 70, 22, 14, held & (1 << f) ? FRET_COLORS[f] : RGBA(255, 255, 255, 30));
         float k = now - strumAt < 180 ? 1 - (float)((now - strumAt) / 180) : 0; if (k > 0) gfx_frame(W / 2 - 76, y0 + 66, 152, 22, 2, fb_alpha(C_INK, k));
