@@ -273,7 +273,7 @@ void charsel_screens(void (*shot)(const char *name)) {
     cur[M_GUITAR] = 1; for (int m = 0; m < D.nm; m++) if (!strcmp(D.m[m].name, "X-Plorer")) cur[M_GUITAR] = m + 1; charsel_event(IN_OK, 0); SHOT("charsel_finish");
     for (int i = 0; i < D.m[model].n; i++) if (!owns_guitar(D.m[model].first + i)) { cur[M_FINISH] = i; break; } SHOT("charsel_finish_locked");
     charsel_event(IN_OK, 0); if (A.screen == SC_STORE) { SHOT("store_finishes"); store_event(IN_LEFT, 0); SHOT("store_guitars"); store_event(IN_LEFT, 0); SHOT("store_rockers"); store_event(IN_BACK, 0); }
-    printf("charsel: %d rockers, %d guitars (%d finishes); %s with %s\n", D.nr, D.nm, D.ng, charsel_rocker(), cur_guitar() >= 0 ? D.g[cur_guitar()].finish : "his own guitar");
+    printf("charsel: %d rockers, %d guitars (%d finishes); %s with %s\n", D.nr, D.nm, D.ng, charsel_rocker(), cur_guitar() >= 0 ? D.g[cur_guitar()].finish : "the rocker's own guitar");
 #undef SHOT
     SET = keepSet; demo = 0; mode = M_HUB; A.screen = was;
 }

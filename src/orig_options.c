@@ -103,7 +103,8 @@ static int ctrl_draw(const int *items, int n, const char *const *optLabel, const
     #define CX_(x) (((x) - 607) * 2.0f / 3 + 320)
     #define CY_(y) ((y) * 2.0f / 3)
     const float LX = CX_(638), RY = CY_(173), RP = 34 * 2.0f / 3, SZ = 21;
-    img("options_controller_poster2", CX_(525), CY_(130), 368, 177, WHITE, 1);   /* the paper the words are on */
+    float hh = 0; for (int k = 0; k < n; k++) hh = fmaxf(hh, (float)gfx_text_box((int)LX - 6, 0, (int)(CX_(525) + 368 - 28 - (LX - 6)), 1, optHelp[items[k]], RGBA(0, 0, 0, 0)));   /* the longest help: the paper grows to hold it under the rows */
+    img("options_controller_poster2", CX_(525), CY_(130), 368, fmaxf(177, RY + n * RP + 10 + hh + 22 - CY_(130)), WHITE, 1);   /* the paper the words are on */
     tape("tape_h_04", CX_(760), CY_(106), 93, 43);
     for (int k = 0; k < n && k < 2; k++) { value(items[k], v, sizeof v); if (tick_of(v) >= 0) img("options_controller_checkbg", CX_(945) + 3 * k, CY_(190) + 30 * k - 2, 60, 30, WHITE, 1); }
     img("options_controller_highlight", CX_(620), RY + A.optRow * RP + SZ * 0.45f - 19, 307, 38, WHITE, 1);
@@ -143,10 +144,10 @@ int orig_options_draw(double now, const char *const *catLabel, const char *const
     if (A.optCat < 0) { if (!ga_img("options_main_poster")) return 0; back(now); return menu_draw(now, catLabel, catHelp, ncat, off); }
     int cat = A.optCat, n = 0; const int *items = catItems[cat]; while (n < 8 && items[n] >= 0) n++; if (!n) return 0;
     if (A.optRow >= n) A.optRow = n - 1;   /* a row past the category (one that lost an item), as draw_options does */
-    const char *need = cat == 0 ? "options_audio_poster" : cat == 2 ? "options_controller_poster" : "graphics_options_poster_part1"; if (!ga_img(need)) return 0;
+    const char *need = cat == 0 ? "options_audio_poster" : cat == 4 ? "options_controller_poster" : "graphics_options_poster_part1"; if (!ga_img(need)) return 0;
     back(now);
     if (cat == 0) return audio_draw(now, cat, items, n, optLabel, optHelp, value);
-    if (cat == 2) return ctrl_draw(items, n, optLabel, optHelp, value);
+    if (cat == 4) return ctrl_draw(items, n, optLabel, optHelp, value);
     return gfx_draw(cat, catLabel, items, n, optLabel, optHelp, value);
 }
 
@@ -198,5 +199,52 @@ int orig_controls_draw(double now) {
         gfx_text_center(W / 2, H / 2 - 6, 1, "Aperte um botão ou mova um analógico", C_SP); char cb[60]; snprintf(cb, sizeof cb, "(sem apertar nada, cancela em %d s)", (int)ceil((A.capAt + 5000 - now) / 1000)); gfx_text_center(W / 2, H / 2 + 14, 1, cb, C_MUTED);
         if (now - A.capAt > 5000) A.capturing = 0; }   /* the capture gives up, as draw_controls does */
     static const char *bt[3] = { "A", "X", "B" }, *tx[3] = { "Trocar", "Apagar", "Voltar" }; ui_hints(H - 22, W, bt, tx, 3);
+    return 1;
+}
+
+/* ================================================================== CALIBRATE WHAMMY (Opções > Controle > Calibrar alavanca): the
+ * Controller page's castle poster on the left, the calibration paper on the right with the three steps (let go, push it all
+ * the way, the sensitivity), a check on each one done, and the stick's gauge: how far it reads, the rest and the full push
+ * marked on it, and under it what the game feels (the star power blue of the whammy tails) */
+int orig_whammy_draw(double now) {
+    const ga_font *title = ga_font_get(F_TITLE), *text = ga_font_get(F_TEXT), *head = ga_font_get(F_HEAD); if (!ga_img("options_calibrate_paper") || !ga_img("options_controller_poster") || !text || !title || !head) return 0;
+    int W = A.W, H = A.H; char b[120]; const uint32_t INK = RGB(60, 40, 115), OFF = RGB(40, 100, 165), ON = RGB(230, 230, 230), UNF = RGB(60, 45, 30), RED = RGB(170, 40, 30), GRN = RGB(30, 120, 40), BLUE = RGB(70, 150, 230);
+    back(now);
+    #define CX_(x) (((x) - 607) * 2.0f / 3 + 320)
+    #define CY_(y) ((y) * 2.0f / 3)
+    img("options_controller_poster", CX_(135), CY_(30), 427, 413, WHITE, 1);   /* the castle: still the Controller page */
+    ga_text_fit(head, CX_(135) + 213, CY_(30) + 352, 19, 100, "Controle", UNF, 1); ga_text_fit(head, CX_(135) + 213, CY_(30) + 174, 14, 80, "Opções", UNF, 1);
+    tape("tape_v_01", CX_(250), CY_(360), 53, 95);
+    #undef CX_
+    #undef CY_
+    const float PX = 318, PW = 318, X = PX + 20, WD = PW - 66;
+    img("options_calibrate_paper", PX, -16, PW, 392, WHITE, 1); tape("tape_h_04", PX + PW / 2 - 40, -8, 80, 37);
+    ga_text_fit(title, X, 14, 22, WD, "CALIBRAR ALAVANCA", INK, 0);
+    static const char *STEP[3] = { "Solte a alavanca", "Empurre até o fim", "Sensibilidade" };
+    static const char *SAY[3] = { "Solte o analógico da alavanca, sem encostar, e aperte A: onde ele descansa vira a zona morta.",
+        "Agora empurre a alavanca até o fim do curso, segure e aperte A.", "Pronto: mexa a alavanca para ver o que o jogo sente. ← → mudam a sensibilidade; A salva." };
+    int st = A.whamStep < 0 || A.whamStep > 2 ? 0 : A.whamStep;
+    float y = 42 + wrap(text, X, 42, WD, 14, 15, SAY[st], INK) + 6;
+    for (int k = 0; k < 3; k++) { int on = k == st, done = k < st; float ry = y + k * 26;
+        if (on) img("options_calibrate_highlight", X - 6, ry - 3, WD + 10, 26, OFF, 1);
+        if (k == 2) snprintf(b, sizeof b, "%d. %s: %d%%", k + 1, STEP[k], SET.whamSens); else snprintf(b, sizeof b, "%d. %s", k + 1, STEP[k]);
+        ga_text_fit(text, X + 2, ry + 1, 17, WD - 34, b, on ? ON : INK, 0);
+        if (done) img("options_controller_check", X + WD - 26, ry - 4, 26, 26, WHITE, 1); }
+    y += 3 * 26 + 8;
+    /* the gauge: the stick's reading, the rest (below it the whammy does nothing) and the full push */
+    float gx = X + 4, gw = WD - 8, gh = 14, rest = st == 1 ? A.whamRest : SET.whamRest / 100.0f, full = st == 1 ? A.whamFull : SET.whamFull / 100.0f;
+    ga_text(text, X, y, 14, "analógico", INK); y += 17;
+    gfx_rect(gx - 2, y - 2, gw + 4, gh + 4, fb_alpha(INK, 0.85f)); gfx_rect(gx, y, gw, gh, RGB(236, 232, 222));
+    gfx_rect(gx, y, gw * fminf(1, rest), gh, RGBA(170, 40, 30, 90));   /* the dead zone */
+    gfx_rect(gx, y + 3, gw * fminf(1, A.whamNow), gh - 6, OFF);
+    if (st) { gfx_rect(gx + gw * fminf(1, rest) - 1, y - 5, 3, gh + 10, RED); gfx_rect(gx + gw * fminf(1, full) - 1, y - 5, 3, gh + 10, GRN); }
+    y += gh + 5;
+    if (st) { snprintf(b, sizeof b, "repouso %d%%", (int)lroundf(rest * 100)); ga_text(text, gx, y, 13, b, RED); snprintf(b, sizeof b, "fim %d%%", (int)lroundf(full * 100)); ga_text_right(text, gx + gw, y, 13, b, GRN); }
+    else { snprintf(b, sizeof b, "agora %d%%", (int)lroundf(A.whamNow * 100)); ga_text(text, gx, y, 13, b, INK); }
+    y += 20; ga_text(text, X, y, 14, "o jogo sente", INK); y += 17;
+    float lv = st == 1 ? 0 : input_whammy_level(A.whamNow);
+    gfx_rect(gx - 2, y - 2, gw + 4, gh + 4, fb_alpha(INK, 0.85f)); gfx_rect(gx, y, gw, gh, RGB(236, 232, 222)); gfx_rect(gx, y + 3, gw * lv, gh - 6, BLUE);
+    snprintf(b, sizeof b, "%d%%", (int)lroundf(lv * 100)); ga_text_right(text, gx + gw, y + gh + 3, 13, b, INK);
+    static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Confirmar", "Cancelar", "Sensibilidade" }; ui_hints(H - 24, W, bt, tx, st == 2 ? 3 : 2);
     return 1;
 }

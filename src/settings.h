@@ -33,6 +33,7 @@ typedef struct {
     int stage3dRes;     /* the size the 3D venue is drawn at before it is stretched under the highway: 0 Alta (the screen's), 1 Média (3/4), 2 Baixa (1/2) */
     char rocker[24];    /* the player's character (charsel.c): a musician profile's NAME ("Axel", "Satan"…); "" = Axel */
     unsigned outfit, guitar;   /* its outfit (musician_body desc_id) and guitar (musician_instrument desc_id); 0 = the rocker's own */
+    int whamRest, whamFull, whamSens;   /* the whammy (Calibrar alavanca): how far the stick reads at rest and pushed all the way (% of its throw), and the sensitivity (% : 100 as measured) */
     bind_t binds[ACT_N][BIND_SLOTS];
 } settings_t;
 extern settings_t SET;

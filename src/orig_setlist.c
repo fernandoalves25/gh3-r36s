@@ -6,7 +6,11 @@
  * by a paper clip, the shoe prints and the gum, coin, strings and button scattered over the pages, and the light from
  * above. The pages move up as the list goes down, the chosen song resting under the highlight. What the port adds
  * (locks, prices, the career's state, the difficulty) is written on the page in the same hand; the header facts and
- * the button helpers sit in the game's grey pills. */
+ * the button helpers sit in the game's grey pills.
+ * Three tabs, as change_tab has them, each its own list: Setlist (the career's sets, then the co-op encores and the rest),
+ * Bonus and Downloads. Each tab puts its own page on top (the notebook page, the blue page going on down the floor, the
+ * white sheet), writes its name in place of the Setlist title, and has its highlight as wide as its page; the three tab
+ * names are written at the top of the pages, L1 / R1 beside the ones the shoulder buttons turn to. */
 #include "orig_setlist.h"
 #include "gamearts.h"
 #include "app.h"
@@ -63,7 +67,7 @@ static void put(const char *name, float x, float y, float w, float h, int deg, f
 }
 
 /* ---- the page: where each row sits (stage px), the things scattered over it ---- */
-static float *rowY; static int rowCap, nrowsAt = -1, firstSong; static double lastDraw = -1e9, changedAt = -1e9; static int lastCursor = -1, clipNeg, artRot; static float clipRot, offNow;
+static float *rowY; static int rowCap, nrowsAt = -1, tabAt = -9, firstSong; static double lastDraw = -1e9, changedAt = -1e9; static int lastCursor = -1, clipNeg, artRot; static float clipRot, offNow;
 static uint32_t rs = 1; static float rnd(void) { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return rs / 4294967296.0f; }
 typedef struct { const char *tex; float x, y, w, h; int rot, fx, fy, shoe, centre; } scat_t; static scat_t scat[64]; static int nscat;
 static const struct { const char *tex; int flip, shoe, dim, lx, rx, onlyL, onlyR, centre, rmin, rmax; } SCAT[6] = {   /* setlist_random_bg_images */
@@ -79,7 +83,7 @@ static void build(void) { /* create_sl_assets: the first set's name under the ti
             float down = 300 + (float)(int)(rnd() * 301); int left = side == 0 ? !SCAT[i].onlyR : SCAT[i].onlyL, f = SCAT[i].flip ? 1 + (int)(rnd() * 3) % 3 : 0; float r = SCAT[i].rmin + (SCAT[i].rmax - SCAT[i].rmin) * rnd();
             s->tex = SCAT[i].tex; s->x = left ? (float)SCAT[i].lx : (float)SCAT[i].rx + 1000; s->y = n * 4 * 300 + down; s->w = s->h = (float)SCAT[i].dim; s->shoe = SCAT[i].shoe; s->centre = SCAT[i].centre;
             s->fy = f == 1 || f == 2; s->fx = f == 1 || f == 3; s->rot = SCAT[i].rmax > 20 ? (int)lroundf(r / 10) * 10 : (int)lroundf(r / 2) * 2; } }   /* angles in steps: each one is a texture baked once */
-    nrowsAt = A.nrows;
+    nrowsAt = A.nrows; tabAt = A.slTab;
 }
 static const char *ICONS[8] = { "setlist_icon_backyard", "setlist_icon_bar", "setlist_icon_videoshoot", "setlist_icon_odeon", "setlist_icon_prison", "setlist_icon_desert", "setlist_icon_megadome", "setlist_icon_hell" };
 static const char *tier_icon(int t) { /* set_song_icon: the venue of the set (the career's sets in their order), the downloads' own, else the general one */
@@ -108,9 +112,10 @@ int orig_setlist_draw(double now) {
     const ga_font *f = ga_font_get(F_NOTE), *pf = ga_font_get(F_PILL); gh3_library *lib = A.lib;
     if (!f || !pf || !ga_img("setlist_bg_head_676") || !ga_img("setlist_page1_head_90x75") || !A.nrows) return 0;
     int W = A.W, H = A.H, career = A.mode == MODE_CAREER; char b[200], b2[64];
-    int back = now - lastDraw > 250 || now < lastDraw;   /* coming back to the list: the pictures are thrown again, the page is where the song is */
+    int back = now - lastDraw > 250 || now < lastDraw || tabAt != A.slTab;   /* coming back to the list (or to another tab): the pictures are thrown again, the page is where the song is */
     if (back) rs = (uint32_t)((uint32_t)now * 2654435761u) ^ 0x5EED1E57u, rs = rs ? rs : 1;
     if (back || nrowsAt != A.nrows) build();
+    int tab = A.slTab > 0 && A.slTab <= 2 ? A.slTab : 0; const float hlW = tab == 0 ? 737 : tab == 2 ? 722 : 690;   /* the tab's own page on top, the highlight as wide as it */
     int cur = A.cursor >= 0 && A.cursor < A.nrows ? A.cursor : firstSong; if (cur < 0) return 0;
     if (cur != lastCursor) { if (!back && lastCursor >= 0) { changedAt = now; artRot = (int)(rnd() * 5) * 2 - 4;   /* setlist_scroll: the picture and clip drop away and come back half a second later */
             if (clipNeg) { clipRot = -clipRot; clipNeg = 0; } else { clipRot = -30 + rnd() * 40; clipNeg = 1; } } else changedAt = -1e9; lastCursor = cur; }
@@ -120,26 +125,40 @@ int orig_setlist_draw(double now) {
 #define X(sx) ((sx) * K)
 #define Y(sy) (((sy) + off) * K)
 #define SEE(y0, y1) ((y1) >= top && (y0) <= bottom)
-    /* the floor */
-    put("setlist_bg_head_676", 0, Y(0), 640, 676 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
-    for (int k = 0; 676 + k * 1308 < bottom; k++) { float y = 676 + k * 1308.0f; if (SEE(y, y + 1352)) put("setlist_bg_loop_1308", 0, Y(y), 640, (k ? 1308 : 1352) * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); }
-    put("setlist_shoeprint", X(850), Y(-70), 640 * K, 768 * K, 10, 0, 0, 1, 0, 15, RGB(255, 255, 255), 1);
-    for (int i = 0; i < nscat; i++) if (scat[i].shoe && SEE(scat[i].y - 400, scat[i].y + 600)) put(scat[i].tex, X(scat[i].x), Y(scat[i].y), 512 * K, 512 * K, scat[i].rot, 0, 0, scat[i].fx, scat[i].fy, 100, RGB(255, 255, 255), 1);
-    /* the pages: the white sheet under the blue one under the notebook page */
-    put("setlist_page3_head_9x6", X(210), Y(86), 922 * K, 614 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
-    for (float y = 700; y < bottom; y += 532) if (SEE(y, y + 533)) put("setlist_page3_loop_13x11", X(30), Y(y), 1254 * K, 533 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
-    put("setlist_page2_head_80x54", X(240), Y(50), 819 * K, 553 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
-    put("setlist_page1_head_90x75", X(160), Y(0), 922 * K, 768 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
-    for (float y = 768; y < bottom; y += 512) if (SEE(y, y + 512)) put("setlist_page1_loop_89x33", X(157), Y(y), 922 * K, 513 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
-    { float y0 = fmaxf(12, top); put("setlist_page1_line_red", X(320), Y(y0), 8 * K, (bottom - y0) * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); }   /* the margin */
-    put("setlist_page1_head_lines", X(176), Y(64), 896 * K, 320 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
-    static const char *SOLID[3] = { "setlist_page1_line_solid_1", "setlist_page1_line_solid_2", "setlist_page1_line_solid_3" }, *DOTTED[3] = { "setlist_page1_line_dotted_1", "setlist_page1_line_dotted_2", "setlist_page1_line_dotted_3" };
-    for (int k = top > 420 ? (int)((top - 420) / 80) : 0; 420 + 80.0f * k < bottom; k++) { float y = 420 + 80.0f * k, w = k < 8 ? 883 : 896; uint32_t h = (uint32_t)k * 2654435761u;   /* which of the three ruled lines each one is */
-        put(SOLID[(h >> 7) % 3], X(176), Y(y), w * K, 16 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); put(DOTTED[(h >> 13) % 3], X(176), Y(y + 40), w * K, 16 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); }
-    put("setlist_page1_title", X(330), Y(220), 512 * K, 128 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 0.7f); put("setlist_page1_title", X(325), Y(230), 512 * K, 128 * K, -2, 0, 0, 0, 0, 0, RGB(255, 255, 255), 0.2f);
-    /* the highlight: it stays put while the pages move */
-    gfx_rect(X(326), (428 - fixedUp) * K, 737 * K, 80 * K, RGBA(255, 255, 255, 128));
-    /* the words on the page */
+    /* the pages, stacked in the tab's order (change_tab: the notebook page on top for the set list, the blue page for the
+     * bonus songs, the white sheet for the downloads), each layer of drawSetlistGH in its turn */
+    enum { L_FLOOR, L_SHOE, L_P3, L_P2, L_P1, L_LINES, L_TITLE, L_HL, L_WORDS };
+    const float zp1 = tab == 2 ? 3.3f : tab == 1 ? 3.4f : 3.5f, zp2 = tab == 2 ? 3.4f : tab == 1 ? 3.8f : 3.4f, zp3 = tab == 2 ? 3.5f : 3.3f, p3y = tab == 2 ? 126 : 86;
+    struct { float z; int id; } ly[9] = { { 3.1f, L_FLOOR }, { 3.2f, L_SHOE }, { zp3, L_P3 }, { zp2, L_P2 }, { zp1, L_P1 }, { zp1 + 0.1f, L_LINES }, { tab == 0 ? zp1 + 0.2f : -1, L_TITLE }, { 4.0f, L_HL }, { 4.1f, L_WORDS } };
+    for (int i = 1; i < 9; i++) for (int j = i; j > 0 && ly[j - 1].z > ly[j].z; j--) { float z = ly[j].z; int d = ly[j].id; ly[j] = ly[j - 1]; ly[j - 1].z = z; ly[j - 1].id = d; }   /* stable: equal layers keep their order */
+    for (int li = 0; li < 9; li++) switch (ly[li].z < 0 ? -1 : ly[li].id) {
+    case L_FLOOR:
+        put("setlist_bg_head_676", 0, Y(0), 640, 676 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
+        for (int k = 0; 676 + k * 1308 < bottom; k++) { float y = 676 + k * 1308.0f; if (SEE(y, y + 1352)) put("setlist_bg_loop_1308", 0, Y(y), 640, (k ? 1308 : 1352) * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); } break;
+    case L_SHOE:
+        put("setlist_shoeprint", X(850), Y(-70), 640 * K, 768 * K, 10, 0, 0, 1, 0, 15, RGB(255, 255, 255), 1);
+        for (int i = 0; i < nscat; i++) if (scat[i].shoe && SEE(scat[i].y - 400, scat[i].y + 600)) put(scat[i].tex, X(scat[i].x), Y(scat[i].y), 512 * K, 512 * K, scat[i].rot, 0, 0, scat[i].fx, scat[i].fy, 100, RGB(255, 255, 255), 1); break;
+    case L_P3:   /* the white sheet */
+        put("setlist_page3_head_9x6", X(210), Y(p3y), 922 * K, 614 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
+        for (float y = p3y + 614; y < bottom; y += 532) if (SEE(y, y + 533)) put("setlist_page3_loop_13x11", X(30), Y(y), 1254 * K, 533 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); break;
+    case L_P2:   /* the blue page: it goes on down the floor only when it is the bonus songs' */
+        put("setlist_page2_head_80x54", X(240), Y(50), 819 * K, 553 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
+        if (tab == 1) for (float y = 603; y < bottom; y += 665.5f) if (SEE(y, y + 666)) put("setlist_page2_loop_80x65", X(240), Y(y), 819 * K, 666 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); break;
+    case L_P1:   /* the notebook page */
+        put("setlist_page1_head_90x75", X(160), Y(0), 922 * K, 768 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
+        for (float y = 768; y < bottom; y += 512) if (SEE(y, y + 512)) put("setlist_page1_loop_89x33", X(157), Y(y), 922 * K, 513 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); break;
+    case L_LINES: {
+        float y0 = fmaxf(12, top); put("setlist_page1_line_red", X(320), Y(y0), 8 * K, (bottom - y0) * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);   /* the margin */
+        put("setlist_page1_head_lines", X(176), Y(64), 896 * K, 320 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1);
+        static const char *SOLID[3] = { "setlist_page1_line_solid_1", "setlist_page1_line_solid_2", "setlist_page1_line_solid_3" }, *DOTTED[3] = { "setlist_page1_line_dotted_1", "setlist_page1_line_dotted_2", "setlist_page1_line_dotted_3" };
+        for (int k = top > 420 ? (int)((top - 420) / 80) : 0; 420 + 80.0f * k < bottom; k++) { float y = 420 + 80.0f * k, w = k < 8 ? 883 : 896; uint32_t h = (uint32_t)k * 2654435761u;   /* which of the three ruled lines each one is */
+            put(SOLID[(h >> 7) % 3], X(176), Y(y), w * K, 16 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); put(DOTTED[(h >> 13) % 3], X(176), Y(y + 40), w * K, 16 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); } break; }
+    case L_TITLE:
+        put("setlist_page1_title", X(330), Y(220), 512 * K, 128 * K, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 0.7f); put("setlist_page1_title", X(325), Y(230), 512 * K, 128 * K, -2, 0, 0, 0, 0, 0, RGB(255, 255, 255), 0.2f); break;
+    case L_HL:   /* the highlight: it stays put while the pages move */
+        gfx_rect(X(326), (428 - fixedUp) * K, hlW * K, 80 * K, RGBA(255, 255, 255, 128)); break;
+    case L_WORDS:   /* the words on the page: the bonus and downloaded lists have their name written large in place of the title */
+    if (tab) { const ga_font *a10 = ga_font_get("fontgrid_text_a10"); if (!a10) a10 = f; fit(a10, X(330), Y(220), ga_font_size(a10) * 2 * K, X(1010 - 330), tab == 1 ? "MÚSICAS BÔNUS" : "MÚSICAS BAIXADAS", RGB(50, 30, 20), 0, 0); }
     for (int i = 0; i < A.nrows; i++) { float y = rowY[i]; if (!SEE(y - 10, y + 90)) continue;
         if (A.rows[i].kind == 0) { int t = A.rows[i].idx; const gh3_tier *tr = &lib->tiers[t]; const tierstate_t *ts = &A.tiers[t]; const char *st = NULL; uint32_t sc = SL_ARTIST;
             if (tr->tab == 1) snprintf(b, sizeof b, "MÚSICAS BÔNUS"); else if (tr->tab == 2) snprintf(b, sizeof b, "MÚSICAS BAIXADAS"); else if (tr->tab == 3) snprintf(b, sizeof b, "MAIS MÚSICAS"); else upper(tr->title, b, sizeof b);
@@ -148,7 +167,7 @@ int orig_setlist_draw(double now) {
                 else if (tr->bossIdx >= 0 && !ts->bossDone) st = "vença a batalha para liberar o encore"; else st = "toque o encore para fechar o set"; }
             else if (tr->tab == 1 && !SET.unlockAll) st = career ? "à venda na Loja: aperte Y" : "à venda na Loja da carreira";
             float sw = st ? ga_text_w(f, st, 55 * 0.5f * K) : 0; if (st) ga_text_right(f, X(1010), Y(y + 18), 55 * 0.5f * K, st, sc);
-            fit(f, X(300), Y(y), 55 * K, X(1010 - 300) - sw - (st ? 12 : 0), b, fb_alpha(i == 0 ? SL_INK1 : SL_INK, tr->career && career && !ts->open ? 0.45f : 1), 0, 0); continue; }
+            if (tab == 0 || i != 0) fit(f, X(300), Y(y), 55 * K, X(1010 - 300) - sw - (st ? 12 : 0), b, fb_alpha(i == 0 ? SL_INK1 : SL_INK, tr->career && career && !ts->open ? 0.45f : 1), 0, 0); continue; }
         const gh3_song *s = &lib->songs[A.rows[i].idx]; int on = i == cur, lock = app_song_lock(A.rows[i].tier, A.rows[i].idx);
         const record_t *rc = records_get(s->name, A.selDiff, 0), *rc2 = records_get(s->name, A.selDiff, 1); if (!rc || (rc2 && rc2->score > rc->score)) rc = rc2; float x = 340, right = 0;
         if (lock) { const char *why = lock >= LOCK_BUY ? store_lock_text(A.rows[i].idx, career) : !career ? "libere na carreira" : lock == LOCK_TIER ? "bloqueado" : lock == LOCK_BOSS ? "batalha bloqueada" : "encore bloqueado";
@@ -159,6 +178,7 @@ int orig_setlist_draw(double now) {
         song_title(s, b, sizeof b); float tw = fit(f, X(x), Y(y), 55 * 0.85f * K, X(rc && rc->stars > 2 && !lock ? 540 : 640) - (s->isBoss ? 16 : 0), b, lock ? fb_alpha(on ? SL_SONG_ON : SL_SONG, 0.5f) : on ? SL_SONG_ON : SL_SONG, 0, on);
         if (s->isBoss) { gfx_sprite *sk = art_get(ART_SKULL); if (sk) gfx_blit(sk, 0, 0, gfx_sprite_w(sk), gfx_sprite_h(sk), X(x) + tw + 5, Y(y) + 3, 16, 16.0f * gfx_sprite_h(sk) / gfx_sprite_w(sk), RGB(60, 35, 20), lock ? 0.5f : 1); }
         upper(s->artist, b, sizeof b); fit(f, X(x + 60), Y(y + 40), 55 * 0.6f * K, X(600) - right - 10, b, lock ? fb_alpha(SL_ARTIST, 0.6f) : SL_ARTIST, 0, 0); }
+    break; }
     /* the venue's picture and the clip holding it, fading in half a second after the choice settles */
     float k = (float)fmin(1, fmax(0, (now - changedAt - 500) / 250)), ez = k * k * (3 - 2 * k); const char *icon = tier_icon(A.rows[cur].tier);
     if (k > 0) { put(icon, X(163), (393 - fixedUp) * K, 160 * K, 160 * K, artRot, 0, 0, 0, 0, 0, RGB(0, 0, 0), 0.5f * k); put(icon, X(160), (390 - fixedUp) * K, 160 * K, 160 * K, artRot, 0, 0, 0, 0, 0, RGB(200, 200, 200), k);
@@ -166,6 +186,12 @@ int orig_setlist_draw(double now) {
     put("setlist_overshadow", 0, 0, (float)W, (float)H, 0, 0, 0, 0, 0, 0, RGB(105, 65, 7), 160 / 255.0f);   /* the light from above */
     for (int i = 0; i < nscat; i++) if (!scat[i].shoe && SEE(scat[i].y - 300, scat[i].y + 300)) for (int n = 0; n < 2; n++)
         put(scat[i].tex, X(scat[i].x), Y(scat[i].y), scat[i].w * K, scat[i].h * K, scat[i].rot, scat[i].centre ? 0.5f : 0, scat[i].centre ? 0.5f : 0, scat[i].fx, scat[i].fy, 0, RGB(255, 255, 255), 1);
+    /* the tabs, written at the top of each page, with the shoulder button that turns to the one beside (the game puts the
+     * fret button that opens each there; on the R36S L1 and R1 go one tab left or right). A tab with no songs is faded. */
+    { static const char *TW[3] = { "setlist", "bônus", "downloads" }; const float TX[3] = { 300, 624, 870 }, TY[3] = { 70, 102, tab == 2 ? 160.0f : 120 }, GX[3] = { 260, 580, 830 }, GY[3] = { 65, 90, tab == 2 ? 150.0f : 110 };
+      for (int t = 0; t < 3; t++) { int has = 0; for (int i = 0; i < lib->ntiers && !has; i++) if (screens_tab_of(i) == t) has = lib->tiers[i].nsongs > 0;
+          fit(f, X(TX[t]), Y(TY[t]), 55 * K, 0, TW[t], has ? RGB(0, 0, 0) : RGBA(0, 0, 0, 90), 0, 0);
+          if (t == tab - 1 || t == tab + 1) fit(f, X(GX[t]) - 6, Y(GY[t]) + 4, 44 * K, 0, t < tab ? "L1" : "R1", RGB(110, 110, 110), 0, 0); } }
     /* the mode and difficulty, and the career at a glance, in pills along the top */
     { const float TS = 15, PH = 22, py = 5; uint32_t ink = RGB(0, 0, 0), red = RGB(120, 20, 10); const char *mode = career ? "CARREIRA" : A.mode == MODE_QUICK ? "JOGO RÁPIDO" : "TREINO"; char d[32]; upper(diff_name_pt(A.selDiff), d, sizeof d);
         float w = ga_text_w(pf, mode, TS) + 10 + ga_text_w(pf, d, TS); pill(14, py, w + 8, PH); ga_text(pf, 18, py + 3, TS, mode, ink); ga_text(pf, 18 + ga_text_w(pf, mode, TS) + 10, py + 3, TS, d, red);
@@ -174,7 +200,7 @@ int orig_setlist_draw(double now) {
         float ww = 20 + ga_text_w(pf, st, TS) + (career ? 14 + ga_text_w(pf, b, TS) + 14 + ga_text_w(pf, cash, TS) : 0), px = W - 14 - ww - 8;
         pill(px, py, ww + 8, PH); px += 4; put("setlist_star_gold", px, py + 2, 18, 18, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); px += 20; ga_text(pf, px, py + 3, TS, st, ink); px += ga_text_w(pf, st, TS) + 14;
         if (career) { ga_text(pf, px, py + 3, TS, b, done == ntier ? RGB(20, 90, 30) : ink); px += ga_text_w(pf, b, TS) + 14; ga_text(pf, px, py + 3, TS, cash, RGB(20, 90, 30)); } }
-    static const char *bt[4] = { "A", "B", "← →", "Y" }, *tx[4] = { "Escolher", "Voltar", "Dificuldade", "Loja" }; ui_hints(H - 24, W, bt, tx, career ? 4 : 3);
+    static const char *bt[5] = { "A", "B", "← →", "L1 R1", "Y" }, *tx[5] = { "Escolher", "Voltar", "Dificuldade", "Abas", "Loja" }; ui_hints(H - 24, W, bt, tx, career ? 5 : 4);
     /* a set or song just opened: a note taped over the list */
     if (A.unlockAt > 0 && now - A.unlockAt < 4500) { float a = now - A.unlockAt > 3500 ? (float)(1 - (now - A.unlockAt - 3500) / 1000) : 1, sz = 26, tw = fminf(W - 120.0f, ga_text_w(f, A.unlockMsg, sz)), cw = tw + 70, ch = 74, cx = W / 2.0f - cw / 2, cy = H / 2.0f - ch / 2;
         gfx_rect(cx + 5, cy + 6, cw, ch, RGBA(0, 0, 0, (int)(90 * a))); put("setlist_page3_head_9x6", cx, cy, cw, ch, 0, 0, 0, 0, 0, 0, RGB(255, 250, 235), a);
