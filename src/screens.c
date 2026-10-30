@@ -12,6 +12,8 @@
 #include "battle.h"
 #include "cheats.h"
 #include "tutorial.h"
+#include "original.h"
+#include "orig_results.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -305,6 +307,7 @@ static void draw_pause(double now) {
     for (int i = 0; i < 4; i++) { int y = 196 + i * 34; if (i == A.pauseRow) { ui_panel(W / 2 - 120, y - 7, 240, 30, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), W / 2 - 112, y - 3, 0.5f, RGB(255, 255, 255), 1); } gfx_text_sh_center(W / 2 + 6, y, 2, it[i], i == A.pauseRow ? C_INK : C_MUTED, C_SHADOW); }
 }
 static void draw_results(double now) {
+    if (SET.theme == 2 && orig_ready() && orig_results_draw(now)) return;
     render_backdrop(now, SET.stageFx); gh3_run *r = &A.S.run; char b[120], n[32]; int W = A.W, H = A.H; double T = (now - A.resultsAt) / 1000;
     ui_header(W, r->failed ? "QUE PENA…" : "VOCÊ ARRASOU!", NULL);
     song_title(A.S.song, b, sizeof b); gfx_text_sh_center(W / 2, 70, 2, b, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s • %s • %s", A.S.song->artist, part_name(A.S.song, A.S.part), diff_name_pt(A.S.diff)); gfx_text_center(W / 2, 96, 1, b, C_MUTED);
