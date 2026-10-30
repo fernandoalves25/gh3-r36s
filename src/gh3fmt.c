@@ -232,6 +232,7 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
             cpystr(s.name, sizeof s.name, name); lower(s.name);
             const char *title = qb_str(qb_get(it->v, "title")); cpystr(s.title, sizeof s.title, *title ? title : name);
             cpystr(s.artist, sizeof s.artist, qb_str(qb_get(it->v, "artist")));
+            { const qbv *at = qb_get(it->v, "artist_text"); uint32_t k; cpystr(s.artistText, sizeof s.artistText, qb_keyof(at, &k) ? gh3_library_text(lib, k) : qb_str(at)); }   /* a string, or the key of one ($artist_text_by) */
             const char *year = qb_str(qb_get(it->v, "year")); while (*year == ',' || *year == ' ') year++; cpystr(s.year, sizeof s.year, year);
             s.hmScale = (float)qb_num(qb_get(it->v, "hammer_on_measure_scale"), 0);
             s.bandVol = (float)qb_num(qb_get(it->v, "band_playback_volume"), 0);
