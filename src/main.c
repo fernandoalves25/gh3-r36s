@@ -437,6 +437,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
     A.optCat = 3; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
+    A.optCat = 2; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle");   /* Controle, on Canhoto */
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
     A.optionsFrom = SC_MAIN; A.optRow = 5; cheats_open(); gfx_begin(); screens_draw(0); gfx_end(); save_named("cheats");
     { /* the Hyperspeed code of the game (O B O Y O B O Y) typed on the keyboard frets, to see the matcher unlock it */
@@ -449,6 +450,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_CALIB; A.calN = 9; for (int i = 0; i < 9; i++) A.calDiff[i] = 40 + (i % 3) * 6; A.calLastDiff = 46; A.calLastTapAt = -100; gfx_begin(); screens_draw(0); gfx_end(); save_named("calib");
     double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
     snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(t)); A.screen = SC_PAUSE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("pause");
+    A.optionsFrom = SC_PAUSE; A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 2; gfx_begin(); screens_draw(perf); gfx_end(); save_named("options_pause"); A.optionsFrom = SC_MAIN; A.screen = SC_PAUSE;   /* Áudio opened from the pause: the song behind */
     for (; !A.S.run.finished; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
     A.S.run.autoPlay = 0; app_finish_song(perf);
     for (double rt = 0; rt <= 1.06; rt += 1.0 / 60) { A.resultsAt = perf - rt * 1000; gfx_begin(); screens_draw(perf); gfx_end(); } save_named("results_reveal");   /* the third star landing, its sparks flying */
