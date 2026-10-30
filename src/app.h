@@ -6,7 +6,7 @@
 #include "game.h"
 #include "settings.h"
 #include "career.h"
-enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR };
+enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR, SC_MOVIE };
 /* the main menu's ways to play, as in the game: Career moves the career, Quickplay plays any song the career has
  * opened (scores kept, career untouched), Practice plays a song from a chosen section (nothing saved) */
 enum { MODE_CAREER, MODE_QUICK, MODE_PRACTICE };
@@ -34,6 +34,7 @@ typedef struct {
     int testHeld, testStrum; double testStrumAt; float testWhammy; int testStar;
     double calDiff[24]; int calN; double calLastDiff, calLastTapAt; int calFrom;   /* calibration taps (ms after the click) */
     char starKeys[80]; double capAt;
+    char moviePending[48];                   /* a career cutscene to show on the way back to the set list (a tier just completed) */
 } app_t;
 extern app_t A;
 /* services of main.c */
@@ -57,7 +58,12 @@ void app_calib_stop(void);
 int app_calib_result(void);          /* the median of the taps, ms */
 void app_refresh_career(int announce);
 const char *app_section_at(double t);
+/* movies: DATA/MOVIES/R36S/<name>.mpg (name as the game calls it, any case: "singleplayer_01", "slash"). A movie that is
+ * not there is passed over: app_play_movie then goes straight to returnScreen (through screens_enter) */
+void app_play_movie(const char *name, int returnScreen);   /* full screen; A/B/Start skip after 0.6 s; then returnScreen */
+int app_movie_exists(const char *name);
 /* screens.c */
+void screens_enter(int screen, double now);   /* goes to a screen as the menus do (the set list: its preview, the unlock message, a pending cutscene) */
 void screens_build_rows(void);
 void screens_draw(double now);
 void screens_event(int in, double now);

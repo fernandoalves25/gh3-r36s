@@ -38,4 +38,11 @@ void audio_set_sfx_gain(double gain);
 void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping);
 void audio_preview_stop(double fadeSec);
 int audio_preview_on(void);
+/* movie sound: 44.1 kHz stereo float PCM pushed by the movie player into a ring that the callback mixes at the band
+ * volume, apart from the song streams; its clock is what has been heard of it */
+void audio_movie_start(void);                          /* empties the ring, not playing yet */
+int audio_movie_push(const float *lr, int frames);     /* frames taken (as many as fit) */
+int audio_movie_queued(void);                          /* frames waiting in the ring */
+void audio_movie_run(int on);                          /* 0: silent and the ring stays put */
+double audio_movie_ms(void);                           /* ms of the pushed sound heard so far (-1: no device) */
 #endif

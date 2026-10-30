@@ -218,6 +218,7 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
     uint32_t K_ENCORE_FLAG = 0xbd963c89u; /* the anonymous flag every career tier but the last carries (the last has no encore) */
     for (int L = 0; L < 4; L++) {
         const qbv *st = sec(&m, tl[L]); if (!st || st->kind != QB_STRUCT) continue;
+        if (L == 0) { cpystr(lib->careerMovie, sizeof lib->careerMovie, qb_str(qb_get(st, "initial_movie"))); lower(lib->careerMovie); }
         for (int i = 0; i < st->nitems; i++) {
             const qbitem *it = &st->items[i]; if (it->kind != 0x0A || !it->v) continue;
             const qbv *arr = qb_get(it->v, "songs"); if (!arr || arr->kind != QB_ARRAY) continue;
@@ -227,6 +228,7 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
             const char *title = qb_str(qb_get(it->v, "title")); cpystr(t.title, sizeof t.title, *title ? title : tl[L]);
             if (t.career) {
                 t.defaultUnlocked = (int)qb_num(qb_get(it->v, "defaultunlocked"), 0);
+                cpystr(t.movie, sizeof t.movie, qb_str(qb_get(it->v, "completion_movie"))); lower(t.movie);
                 for (int k = 0; k < it->v->nitems; k++) { uint32_t fk; if (it->v->items[k].id == 0 && qb_keyof(it->v->items[k].v, &fk) && fk == K_ENCORE_FLAG) t.hasEncore = 1; }
                 for (int k = 0; k < t.nsongs; k++) if (lib->songs[t.songIdx[k]].isBoss) t.bossIdx = t.songIdx[k];
                 if (t.hasEncore) for (int k = t.nsongs - 1; k >= 0; k--) if (!lib->songs[t.songIdx[k]].isBoss) { t.encoreIdx = t.songIdx[k]; break; }

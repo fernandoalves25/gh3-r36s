@@ -110,10 +110,10 @@ static void item(int i, const char **title, const char **sub, int *price, int *h
     if (cat == 0) { const gh3_song *g = &A.lib->songs[list[i]]; *title = g->title; *sub = g->artist; *price = sh->songPrice[list[i]]; *have = owned[list[i]]; }
     else { const gh3_video *v = &sh->videos[i]; *title = v->name; *sub = ""; *price = v->price; *have = video_owned(v); }
 }
-/* a bonus video: the movie player is another piece of work */
+/* a bonus video, from MOVIES/R36S (tools/convert_movies.sh makes them) */
 static void watch_video(const gh3_video *v, double now) {
-    /* TODO movie: app_play_movie(v->id, SC_STORE); */
-    char b[120]; snprintf(b, sizeof b, "O vídeo \"%s\" ainda não toca neste port.", v->name); note(now, b); audio_sfx(SFX_BACK);
+    if (app_movie_exists(v->id)) { audio_sfx(SFX_OK); app_play_movie(v->id, SC_STORE); return; }
+    char b[160]; snprintf(b, sizeof b, "Falta o vídeo \"%s\" em DATA/MOVIES/R36S.", v->name); note(now, b); audio_sfx(SFX_BACK);
 }
 void store_open(double now) { make_list(); store_refresh(A.lib); A.screen = SC_STORE; confirm = 0; app_preview(-1); audio_sfx(SFX_OK); (void)now; }
 void store_draw(double now) {

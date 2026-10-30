@@ -10,6 +10,7 @@ typedef struct gfx_sprite gfx_sprite;
 int gfx_init(SDL_Renderer *ren, int W, int H);          /* ren == NULL: software into gfx_soft_fb() */
 int gfx_is_soft(void);
 fb_t *gfx_soft_fb(void);
+SDL_Renderer *gfx_renderer(void);                       /* NULL in software (the movie player draws its own YUV texture) */
 gfx_sprite *gfx_bake(const fb_t *src, int linear);      /* makes a sprite from a software image */
 gfx_sprite *gfx_bake_up(const fb_t *src, int up, int linear); /* the image enlarged `up` times (nearest) first: pixel art that scales smoothly */
 void gfx_free_sprite(gfx_sprite *s);

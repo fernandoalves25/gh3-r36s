@@ -26,6 +26,8 @@ static int64_t metroFrames = 0;    /* > 0: the calibration metronome clicks ever
  * (pitch kept): the player's track as one stereo pair (its miss mute, volume and whammy are applied after, in real
  * time), the band and the other track mixed as the second pair */
 static double rate = 1, rateNext = 1; static int stretching = 0; static stretch_t ST;
+#define MV_N (1 << 15)             /* movie ring: 0.74 s of stereo frames; pushed and read under the device lock */
+static float mvBuf[MV_N * 2]; static int64_t mvW, mvR, mvCbR; static int mvOn;
 
 /* ---- the whammy bend: the player track goes through a two-tap delay-line pitch shifter (two read heads drifting
  * through a 40 ms window, crossfaded with triangle windows that always sum to 1). The bend is a level 0..1 set by the
@@ -118,7 +120,8 @@ static void voice_start(int kind) {
 static void callback(void *ud, Uint8 *out, int len) {
     (void)ud; float *o = (float *)out; int frames = len / (int)(sizeof(float) * 2);
     bendCur += (bendTarget - bendCur) * 0.35f; bendRatio = powf(2.0f, -BEND_SEMIS * bendCur / 12.0f);
-    SDL_AtomicLock(&lock); cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed; SDL_AtomicUnlock(&lock);
+    SDL_AtomicLock(&lock); cbTicks = SDL_GetPerformanceCounter(); cbMixed = mixed; mvCbR = mvR; SDL_AtomicUnlock(&lock);
+    float mvG = master * busGain[BUS_BAND];
     memset(out, 0, len);
     for (int i = 0; i < frames; i++) {
         float l = 0, r = 0;
@@ -137,6 +140,7 @@ static void callback(void *ud, Uint8 *out, int len) {
         }
         float fx = 0; for (int v = 0; v < VOICES; v++) if (voices[v].on) fx += voice_sample(&voices[v]);
         fx *= sfxGain * master; l += fx; r += fx;
+        if (mvOn && mvR < mvW) { const float *m = &mvBuf[(mvR & (MV_N - 1)) * 2]; l += m[0] * mvG; r += m[1] * mvG; mvR++; }
         o[i * 2] = l > 1 ? 1 : l < -1 ? -1 : l; o[i * 2 + 1] = r > 1 ? 1 : r < -1 ? -1 : r;
     }
 }
@@ -180,6 +184,23 @@ void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping)
 }
 void audio_preview_stop(double sec) { if (dev) SDL_LockAudioDevice(dev); if (preview && running) { if (sec <= 0) { running = 0; preview = 0; } else fadeStep = (float)(1.0 / (sec * 44100)); } if (dev) SDL_UnlockAudioDevice(dev); }
 int audio_preview_on(void) { return preview && running; }
+void audio_movie_start(void) { if (dev) SDL_LockAudioDevice(dev); mvW = mvR = mvCbR = 0; mvOn = 0; if (dev) SDL_UnlockAudioDevice(dev); }
+int audio_movie_push(const float *lr, int frames) {
+    if (dev) SDL_LockAudioDevice(dev);
+    int n = (int)(MV_N - (mvW - mvR)); if (n > frames) n = frames;
+    for (int i = 0; i < n; i++) { float *d = &mvBuf[((mvW + i) & (MV_N - 1)) * 2]; d[0] = lr[i * 2]; d[1] = lr[i * 2 + 1]; }
+    mvW += n; if (dev) SDL_UnlockAudioDevice(dev); return n;
+}
+int audio_movie_queued(void) { if (dev) SDL_LockAudioDevice(dev); int n = (int)(mvW - mvR); if (dev) SDL_UnlockAudioDevice(dev); return n; }
+void audio_movie_run(int on) { if (dev) SDL_LockAudioDevice(dev); mvOn = on; if (dev) SDL_UnlockAudioDevice(dev); }
+double audio_movie_ms(void) {   /* as audio_song_ms: what the last callback took is heard about one buffer later */
+    if (!dev) return -1;
+    SDL_AtomicLock(&lock); Uint64 ct = cbTicks; int64_t r0 = mvCbR; SDL_AtomicUnlock(&lock);
+    SDL_LockAudioDevice(dev); int64_t r1 = mvR; int on = mvOn; SDL_UnlockAudioDevice(dev);
+    double f = (double)SDL_GetPerformanceFrequency(), since = ((double)SDL_GetPerformanceCounter() - (double)ct) / f * 44100;
+    double heard = (double)r0 - spec.samples + (on ? since : 0); if (heard > r1) heard = (double)r1; if (heard < 0) heard = 0;
+    return heard / 44.1;
+}
 void audio_sfx(int kind) {
     if (kind < 0 || kind >= SFX_N || !dev) return;
     SDL_LockAudioDevice(dev); voice_start(kind); SDL_UnlockAudioDevice(dev);

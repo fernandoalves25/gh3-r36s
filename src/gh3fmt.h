@@ -35,7 +35,7 @@ int qb_keyof(const qbv *v, uint32_t *key);
 typedef struct { uint32_t key; char name[64], title[128], artist[128], year[16]; float hmScale, bandVol, guitarVol; int hasRhythm; uint32_t bossKey; int isBoss; } gh3_song;
 /* a set of the song list. tab: 0 career tier, 1 bonus, 2 downloads, 3 the rest. In a career tier the songs are in
  * the game's order; encoreIdx / bossIdx are song indices (or -1) and defaultUnlocked the songs open from the start. */
-typedef struct { char title[96]; int *songIdx; int nsongs; int tab; int career, hasEncore, defaultUnlocked, encoreIdx, bossIdx; } gh3_tier;
+typedef struct { char title[96]; int *songIdx; int nsongs; int tab; int career, hasEncore, defaultUnlocked, encoreIdx, bossIdx; char movie[48]; } gh3_tier;   /* movie: completion_movie, lower case ("" none) */
 typedef struct { double lookahead, good, bad, star; } gh3_diff;
 typedef struct { double hmScale, early, late, hamEarly, hamLate, strumBefore, formBefore, susShorten, split, spDrain; gh3_diff diffs[4]; } gh3_tuning;
 typedef struct { uint32_t id; char *s; } gh3_text;
@@ -43,7 +43,7 @@ typedef struct { uint32_t id; char *s; } gh3_text;
  * the bonus videos (bonus_videos), the cash a result pays (cash[diff][newstars][oldstars]) and each tier's venue (levelzones name, "z_dive") */
 typedef struct { char id[24], name[64], info[400]; int price; } gh3_video;
 typedef struct { int *songPrice; char **songInfo; char (*tierZone)[24]; int cash[4][6][6]; int hasCash; gh3_video videos[8]; int nvideos; } gh3_shop;
-typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; } gh3_library;
+typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; char careerMovie[48]; } gh3_library;   /* careerMovie: the career's initial_movie */
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib);
 const char *gh3_library_text(const gh3_library *lib, uint32_t key);   /* a string section of the main script pak (section names and the like) */
 void gh3_default_tuning(gh3_tuning *t);
