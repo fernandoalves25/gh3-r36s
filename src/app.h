@@ -40,6 +40,12 @@ void app_begin_song(void);
 int app_prepare_song(int songIdx);     /* loads the chart for the setup screen (no audio); 0 when fine */
 int app_song_lock(int tier, int songIdx);   /* LOCK_* for the current mode */
 void app_guitar_lick(void);            /* one of the game's guitar licks (the title screen's Start), then the menu music again */
+/* clips of STREAMS/streamall.fsb.xen by their bank name ("encore_build_dive.mp3", "tom_intro_front_speakers.mp3",
+ * "en_tutorial_1a_01_god.mp3"…): load returns the descrambled MP3 (malloc'd, NULL when missing); play puts it on the
+ * menu music channel once, so it is heard on the menu screens only (it is cut on the others, and when it ends the menu
+ * music comes back). Over a song, mix the loaded clip in some other way. */
+uint8_t *app_stream_load(const char *name, size_t *size);
+int app_play_stream(const char *name, double levelDb);
 void app_session_free(void);
 void app_quit(void);
 void app_preview(int songIdx);         /* the preview of a song is wanted (-1: none) */

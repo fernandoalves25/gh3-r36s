@@ -228,6 +228,19 @@ static void preview_tick(void) {
         else { do pick = menuTracks[rand() % nMenu]; while (nMenu > 1 && pick == menuLast); menuLast = pick; }
         memset(&prevJob, 0, sizeof prevJob); prevJob.kind = JOB_MENU; prevJob.idx = pick; prevThread = SDL_CreateThread(preview_worker, "menu-music", NULL); }
 }
+uint8_t *app_stream_load(const char *name, size_t *size) {
+    *size = 0; if (!bankFound) return NULL;
+    for (int i = 0; i < bank.nstreams; i++) { const gh3_fsbstream *st = &bank.streams[i]; if (strcmp(st->name, name)) continue;
+        FILE *f = fopen(bankPath, "rb"); if (!f) return NULL; uint8_t *b = malloc(st->size ? st->size : 1);
+        if (fseek(f, (long)st->offset, SEEK_SET) || fread(b, 1, st->size, f) != st->size) { fclose(f); free(b); return NULL; }
+        fclose(f); if (!bank.plain) gh3_fsb_descramble(b, st->size, st->offset); *size = st->size; return b; }
+    return NULL;
+}
+int app_play_stream(const char *name, double levelDb) {
+    size_t n; uint8_t *b = app_stream_load(name, &n); if (!b) return -1;
+    app_preview(-1); audio_preview_stop(0); free(menuBytes); menuBytes = b; audio_preview(menuBytes, n, levelDb, 0); menuPlaying = 1; prevPlaying = -1; menuLast = -1;
+    return 0;
+}
 static void menu_selftest(void) {   /* --menutest: reads the menu music index and decodes each track and lick */
     bank_index(); if (!bankFound) { puts("no STREAMS/streamall.fsb.xen"); return; }
     for (int k = 0; k < nMenu + nLicks; k++) { memset(&prevJob, 0, sizeof prevJob); prevJob.kind = JOB_MENU; prevJob.idx = k < nMenu ? menuTracks[k] : licks[k - nMenu]; preview_worker(NULL);
