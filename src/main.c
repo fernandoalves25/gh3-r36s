@@ -21,6 +21,7 @@
 #include "input.h"
 #include "career.h"
 #include "app.h"
+#include "movie.h"
 
 /* ------------------------------------------------------------------ files */
 typedef struct { char lower[300]; char path[600]; size_t size; } fentry;
@@ -53,7 +54,7 @@ static uint8_t *read_data(const char *dir, const char *name, size_t *len) { cons
 /* ------------------------------------------------------------------ config */
 typedef struct {
     char data[520]; int W, H, fullscreen, vsync, soft;
-    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens; char outdir[520];
+    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens; char outdir[520]; char movietest[64]; int movieplay;
 } cfg_t;
 static cfg_t cfg;
 static void cfg_defaults(void) {
@@ -72,6 +73,8 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--dump")) cfg.dump = 1;
         else if (!strcmp(a, "--audiotest")) cfg.audiotest = 1;
         else if (!strcmp(a, "--menutest")) cfg.menutest = 1;
+        else if (!strcmp(a, "--movietest")) { snprintf(cfg.movietest, sizeof cfg.movietest, "%s", v); i++; }
+        else if (!strcmp(a, "--movieplay")) cfg.movieplay = 1;
         else if (!strcmp(a, "--screens")) { cfg.screens = 1; snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
         else if (!strcmp(a, "--song")) { snprintf(cfg.song, sizeof cfg.song, "%s", v); i++; }
         else if (!strcmp(a, "--diff")) { cfg.diff = diff_index(v); i++; }
@@ -86,7 +89,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--windowed")) cfg.fullscreen = 0;
         else if (!strcmp(a, "--fullscreen")) cfg.fullscreen = 1;
         else if (!strcmp(a, "--size")) { sscanf(v, "%dx%d", &cfg.W, &cfg.H); i++; }
-        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
+        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
     }
 }
 
@@ -160,7 +163,8 @@ void app_refresh_career(int announce) {
         for (int t = 0; t < lib.ntiers; t++) { const gh3_tier *tr = &lib.tiers[t];
             if (!before[t].open && A.tiers[t].open) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", tr->title);
             else if (!before[t].encoreOpen && A.tiers[t].encoreOpen) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Encore liberado: %s", lib.songs[tr->encoreIdx].title);
-            else if (!before[t].bossOpen && A.tiers[t].bossOpen) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Batalha liberada!"); }
+            else if (!before[t].bossOpen && A.tiers[t].bossOpen) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Batalha liberada!");
+            if (tr->career && !before[t].done && A.tiers[t].done && tr->movie[0]) snprintf(A.moviePending, sizeof A.moviePending, "%s", tr->movie); }   /* shown on the way back to the set list */
         if (A.unlockMsg[0]) A.unlockPending = 1; free(before); }
 }
 
@@ -236,6 +240,48 @@ static void menu_selftest(void) {   /* --menutest: reads the menu music index an
 }
 static void preview_shutdown(void) { if (prevThread) { SDL_WaitThread(prevThread, NULL); prevThread = NULL; } audio_preview_stop(0); free(prevJob.fsb); free(prevJob.dat); free(prevBytes); free(prevDat); free(prevFsb.streams); free(menuBytes); free(bank.streams); free(bank.bytes); }
 
+/* ---- movies (DATA/MOVIES/R36S/<name>.mpg): the boot logos and the intro, the career's cutscenes. The menu music
+ * stops while one plays (menu_music_wanted() is 0 on SC_MOVIE) and comes back on the screen it returns to. */
+static const char *const BOOT_MOVIES[] = { "atvi", "ro_logo", "ns_logo", "intro" };
+static int bootNext = -1, movieReturn = SC_MAIN; static double movieAt;
+static const fentry *movie_file(const char *name) { char nm[96]; snprintf(nm, sizeof nm, "%s.mpg", name); return find_file("movies/r36s", nm); }
+int app_movie_exists(const char *name) { return name && *name && movie_file(name) != NULL; }
+static int movie_start(const char *name) {
+    const fentry *e = name && *name ? movie_file(name) : NULL; if (!e || movie_open(e->path, A.W, A.H)) return 0;
+    app_preview(-1); audio_preview_stop(0); menuPlaying = 0; lickWanted = 0; A.screen = SC_MOVIE; movieAt = SDL_GetTicks(); return 1;
+}
+void app_play_movie(const char *name, int returnScreen) { bootNext = -1; movieReturn = returnScreen; if (!movie_start(name)) screens_enter(returnScreen, SDL_GetTicks()); }
+static void movie_finish(double now, int all) {   /* all: Start skips the rest of the boot sequence too */
+    movie_close();
+    if (!all) while (bootNext >= 0 && bootNext < (int)(sizeof BOOT_MOVIES / sizeof *BOOT_MOVIES)) if (movie_start(BOOT_MOVIES[bootNext++])) return;
+    bootNext = -1; screens_enter(movieReturn, now);
+}
+static void boot_movies(void) { bootNext = 0; movieReturn = SC_TITLE; movie_finish(SDL_GetTicks(), 0); }
+static void movie_event(const SDL_Event *ev, double now) {   /* A or B skip one movie, Start the whole boot sequence, after 0.6 s */
+    int skip = 0, all = 0;
+    if (ev->type == SDL_CONTROLLERBUTTONDOWN) { int b = ev->cbutton.button; if (b == SDL_CONTROLLER_BUTTON_START) skip = all = 1; else if (b == SDL_CONTROLLER_BUTTON_A || b == SDL_CONTROLLER_BUTTON_B) skip = 1; }
+    else if (ev->type == SDL_KEYDOWN && !ev->key.repeat) { int k = ev->key.keysym.sym; if (k == SDLK_ESCAPE) skip = all = 1; else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_BACKSPACE) skip = 1; }
+    if (skip && now - movieAt >= 600) movie_finish(now, all);
+}
+static void save_named(const char *name);
+static void movie_test(void) {   /* --movietest NAME|all [--movieplay]: decodes each movie, the middle frame to <out>/movie_<name>.bmp */
+    if (cfg.movieplay) { SDL_Init(SDL_INIT_AUDIO); if (audio_open()) puts("no audio device: the wall clock runs the movie"); app_apply_volumes(); }
+    gfx_init(NULL, cfg.W, cfg.H); A.W = cfg.W; A.H = cfg.H; int n = 0;
+    for (int i = 0; i < nfiles; i++) { const char *l = files[i].lower; size_t L = strlen(l);
+        if (strncmp(l, "movies/r36s/", 12) || L < 17 || strcmp(l + L - 4, ".mpg")) continue;
+        char nm[96]; snprintf(nm, sizeof nm, "%.*s", (int)(L - 16), l + 12); if (strcmp(cfg.movietest, "all") && strcasecmp(cfg.movietest, nm)) continue;
+        n++; gfx_begin(); if (movie_selftest(files[i].path, cfg.W, cfg.H) == 0) { char o[120]; snprintf(o, sizeof o, "movie_%s", nm); save_named(o); }
+        SDL_Renderer *ren = NULL; SDL_Window *win = NULL;   /* GH3_MOVIE_GPU=1: through a renderer's YUV texture (a hidden window), read back */
+        if (cfg.movieplay && getenv("GH3_MOVIE_GPU") && SDL_InitSubSystem(SDL_INIT_VIDEO) == 0 && (win = SDL_CreateWindow("movietest", 0, 0, cfg.W, cfg.H, SDL_WINDOW_HIDDEN))) { ren = SDL_CreateRenderer(win, -1, 0); if (ren) { SDL_RendererInfo ri; SDL_GetRendererInfo(ren, &ri); printf("  renderer: %s\n", ri.name); gfx_init(ren, cfg.W, cfg.H); } }
+        if (cfg.movieplay && movie_open(files[i].path, cfg.W, cfg.H) == 0) {   /* the real pipeline: worker thread, ring, clock */
+            double t0 = SDL_GetTicks(), now = t0; int ticks = 0; while (movie_tick(now = SDL_GetTicks()) && now - t0 < 200000) { gfx_begin(); movie_draw(cfg.W, cfg.H); ticks++;
+                if (ren && ticks == 90) { SDL_Surface *s = SDL_CreateRGBSurface(0, cfg.W, cfg.H, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0); SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch); char p[700]; snprintf(p, sizeof p, "%s/movie_gpu_%s.bmp", cfg.outdir, nm); SDL_SaveBMP(s, p); SDL_FreeSurface(s); }
+                gfx_end(); SDL_Delay(16); if (getenv("GH3_MOVIE_DEBUG") && ticks % 60 == 0) printf("    wall %.2f s, sound heard %.2f s\n", (now - t0) / 1000, audio_movie_ms() / 1000); }
+            printf("  played in real time: %.2f s, %d ticks%s\n", (now - t0) / 1000, ticks, movie_has_audio() ? " (clock: its sound)" : " (clock: the wall)"); movie_close(); }
+        if (ren) { SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); gfx_init(NULL, cfg.W, cfg.H); } }
+    if (!n) printf("no MOVIES/R36S/%s.mpg under %s (tools/convert_movies.sh makes them)\n", cfg.movietest, cfg.data);
+}
+
 /* ---- playing ---- */
 void app_begin_song(void) {
     char err[300]; app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
@@ -284,8 +330,8 @@ static void finish_song(double now) {
 
 /* ------------------------------------------------------------------ headless modes */
 static void dump(void) {
-    printf("songs: %d  tiers: %d\n", lib.nsongs, lib.ntiers);
-    for (int t = 0; t < lib.ntiers; t++) { const gh3_tier *tr = &lib.tiers[t]; printf("== %s%s (default unlocked %d%s%s)\n", tr->title, tr->career ? " [career]" : "", tr->defaultUnlocked, tr->bossIdx >= 0 ? ", boss" : "", tr->encoreIdx >= 0 ? ", encore" : "");
+    printf("songs: %d  tiers: %d  career movie: %s\n", lib.nsongs, lib.ntiers, lib.careerMovie[0] ? lib.careerMovie : "-");
+    for (int t = 0; t < lib.ntiers; t++) { const gh3_tier *tr = &lib.tiers[t]; printf("== %s%s (default unlocked %d%s%s%s%s)\n", tr->title, tr->career ? " [career]" : "", tr->defaultUnlocked, tr->bossIdx >= 0 ? ", boss" : "", tr->encoreIdx >= 0 ? ", encore" : "", tr->movie[0] ? ", movie " : "", tr->movie);
         for (int k = 0; k < tr->nsongs; k++) { const gh3_song *s = &lib.songs[tr->songIdx[k]]; printf("   %-24s %s - %s (%s)%s%s%s\n", s->name, s->title, s->artist, s->year, s->hasRhythm ? " [bass]" : "", tr->songIdx[k] == tr->bossIdx ? " [BOSS]" : "", tr->songIdx[k] == tr->encoreIdx ? " [ENCORE]" : ""); } }
     const gh3_tuning *tn = &lib.tuning;
     printf("tuning: early %.0f late %.0f hamEarly %.0f hamLate %.0f strumBefore %.0f formBefore %.0f susShorten %.2f split %.2f spDrain %.1f hmScale %.2f\n", tn->early, tn->late, tn->hamEarly, tn->hamLate, tn->strumBefore, tn->formBefore, tn->susShorten, tn->split, tn->spDrain, tn->hmScale);
@@ -324,6 +370,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.setupRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = 0;
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
+    A.optCat = 3; A.optRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on Vídeos de abertura */
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
     A.screen = SC_CALIB; A.calN = 9; for (int i = 0; i < 9; i++) A.calDiff[i] = 40 + (i % 3) * 6; A.calLastDiff = 46; A.calLastTapAt = -100; gfx_begin(); screens_draw(0); gfx_end(); save_named("calib");
     double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
@@ -362,6 +409,7 @@ int main(int argc, char **argv) {
     if (cfg.frames > 0) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
     if (cfg.screens) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
     if (cfg.menutest) { SDL_Init(0); menu_selftest(); return 0; }
+    if (cfg.movietest[0]) { SDL_Init(0); movie_test(); audio_close(); return 0; }
     if (cfg.audiotest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
         char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }
 
@@ -386,7 +434,7 @@ int main(int argc, char **argv) {
     open_pads();
     gh3_sfx_hook = sfx_hook; gh3_mute_hook = mute_hook;
     bank_index(); srand(SDL_GetTicks() ^ (unsigned)time(NULL));
-    if (!A.libOk) { snprintf(A.errMsg, sizeof A.errMsg, "%s", libErr); A.screen = SC_ERROR; } else { app_refresh_career(0); screens_build_rows(); A.screen = SC_TITLE; A.titleAt = SDL_GetTicks(); }
+    if (!A.libOk) { snprintf(A.errMsg, sizeof A.errMsg, "%s", libErr); A.screen = SC_ERROR; } else { app_refresh_career(0); screens_build_rows(); A.screen = SC_TITLE; A.titleAt = SDL_GetTicks(); if (SET.introMovies) boot_movies(); }
     Uint32 last = SDL_GetTicks(), fpsAt = last; int fpsN = 0;
     while (running) {
         double now = SDL_GetTicks(); SDL_Event ev;
@@ -398,6 +446,7 @@ int main(int argc, char **argv) {
             if (ev.type == SDL_QUIT) running = 0;
             else if (ev.type == SDL_CONTROLLERDEVICEADDED && !pad) open_pads();
             else if (A.screen == SC_PLAY) play_event(&ev, now, songT);
+            else if (A.screen == SC_MOVIE) movie_event(&ev, now);
             else { if (screens_raw_event(&ev, now)) continue; int in = menu_event(&ev); if (in != IN_NONE) screens_event(in, now); }
         }
         preview_tick();
@@ -410,6 +459,7 @@ int main(int argc, char **argv) {
             hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail, A.starKeys }; render_game(r, now, &hi);
             if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); gfx_text_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, "Continuando…", C_AMP, C_SHADOW); }
             else if (r->failed || r->finished) finish_song(now);
+        } else if (A.screen == SC_MOVIE) { if (!movie_tick(now)) movie_finish(now, 0); if (A.screen == SC_MOVIE) movie_draw(A.W, A.H); else screens_draw(now);
         } else {
             if (A.screen == SC_RESULTS && !A.S.run.failed) { double T = (now - A.resultsAt) / 1000; int shown = (int)(T / 0.35) + 1; if (shown > A.resultStars) shown = A.resultStars; while (A.starsSounded < shown) { A.starsSounded++; audio_sfx(SFX_DING); } if (A.newRecord && A.starsSounded == A.resultStars && T > 1.9 && A.starsSounded < 99) { A.starsSounded = 99; audio_sfx(SFX_FANFARE); } }
             screens_draw(now);
@@ -420,6 +470,6 @@ int main(int argc, char **argv) {
         fpsN++; Uint32 t2 = SDL_GetTicks(); if (t2 - fpsAt >= 1000) { A.fps = fpsN; fpsN = 0; fpsAt = t2; }
         if (!cfg.vsync) { if (t2 - last < 16) SDL_Delay(16 - (t2 - last)); } last = SDL_GetTicks();
     }
-    settings_save(); preview_shutdown(); app_session_free(); audio_close(); SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit();
+    settings_save(); movie_close(); preview_shutdown(); app_session_free(); audio_close(); SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit();
     return 0;
 }

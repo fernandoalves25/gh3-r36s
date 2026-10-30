@@ -23,6 +23,8 @@ typedef struct {
     int bgDim;          /* 0..100: how dark the stage behind the highway is */
     int unlockAll;      /* every song open whatever the career says */
     int theme;          /* 0 pixel art, 1 HD (smooth) */
+    int introMovies;    /* the logos and the game's intro at start-up */
+    int careerIntro;    /* the career's opening movie was shown (kept by Restaurar padrões) */
     bind_t binds[ACT_N][BIND_SLOTS];
 } settings_t;
 extern settings_t SET;

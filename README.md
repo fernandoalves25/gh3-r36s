@@ -32,7 +32,8 @@ make            # build/gh3 para o PC, com modos sem janela: --dump, --frames, -
 make port       # build/gh3.aarch64 e o zip do PortMaster em build/port/
 ```
 
-O decodificador de MP3 é o [minimp3](https://github.com/lieff/minimp3) (CC0), em `third_party/`.
+O decodificador de MP3 é o [minimp3](https://github.com/lieff/minimp3) (CC0) e o de vídeo (MPEG-1 + MP2) é o
+[pl_mpeg](https://github.com/phoboslab/pl_mpeg) (MIT), ambos em `third_party/`.
 A pasta `tools/fixes/` guarda correções de outros ports usados no mesmo aparelho.
 
 Guitar Hero é marca da Activision. Este projeto não é afiliado à Activision nem à RedOctane.

@@ -8,6 +8,7 @@ static SDL_Renderer *R; static fb_t soft; static int W, H;
 static gfx_sprite *font;
 
 int gfx_is_soft(void) { return R == NULL; }
+SDL_Renderer *gfx_renderer(void) { return R; }
 fb_t *gfx_soft_fb(void) { return &soft; }
 int gfx_sprite_w(const gfx_sprite *s) { return s->w; }
 int gfx_sprite_h(const gfx_sprite *s) { return s->h; }

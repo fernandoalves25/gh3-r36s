@@ -14,7 +14,10 @@ jogo, como foram levantadas no port para navegador.
   - `SONGS/` (as partituras: `*_song.pak.xen`) - 380 MB
   - `MUSIC/` (o áudio: `*.fsb.xen` + `*.dat.xen`) - 2,1 GB
   - `STREAMS/` (a música do menu e os riffs de guitarra: `streamall.fsb.xen`) - 85 MB, opcional
-  - `ZONES/` e `MOVIES/` não são usadas e podem ficar de fora para poupar cartão.
+  - `MOVIES/R36S/` (os vídeos do jogo em MPEG-1, `*.mpg`) - 200 MB, opcional. São feitos no PC a partir dos MP4 de
+    `MOVIES/WEB/` com `tools/convert_movies.sh DATA` (precisa do ffmpeg). Só essa subpasta é lida; sem ela os vídeos são pulados.
+    Os quatro vídeos bônus (`brettmichaels`, `sexpistols`, `slash`, `tommorello`) são 115 MB desse total.
+  - `ZONES/` e o resto de `MOVIES/` não são usados e podem ficar de fora para poupar cartão.
 
 ## Instalação
 
@@ -42,6 +45,9 @@ A lista de músicas é a carreira do jogo, liberada como no original:
 - O encore (ou a última batalha) fecha o set e abre o seguinte. O progresso é separado por dificuldade (← → ou L1/R1 na lista).
 - As batalhas são tocadas como músicas normais (a trilha do chefe toca junto), sem os ataques do modo batalha.
 - Músicas bônus e baixadas ficam sempre abertas. Em Opções > Trapaças dá para liberar tudo de uma vez.
+- Os vídeos da carreira tocam como no jogo: a abertura na primeira vez que a carreira é aberta e o vídeo de cada set
+  ao completá-lo (o último é o final). Também há os logotipos e a abertura do jogo ao ligar (Opções > Vídeo > Vídeos de
+  abertura). A ou B pula um vídeo, Start pula todos os da abertura. Precisam de `MOVIES/R36S/` (veja acima).
 
 Recordes (pontos, porcentagem, maior sequência e estrelas) ficam em `gh3-recordes.cfg`, por música, parte e dificuldade.
 Uma música só conta como completada se não falhar; no modo "sem falhar" nada é gravado.
@@ -84,7 +90,7 @@ Organizadas como no jogo:
 - **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
 - **Calibrar atraso**: a medição descrita acima.
 - **Controle**: canhoto (lefty flip), palhetada normal ou toque livre (a nota toca ao segurar os trastes), botões.
-- **Vídeo**: tema visual, efeitos de palco, escurecer o fundo, FPS.
+- **Vídeo**: tema visual, efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
 - **Top Rockers**: os seus melhores resultados em cada música, por dificuldade.
 - **Trapaças**: hyperspeed, sem falhar, liberar todas as músicas.
 
@@ -92,7 +98,7 @@ Organizadas como no jogo:
 
 ## O que ainda não tem
 
-- A arte e os cenários 3D do próprio jogo, os vídeos, a loja, o modo batalha com ataques, co-op e multiplayer, os tutoriais
+- A arte e os cenários 3D do próprio jogo, a loja, o modo batalha com ataques, co-op e multiplayer, os tutoriais
   narrados e o treino em velocidade reduzida.
 - Os efeitos sonoros são sintetizados (menus, erros, star power); a guitarra silencia ao errar como no jogo.
 
