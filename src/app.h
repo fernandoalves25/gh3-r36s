@@ -9,6 +9,7 @@
 enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR, SC_MOVIE, SC_CHEATS, SC_TUTORIAL, SC_BATTLE /* a boss battle's intro card and end banners (battle.c) */ };
 /* the main menu's ways to play, as in the game: Career moves the career, Quickplay plays any song the career has
  * opened (scores kept, career untouched), Practice plays a song from a chosen section (nothing saved) */
+enum { SC_WHAMMY = 61 /* Opções > Controle > Calibrar alavanca (apart from the list above, like SC_STORE 40 and SC_LOADING 47) */ };
 enum { MODE_CAREER, MODE_QUICK, MODE_PRACTICE };
 enum { IN_NONE = 0, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_OK, IN_BACK, IN_X, IN_Y, IN_L, IN_R, IN_SELECT };
 typedef struct { int kind, idx, tier; } row_t;            /* kind 0 = set header, 1 = song */
@@ -33,6 +34,9 @@ typedef struct {
     int fps, autoPlay;
     int testHeld, testStrum; double testStrumAt; float testWhammy; int testStar;
     double calDiff[24]; int calN; double calLastDiff, calLastTapAt; int calFrom;   /* calibration taps (ms after the click) */
+    int slTab;                               /* the set list's tab: 0 Setlist (the career's sets and the rest), 1 Bonus, 2 Downloads; -1 every set (Top Rockers) */
+    int resMore; float resMoreY;             /* the results' MORE STATS page is up, and how far it is scrolled (stage px) */
+    int whamStep; double whamAt; float whamRest, whamFull, whamNow;   /* Calibrar alavanca: the step (0 let go, 1 pushed, 2 sensitivity), when it began, the readings (0..1) */
     char starKeys[80]; double capAt;
     char moviePending[48];                   /* a career cutscene to show on the way back to the set list (a tier just completed) */
 } app_t;
@@ -68,7 +72,9 @@ void app_play_movie(const char *name, int returnScreen);   /* full screen; A/B/S
 int app_movie_exists(const char *name);
 /* screens.c */
 void screens_enter(int screen, double now);   /* goes to a screen as the menus do (the set list: its preview, the unlock message, a pending cutscene) */
-void screens_build_rows(void);
+void screens_build_rows(void);              /* the rows of the set list's tab A.slTab (every set when -1) */
+int screens_set_tab(int tab);               /* turns the set list to that tab (its first song chosen); 0 when the tab has no songs */
+int screens_tab_of(int tier);               /* the tab a set is on: 0 Setlist, 1 Bonus, 2 Downloads */
 void screens_draw(double now);
 void screens_event(int in, double now);
 int screens_raw_event(const SDL_Event *ev, double now);   /* 1 when the controls screen used the event */

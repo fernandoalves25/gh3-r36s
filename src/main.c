@@ -443,7 +443,7 @@ static void open_pads(void) { for (int i = 0; i < SDL_NumJoysticks(); i++) if (S
 void app_finish_song(double now) {
     if (battle_end(now)) return;   /* a battle's banner first; it comes back here */
     gh3_run *r = &A.S.run; int total = r->nnotes; A.resultPct = total ? (int)(100.0 * r->hits / total + 0.5) : 0; A.resultScore = (long)r->score;
-    A.resultStars = r->failed || BTL.on ? 0 : game_stars(r->score, A.S.chart.base);   /* (a battle is won or lost, without stars) */ A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.newRecord = 0;
+    A.resultStars = r->failed || BTL.on ? 0 : game_stars(r->score, A.S.chart.base);   /* (a battle is won or lost, without stars) */ A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.resMore = 0; A.newRecord = 0;
     sfx_song_end(r->failed); if (!r->failed && A.mode != MODE_PRACTICE) audio_sfx(SFX_ROCK);   /* You Rock! (and the crowd's applause after it), or the boo */
     if (r->failed) { audio_fade_out(1.5); audio_sfx(SFX_FAIL); }
     else if (A.mode == MODE_PRACTICE) audio_fade_out(0.8);   /* the run may end mid-song, at its last section */
@@ -497,20 +497,28 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
       if (boss >= 0) { A.cursor = boss; gfx_begin(); screens_draw(20000); gfx_end(); save_named("setlist_boss"); }
       A.cursor = c0; snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", lib.tiers[1].title); A.unlockAt = 29000; gfx_begin(); screens_draw(30000); gfx_end(); save_named("setlist_unlock"); A.unlockAt = 0; }
     { int c0 = A.cursor; store_demo(2350);   /* the bonus songs with their prices, the store (a pretend balance: nothing saved) */
-      for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind == 0 && lib.tiers[A.rows[i].tier].tab == 1) { A.cursor = i + 3; A.scroll = i; break; }
-      gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
+      screens_event(IN_R, 0); A.cursor = A.nrows > 3 ? 3 : A.nrows - 1;   /* the Bonus tab (R1), a few songs down */
+      gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus");
+      { int c1 = A.cursor; screens_event(IN_R, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads_quick"); A.mode = MODE_CAREER;
+        screens_event(IN_L, 0); A.cursor = c1; } A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
       store_open(0); store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store"); store_event(IN_OK, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_buy"); store_event(IN_BACK, 0);
-      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); A.cursor = c0; A.scroll = 0; }
+      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); screens_set_tab(0); A.cursor = c0; A.scroll = 0; }
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     loading_start(-500); A.screen = SC_LOADING; gfx_begin(); screens_draw(0); gfx_end(); save_named("loading");   /* the loading screen, its spinner half a second in */
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     { int r0 = A.setupRow; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_play"); A.setupRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_part"); A.setupRow = r0; }
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
-    A.optCat = 3; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
-    A.optCat = 2; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle");   /* Controle, on Canhoto */
+    A.optCat = 1; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
+    A.optCat = 4; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle");   /* Controle, on Canhoto */
+    { A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle_alavanca");   /* on Calibrar alavanca, then its three steps (the readings made up; nothing saved) */
+      screens_event(IN_OK, 0); A.whamNow = 0.08f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_rest"); screens_event(IN_OK, 0);
+      A.whamNow = A.whamFull = 0.93f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_full"); int sens = SET.whamSens; screens_event(IN_OK, 0); screens_event(IN_RIGHT, 0);
+      A.whamNow = 0.55f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_done"); printf("whammy calibration: rest %d%%, full %d%%, sensitivity %d%%; 0.55 of the stick -> %.2f\n", SET.whamRest, SET.whamFull, SET.whamSens, input_whammy_level(0.55f));
+      screens_event(IN_BACK, 0); printf("cancelled: rest %d%%, full %d%%, sensitivity %d%% (was %d%%)\n", SET.whamRest, SET.whamFull, SET.whamSens, sens); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = 8; }
+    { int r0 = A.optRow; screens_event(IN_UP, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("options_menu_down"); A.optRow = r0; A.optCat = 4; }   /* from the grey store strip up: over the greys to Controle */
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
-    A.optionsFrom = SC_MAIN; A.optRow = 5; cheats_open(); gfx_begin(); screens_draw(0); gfx_end(); save_named("cheats");
+    A.optionsFrom = SC_MAIN; A.optRow = 10; cheats_open(); gfx_begin(); screens_draw(0); gfx_end(); save_named("cheats");
     { /* the Hyperspeed code of the game (O B O Y O B O Y) typed on the keyboard frets, to see the matcher unlock it */
       static const SDL_Keycode code[8] = { SDLK_5, SDLK_4, SDLK_5, SDLK_3, SDLK_5, SDLK_4, SDLK_5, SDLK_3 }; int hyper = SET.hyper; SET.hyper = 0; screens_event(IN_OK, 1000);
       for (int k = 0; k < 8; k++) { SDL_Event e; memset(&e, 0, sizeof e); double at = 2000 + k * 300;
@@ -531,6 +539,10 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     { gh3_run *r = &A.S.run; int mode = A.mode, row = A.resRow, rec = A.newRecord;   /* in memory only: some notes missed, then practice, a new record, a failed run */
       for (int i = r->nnotes / 2; i < r->nnotes; i += 5) if (r->notes[i].hit) { r->notes[i].hit = 0; r->hits--; } A.resultPct = r->nnotes ? (int)(100.0 * r->hits / r->nnotes + 0.5) : 0;
       A.newRecord = 1; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_record"); A.newRecord = rec;
+      A.resRow = 2; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more_item");   /* MAIS ESTATÍSTICAS chosen, then its sheet, moved down, put away */
+      screens_event(IN_OK, perf); gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more");
+      for (int k = 0; k < 6; k++) screens_event(IN_DOWN, perf); gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more_down");
+      A.mode = MODE_PRACTICE; A.resMoreY = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more_practice"); A.mode = mode; screens_event(IN_BACK, perf); A.resRow = row;
       A.mode = MODE_PRACTICE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_practice"); A.mode = mode;
       r->failed = 1; r->now = r->endMs * 0.43; A.resRow = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_failed"); r->failed = 0; A.resRow = row;
       if (lib.battle.nbosses) { int on = BTL.on, won = BTL.won, mf = BTL.me.fired, cf = BTL.cpu.fired; const gh3_boss *bs = BTL.boss; BTL.on = 1; BTL.won = 1; BTL.boss = &lib.battle.bosses[0]; BTL.me.fired = 5; BTL.cpu.fired = 3;   /* a battle won, then lost */

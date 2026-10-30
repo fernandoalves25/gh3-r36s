@@ -15,4 +15,9 @@ typedef struct { int action, pressed; float value; } inev_t;
 int input_translate(const SDL_Event *ev, inev_t *out, int max);  /* play-time events -> actions (edge-triggered for axes, the whammy as a level) */
 int input_capture(const SDL_Event *ev, int action, bind_t *out); /* 1 when a button press or an axis push was seen */
 void input_reset_axes(void);
+/* the whammy: raw is how far its bindings are pushed now (the deepest; a stick's whole deflection, 0..1, no dead zone);
+ * level is what the game gets from a raw reading: past the calibrated rest, up to the calibrated full push, times the
+ * sensitivity (SET.whamRest, whamFull, whamSens; Calibrar alavanca measures the first two) */
+float input_whammy_raw(void);
+float input_whammy_level(float raw);
 #endif
