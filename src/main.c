@@ -24,6 +24,7 @@
 #include "app.h"
 #include "practice.h"
 #include "stretch.h"
+#include "store.h"
 
 /* ------------------------------------------------------------------ files */
 typedef struct { char lower[300]; char path[600]; size_t size; } fentry;
@@ -59,6 +60,7 @@ typedef struct {
     int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens, stretchtest; char outdir[520];
 } cfg_t;
 static cfg_t cfg;
+static int moneyTest;   /* --moneytest: the career's pay rules, the store data and the encore chants */
 static void cfg_defaults(void) {
     memset(&cfg, 0, sizeof cfg); snprintf(cfg.data, sizeof cfg.data, "DATA"); cfg.W = 640; cfg.H = 480; cfg.vsync = 1; cfg.diff = 3; cfg.every = 30;
     const char *e;
@@ -76,6 +78,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--audiotest")) cfg.audiotest = 1;
         else if (!strcmp(a, "--menutest")) cfg.menutest = 1;
         else if (!strcmp(a, "--stretchtest")) cfg.stretchtest = 1;
+        else if (!strcmp(a, "--moneytest")) moneyTest = 1;
         else if (!strcmp(a, "--screens")) { cfg.screens = 1; snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
         else if (!strcmp(a, "--song")) { snprintf(cfg.song, sizeof cfg.song, "%s", v); i++; }
         else if (!strcmp(a, "--diff")) { cfg.diff = diff_index(v); i++; }
@@ -148,7 +151,7 @@ const char *app_section_at(double t) {
 }
 int app_prepare_song(int songIdx) { char e[300]; if (load_song(&lib.songs[songIdx], A.selPart, A.selDiff, 1, 0, e, sizeof e)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", e); A.screen = SC_ERROR; return -1; } return 0; }
 void app_apply_volumes(void) { audio_set_master(1); audio_set_bus_gain(BUS_PLAYER, SET.volGuitar / 100.0); audio_set_bus_gain(BUS_BAND, SET.volMusic / 100.0); audio_set_bus_gain(BUS_OTHER, SET.volMusic / 100.0); audio_set_sfx_gain(SET.volSfx / 100.0 * 0.9); }
-int app_song_lock(int tier, int si) { if (A.mode == MODE_CAREER) return career_song_lock(&lib, A.tiers, tier, si); return A.quickOpen && A.quickOpen[si] ? LOCK_OPEN : LOCK_TIER; }
+int app_song_lock(int tier, int si) { int st = store_song_lock(&lib, tier, si); if (st) return st; /* a bonus song not bought */ if (A.mode == MODE_CAREER) return career_song_lock(&lib, A.tiers, tier, si); return A.quickOpen && A.quickOpen[si] ? LOCK_OPEN : LOCK_TIER; }
 void app_calib_start(int from) { app_preview(-1); if (audio_preview_on()) audio_preview_stop(0); app_apply_volumes(); audio_metronome(500, 1200); input_reset_axes(); A.calN = 0; A.calLastTapAt = -1e9; A.calFrom = from; A.screen = SC_CALIB; }
 void app_calib_stop(void) { audio_stop(); }
 static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
@@ -165,6 +168,7 @@ void app_refresh_career(int announce) {
       tierstate_t *ts = malloc(lib.ntiers * sizeof *ts); A.quickOpen = realloc(A.quickOpen, lib.nsongs ? lib.nsongs : 1); memset(A.quickOpen, 0, lib.nsongs);
       for (int d = 0; d < 4; d++) { career_eval(&lib, d, SET.unlockAll, ts); for (int t = 0; t < lib.ntiers; t++) for (int k = 0; k < lib.tiers[t].nsongs; k++) { int si = lib.tiers[t].songIdx[k]; if (career_song_lock(&lib, ts, t, si) == LOCK_OPEN) A.quickOpen[si] = 1; } }
       free(ts); }
+    store_refresh(&lib);
     if (before) { A.unlockMsg[0] = 0;
         for (int t = 0; t < lib.ntiers; t++) { const gh3_tier *tr = &lib.tiers[t];
             if (!before[t].open && A.tiers[t].open) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", tr->title);
@@ -213,7 +217,7 @@ void app_guitar_lick(void) { if (!nLicks || !SET.menuMusic) return; lickWanted =
 static int menu_music_wanted(void) {
     if (!SET.menuMusic || !bankFound || !nMenu || !audio_has_device()) return 0;
     if (A.screen == SC_SETLIST && prevWant >= 0) return 0;
-    switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: return 1;
+    switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: case SC_STORE: return 1;
         case SC_OPTIONS: case SC_CONTROLS: return A.optionsFrom != SC_PAUSE; default: return 0; }
 }
 static void preview_tick(void) {
@@ -305,6 +309,7 @@ static void finish_song(double now) {
     if (r->failed) { audio_fade_out(1.5); audio_sfx(SFX_FAIL); }
     else if (A.mode == MODE_PRACTICE) audio_fade_out(0.8);   /* the run may end mid-song, at its last section */
     else if (!r->autoPlay && !SET.noFail && A.mode != MODE_PRACTICE) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars, A.mode == MODE_CAREER); app_refresh_career(A.mode == MODE_CAREER); }
+    store_result(A.S.song, A.S.diff, A.resultStars, !r->failed && !r->autoPlay && !SET.noFail && A.mode == MODE_CAREER);   /* the career's pay (none elsewhere) */
     A.screen = SC_RESULTS;
 }
 
@@ -346,6 +351,11 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_menu");
     A.screen = SC_SETLIST; A.mode = MODE_CAREER; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist");
     A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_quick"); A.mode = MODE_CAREER;
+    { int c0 = A.cursor; store_demo(2350);   /* the bonus songs with their prices, the store (a pretend balance: nothing saved) */
+      for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind == 0 && lib.tiers[A.rows[i].tier].tab == 1) { A.cursor = i + 3; A.scroll = i; break; }
+      gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
+      store_open(0); store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store"); store_event(IN_OK, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_buy"); store_event(IN_BACK, 0);
+      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); A.cursor = c0; A.scroll = 0; }
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
@@ -358,6 +368,9 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.S.run.autoPlay = 0; finish_song(perf);
     for (double rt = 0; rt <= 1.06; rt += 1.0 / 60) { A.resultsAt = perf - rt * 1000; gfx_begin(); screens_draw(perf); gfx_end(); } save_named("results_reveal");   /* the third star landing, its sparks flying */
     A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
+    { tierstate_t *ts = &A.tiers[A.selTier]; ts->regDone = ts->required; ts->encoreOpen = 1;   /* in memory only: as if the set's songs were done, the encore is offered */
+      A.resRow = 1; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_encore");
+      screens_event(IN_OK, perf); if (A.screen == SC_SETUP) { gfx_begin(); screens_draw(perf + 1500); gfx_end(); save_named("encore"); encore_event(IN_BACK, perf); } }
     printf("screens written to %s\n", cfg.outdir);
 }
 static void frames_mode(void) {
@@ -386,6 +399,7 @@ int main(int argc, char **argv) {
       if (pak && pab && gh3_library_read(pak, pl, pab, bl, &lib) == 0) A.libOk = 1; else snprintf(libErr, sizeof libErr, "Não consegui ler PAK/qb.pak.xen + qb.pab.xen em %s. Copie a pasta DATA do jogo (PAK, SONGS e MUSIC) para ports/gh3/DATA.", cfg.data);
       free(pak); free(pab); }
     A.lib = &lib; A.autoPlay = cfg.autoPlay; A.selDiff = 1;
+    if (A.libOk) store_load(&lib);
     if (cfg.dump) { if (!A.libOk) { puts(libErr); return 1; } dump(); return 0; }
     if (cfg.frames > 0) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
     if (cfg.screens) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
@@ -397,6 +411,7 @@ int main(int argc, char **argv) {
                     double t = at - lead; while (!r->finished && t < 1e7) { game_step(r, t, t); t += 1000.0 / 60; }
                     printf("practice sections 3-4 (%.0f..%.0f ms) at 50%%: sound from %.0f ms after a %.0f ms count-in (song ms); %d of the song's %d notes, first %d last %d; run ends at %.0f ms, %d hits, %d misses\n",
                         from, to, at, lead, r->nnotes, all, r->notes[0].t, r->notes[r->nnotes - 1].t, t, r->hits, r->misses); } } } return bad ? 1 : 0; }
+    if (moneyTest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); bank_index(); return store_selftest(&lib) ? 1 : 0; }
     if (cfg.audiotest) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); int si = -1; for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.song)) si = i; if (si < 0) { puts("song not found"); return 1; }
         char e[300]; if (load_song(&lib.songs[si], cfg.part, cfg.diff, 1, 1, e, sizeof e)) { puts(e); return 1; } audio_selftest(); return 0; }
 

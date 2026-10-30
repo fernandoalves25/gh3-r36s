@@ -39,7 +39,11 @@ typedef struct { char title[96]; int *songIdx; int nsongs; int tab; int career, 
 typedef struct { double lookahead, good, bad, star; } gh3_diff;
 typedef struct { double hmScale, early, late, hamEarly, hamLate, strumBefore, formBefore, susShorten, split, spDrain; gh3_diff diffs[4]; } gh3_tuning;
 typedef struct { uint32_t id; char *s; } gh3_text;
-typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; } gh3_library;
+/* the career's money and the store: songPrice / songInfo per song (store_song_data, bonus_songs_info; 0 = not sold),
+ * the bonus videos (bonus_videos), the cash a result pays (cash[diff][newstars][oldstars]) and each tier's venue (levelzones name, "z_dive") */
+typedef struct { char id[24], name[64], info[400]; int price; } gh3_video;
+typedef struct { int *songPrice; char **songInfo; char (*tierZone)[24]; int cash[4][6][6]; int hasCash; gh3_video videos[8]; int nvideos; } gh3_shop;
+typedef struct { gh3_song *songs; int nsongs; gh3_tier *tiers; int ntiers; gh3_tuning tuning; gh3_text *texts; int ntexts; gh3_shop shop; } gh3_library;
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib);
 const char *gh3_library_text(const gh3_library *lib, uint32_t key);   /* a string section of the main script pak (section names and the like) */
 void gh3_default_tuning(gh3_tuning *t);

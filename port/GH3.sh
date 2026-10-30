@@ -5,6 +5,7 @@
 #   DATA/              YOUR copy of the game's data folder (PAK/, SONGS/, MUSIC/ are what is read)
 #   gh3.cfg            options and controls, written by the game's own menus (Opções / Controles)
 #   gh3-recordes.cfg   records and career progress
+#   gh3-carreira.cfg   career money and what the store sold
 #   port.cfg           launcher options (vsync, clocks, software rendering)
 #   log.txt            written on every run
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}

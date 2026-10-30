@@ -44,9 +44,17 @@ A lista de músicas é a carreira do jogo, liberada como no original:
 - Complete **2 músicas no Fácil, 3 no Médio e as 4 no Difícil e no Expert** para liberar a batalha e depois o encore.
 - O encore (ou a última batalha) fecha o set e abre o seguinte. O progresso é separado por dificuldade (← → ou L1/R1 na lista).
 - As batalhas são tocadas como músicas normais (a trilha do chefe toca junto), sem os ataques do modo batalha.
-- Músicas bônus e baixadas ficam sempre abertas. Em Opções > Trapaças dá para liberar tudo de uma vez.
+- Antes do encore a plateia pede bis (o coro "encore" do próprio jogo, de cada palco); A começa a música na hora.
+- **Dinheiro**: a carreira paga pelas estrelas, com a tabela do jogo (3/4/5 estrelas: Fácil $75/$175/$300, Médio
+  $150/$350/$600, Difícil $300/$700/$1200, Expert $450/$1050/$1800). Repetir uma música só paga a diferença quando você
+  tira mais estrelas do que já tinha tirado nela; jogo rápido, treino e "sem falhar" não pagam.
+- **Loja** (Y na lista da carreira): as 24 músicas bônus ($500 cada; ficam trancadas em todos os modos até comprar) e os
+  4 vídeos bônus ($1500). Through the Fire and Flames não se compra: abre quando você termina a carreira. Guitarras,
+  acabamentos e roqueiros ficaram de fora (precisam dos modelos 3D). Quem já tinha tocado uma música bônus continua com ela.
+- Músicas baixadas ficam sempre abertas. Em Opções > Trapaças dá para liberar tudo de uma vez.
 
 Recordes (pontos, porcentagem, maior sequência e estrelas) ficam em `gh3-recordes.cfg`, por música, parte e dificuldade.
+O dinheiro e as compras ficam em `gh3-carreira.cfg` (na primeira vez, a carreira já jogada paga o que teria pago).
 Uma música só conta como completada se não falhar; no modo "sem falhar" nada é gravado.
 
 ## Controles (padrão igual ao PS2, todos configuráveis em Opções > Controle > Botões)

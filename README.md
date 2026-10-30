@@ -13,6 +13,7 @@ da carreira seguem as do jogo original.
 ## O que tem
 
 - Carreira liberada como no original (sets, batalhas, encores), por dificuldade, com recordes e estrelas salvos.
+- Dinheiro da carreira pela tabela do jogo e a Loja: músicas bônus e vídeos bônus com os preços originais; o coro do encore.
 - Hammer-ons, sustains, star power, multiplicador e medidor de rock com as janelas de tempo do jogo.
 - Controles iguais ao Guitar Hero III de PS2 por padrão (trastes em L2, L1, R1, R2 e B), configuráveis, com cinco perfis.
 - Alavanca nos dois analógicos, que abaixa o tom das notas longas como no PS2.

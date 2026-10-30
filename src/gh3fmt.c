@@ -147,6 +147,29 @@ void gh3_default_tuning(gh3_tuning *t) {
     for (int i = 0; i < 4; i++) t->diffs[i] = D[i];
 }
 static int song_index(const gh3_library *lib, uint32_t key) { for (int i = 0; i < lib->nsongs; i++) if (lib->songs[i].key == key) return i; return -1; }
+/* the store and the career's money (see gh3_shop) */
+static void shop_read(const secmap *m, gh3_library *lib) {
+    gh3_shop *sh = &lib->shop; sh->songPrice = calloc(lib->nsongs + 1, sizeof *sh->songPrice); sh->songInfo = calloc(lib->nsongs + 1, sizeof *sh->songInfo); sh->tierZone = calloc(lib->ntiers + 1, sizeof *sh->tierZone);
+    const qbv *sp = sec(m, "store_song_data");   /* { <song> = { price = 500 } ... } */
+    if (sp && sp->kind == QB_STRUCT) for (int i = 0; i < sp->nitems; i++) { int si = song_index(lib, sp->items[i].id); if (si >= 0) sh->songPrice[si] = (int)qb_num(qb_get(sp->items[i].v, "price"), 0); }
+    const qbv *si = sec(m, "bonus_songs_info");   /* [ { item = <song> text = "..." } ... ] */
+    if (si && si->kind == QB_ARRAY) for (int i = 0; i < si->narr; i++) { uint32_t k; if (!qb_keyof(qb_get(si->arr[i], "item"), &k)) continue; int s = song_index(lib, k); const char *t = qb_str(qb_get(si->arr[i], "text")); if (s >= 0 && *t && !sh->songInfo[s]) sh->songInfo[s] = strdup(t); }
+    const qbv *bv = sec(m, "bonus_videos");   /* [ { id = sexpistols name = "..." info = "..." price = 1500 } ... ]; the id names the movie */
+    static const char *VIDS[] = { "sexpistols", "brettmichaels", "slash", "tommorello", NULL };
+    if (bv && bv->kind == QB_ARRAY) for (int i = 0; i < bv->narr && sh->nvideos < 8; i++) { const qbv *v = bv->arr[i]; uint32_t k; gh3_video *o = &sh->videos[sh->nvideos]; memset(o, 0, sizeof *o);
+        if (!qb_keyof(qb_get(v, "id"), &k)) continue; for (int n = 0; VIDS[n]; n++) if (gh3_qbkey(VIDS[n]) == k) cpystr(o->id, sizeof o->id, VIDS[n]); if (!o->id[0]) snprintf(o->id, sizeof o->id, "%08x", k);
+        cpystr(o->name, sizeof o->name, qb_str(qb_get(v, "name"))); cpystr(o->info, sizeof o->info, qb_str(qb_get(v, "info"))); o->price = (int)qb_num(qb_get(v, "price"), 0); sh->nvideos++; }
+    /* the cash a career result pays: { diff = expert newstars = 5 oldstars = 3 cash = 1350 } ... (the section's name is not known: its key) */
+    const qbv *ct = secmap_get(m, 0xa1991999u);
+    if (ct && ct->kind == QB_ARRAY) for (int i = 0; i < ct->narr; i++) { const qbv *v = ct->arr[i]; uint32_t dk; if (!qb_keyof(qb_get(v, "diff"), &dk)) continue; int d = -1; for (int k = 0; k < 4; k++) if (gh3_qbkey(GH3_DIFF_NAME[k]) == dk) d = k;
+        int ns = (int)qb_num(qb_get(v, "newstars"), -1), os = (int)qb_num(qb_get(v, "oldstars"), -1); if (d < 0 || ns < 0 || ns > 5 || os < 0 || os > 5) continue; sh->cash[d][ns][os] = (int)qb_num(qb_get(v, "cash"), 0); sh->hasCash = 1; }
+    /* each tier's venue: the tier's level key is an item of levelzones, whose name is the zone ("z_party") */
+    const qbv *lz = sec(m, "levelzones"); const char *tl[2] = { "gh3_career_songs", "gh3_bonus_songs" };
+    for (int L = 0; L < 2 && lz; L++) { const qbv *st = sec(m, tl[L]); if (!st || st->kind != QB_STRUCT) continue;
+        for (int i = 0; i < st->nitems; i++) { const qbv *tv = st->items[i].v, *arr = qb_get(tv, "songs"); uint32_t lk, sk; if (!arr || arr->kind != QB_ARRAY || !arr->narr || !qb_keyof(qb_get(tv, "level"), &lk) || !qb_keyof(arr->arr[0], &sk)) continue;
+            int s0 = song_index(lib, sk); const char *z = qb_str(qb_get(qb_getk(lz, lk), "name")); if (s0 < 0 || !*z) continue;
+            for (int t = 0; t < lib->ntiers; t++) if (lib->tiers[t].tab == L) for (int k = 0; k < lib->tiers[t].nsongs; k++) if (lib->tiers[t].songIdx[k] == s0) { cpystr(lib->shop.tierZone[t], sizeof lib->shop.tierZone[t], z); lower(lib->shop.tierZone[t]); } } }
+}
 
 int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size_t pabLen, gh3_library *lib) {
     memset(lib, 0, sizeof *lib); gh3_default_tuning(&lib->tuning);
@@ -236,6 +259,7 @@ int gh3_library_read(const uint8_t *pak, size_t pakLen, const uint8_t *pab, size
     tn->hamEarly = num(&m, "hammer_time_early", 0.083) * 1000; tn->hamLate = num(&m, "hammer_time_late", 0.083) * 1000;
     tn->strumBefore = num(&m, "strum_before_forming", 0.034) * 1000; tn->formBefore = num(&m, "form_before_strumming", 0.025) * 1000;
     tn->susShorten = num(&m, "whammy_shorten", 0.25); tn->split = num(&m, "split_late_percent", 0.5); tn->spDrain = num(&m, "star_power_drain_rate", 12.5);
+    shop_read(&m, lib);
     for (int i = 0; i < ne; i++) if (keep[i]) gh3_qb_free_sections(keep[i], keepn[i]);
     free(keep); free(keepn); free(m.a); free(ents);
     return lib->nsongs ? 0 : -1;
