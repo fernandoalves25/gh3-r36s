@@ -11,8 +11,12 @@
 
 #define GL(name) r3d_##name
 #define GL_STREAM_DRAW 0x88E0
-#define NDYN 4               /* lights applied in the vertex shader */
-#define DYN_GAIN 0.35f       /* the baked sum's average shading of one light (n.l for the main one, half-Lambert x .6 for the rest) */
+#define NSLOT 32             /* room lights the shader knows (r3d.c bakes with the first 32) */
+#define AMB_GIVE 0.25f       /* the ambient gives way to the lights at most this far (frame()) */
+#define AMB_MIN 0.4f         /* the ambient lights' change against the venue's own, held to this */
+#define AMB_MAX 1.3f
+#define KNEE 1.0f            /* the light on a point (its lights and the ambient, the brightest of r g b) rolls off past this or past the venue's own light there, whichever is more, */
+#define KNEE_SPAN 0.6f       /* by at most this much more: a rig at 3x stays a lit room, not a white one, and the venue as it stands is untouched (R3D_KNEE=knee,span) */
 #define MAXQ 4096            /* quads a frame: beams, glows, sparks */
 #define MAXS 1200            /* sparks alive */
 #define BLEND_DEFAULT 0.15f  /* the game's own figures (lightshow_settime Default, the colour cue, a rock meter change) */
@@ -21,7 +25,19 @@
 #define IDLE_STEP 4.0        /* no song: the next verse preset every 8 beats at 120 bpm */
 #define IDLE_BLEND 1.5f
 #define BEAM_GAIN 0.2f       /* a beam side's strength at its housing (beams overlap: a rig of a dozen adds up) */
-#define EXPOSURE 0.5f        /* how much of a preset's overall brightness against the base reaches the room (1 = all) */
+/* The strobe. The songs toggle it (note 60) every 1/17 s through a strobe run, and the game flashes hard on it. Here a toggle that turns it on
+ * is a flash: the lights at STROBE_PEAK and STROBE_WHITE of the way to white for STROBE_HOLD ms, down to STROBE_LOW over STROBE_FADE ms, and
+ * low until the next (the strobe mood with no toggles: one on each beat). A handheld held close: flashes no closer than STROBE_GAP ms apart
+ * (a run's on-toggles come every 117 ms: every other one flashes, 4.3 a second) */
+#define STROBE_PEAK 1.7f
+#define STROBE_WHITE 0.45f
+#define STROBE_LOW 0.3f
+#define STROBE_AMB 0.6f      /* the ambient between flashes */
+#define STROBE_SPAN 2.5f     /* a flash may go this many times further past the knee */
+#define STROBE_HOLD 34.0
+#define STROBE_FADE 70.0
+#define STROBE_GAP 200.0
+#define STROBE_RUN 300.0     /* a run lasts this long past its last toggle */
 
 enum { NV = 6, NB = 13 };    /* a light: r g b intensity far near; a beam: pos3 dir3 r0 r1 range density rgb */
 typedef struct { uint32_t key; int kind, room, keep; float pos[3], dir[3], base[NV], cur[NV], from[NV], to[NV]; } slight;
@@ -33,16 +49,17 @@ typedef struct { uint32_t key; int l0, nl, b0, nb; } preset;
 typedef struct { uint32_t key; int list[3][16], n[3]; } moodset;   /* per level (poor medium good): preset indices */
 typedef struct { float pos[3]; int mask; } jet;                     /* a pyro spot of z_<v>_pyro and the levels (bits) it fires at */
 typedef struct { float p[3], v[3], age, life, delay; } spark;
-typedef struct { GLint uBake, uDyn, uAmb, uLP[NDYN], uLC[NDYN], uLD[NDYN]; } lightlocs;   /* where a venue program keeps the show's uniforms */
+typedef struct { GLint uDyn, uAmb, uRL, uKnee; } lightlocs;   /* where a venue program keeps the show's uniforms */
 
 static struct {
     int loaded; char zone[32];
     slight *L; int nL; sbeam *B; int nB; plight *PL; int nPL; pbeam *PB; int nPB; preset *P; int nP; moodset M[NMOOD]; int nM; jet J[32]; int nJ;
     /* the show */
-    uint32_t mood; int level, pi, cur, strobe, started, ptr, pyro, hasOver, idleStep; float blendT, dur, mix, over[3]; const gh3_songdata *cues; double lastMs, clock, lastT, beat, strobeAt;
+    uint32_t mood; int level, pi, cur, strobe, started, ptr, pyro, hasOver, idleStep; long beatN; float blendT, dur, mix, over[3]; const gh3_songdata *cues; double lastMs, clock, lastT, beat, strobeAt, flashAt;
     int sim, on;
+    int slot[NSLOT], nslot; float slotBase[NSLOT][3];   /* the room lights of the bake: which of L each is (-1: not the show's, the default daylight), its colour x intensity there */
     /* this frame */
-    float bake[3], ambk[3], lp[NDYN][4], lc[NDYN][4], ld[NDYN][4], flick, pulse;
+    float ambk[3], rl[NSLOT][3], flick, white, pulse, ambFlick, ambGain;   /* rl: what each room light gives now against the bake (colour x intensity) */
     spark S[MAXS]; int nS; uint32_t rng;
     /* GL */
     GLuint prog, vbo, ibo, tex; GLint aP, aT, aC, uVP, uTex; lightlocs u[2];   /* u: per venue program (0 plain, 1 alpha-tested) */
@@ -107,7 +124,7 @@ static void read_pyro(const gh3_pakent *e, uint32_t id) {
         pyro_scan(out, got); free(out); return; }
 }
 static void reset_show(void) {
-    S.mood = kIntro; S.level = 1; S.pi = 0; S.cur = -1; S.strobe = 0; S.started = 0; S.ptr = 0; S.pyro = 0; S.hasOver = 0; S.idleStep = -1; S.blendT = BLEND_DEFAULT; S.dur = 0; S.mix = 1; S.cues = NULL; S.lastMs = 0; S.nS = 0; S.strobeAt = -1e9;
+    S.mood = kIntro; S.level = 1; S.pi = 0; S.cur = -1; S.strobe = 0; S.started = 0; S.ptr = 0; S.pyro = 0; S.hasOver = 0; S.idleStep = -1; S.blendT = BLEND_DEFAULT; S.dur = 0; S.mix = 1; S.cues = NULL; S.lastMs = 0; S.nS = 0; S.strobeAt = S.flashAt = -1e9;
     for (int i = 0; i < S.nL; i++) { memcpy(S.L[i].cur, S.L[i].base, sizeof S.L[i].cur); memcpy(S.L[i].from, S.L[i].base, sizeof S.L[i].cur); memcpy(S.L[i].to, S.L[i].base, sizeof S.L[i].cur); }
     for (int i = 0; i < S.nB; i++) { S.B[i].cur[9] = 0; memcpy(S.B[i].from, S.B[i].cur, sizeof S.B[i].cur); memcpy(S.B[i].to, S.B[i].cur, sizeof S.B[i].cur); }
 }
@@ -151,7 +168,14 @@ void r3d_lights_load(const char *zone, const gh3_pakent *ents, int n, const r3d_
     reset_show(); S.loaded = 1; if (!S.prog) gl_init();
 }
 void r3d_lights_unload(void) {
-    free(S.L); free(S.B); free(S.PL); free(S.PB); free(S.P); S.L = NULL; S.B = NULL; S.PL = NULL; S.PB = NULL; S.P = NULL; S.nL = S.nB = S.nPL = S.nPB = S.nP = S.nM = S.nJ = S.nS = 0; S.loaded = 0; S.on = 0;
+    free(S.L); free(S.B); free(S.PL); free(S.PB); free(S.P); S.L = NULL; S.B = NULL; S.PL = NULL; S.PB = NULL; S.P = NULL; S.nL = S.nB = S.nPL = S.nPB = S.nP = S.nM = S.nJ = S.nS = S.nslot = 0; S.loaded = 0; S.on = 0;
+}
+void r3d_lights_room(const r3d_light *l, int n, float *peak) {
+    S.nslot = n < NSLOT ? n : NSLOT;
+    for (int s = 0; s < n; s++) { float pk = l[s].intensity * fmaxf(l[s].colour[0], fmaxf(l[s].colour[1], l[s].colour[2])); int i = -1; if (s < NSLOT) for (int k = 0; k < 3; k++) S.slotBase[s][k] = l[s].colour[k] * l[s].intensity;
+        if (l[s].key) for (int k = 0; k < S.nL && i < 0; k++) if (S.L[k].key == l[s].key) i = k;
+        if (i >= 0) for (int k = 0; k < S.nPL; k++) if (S.PL[k].key == l[s].key) pk = fmaxf(pk, S.PL[k].v[3] * fmaxf(S.PL[k].v[0], fmaxf(S.PL[k].v[1], S.PL[k].v[2])));
+        if (s < NSLOT) S.slot[s] = i; if (peak) peak[s] = pk; }
 }
 
 /* ------------------------------------------------------------------ the show (lightShow) */
@@ -192,21 +216,22 @@ static void step(const gh3_songdata *sd, double ms, double health, uint32_t endM
     int lv = health < 0.66 ? 0 : health < 1.33 ? 1 : 2; float need = -1; const gh3_library *lib = A.lib;
     if (!S.started) { S.started = 1; need = 0; }
     if (lv != S.level) { S.level = lv; need = BLEND_LEVEL; }
-    if (endMood) { if (S.mood != endMood) { S.mood = endMood; S.pi = 0; S.hasOver = 0; S.strobe = 0; need = 1; } S.strobeAt = -1e9; S.cues = NULL; S.clock = wall; }
+    if (endMood) { if (S.mood != endMood) { S.mood = endMood; S.pi = 0; S.hasOver = 0; S.strobe = 0; need = 1; } S.strobeAt = S.flashAt = -1e9; S.cues = NULL; S.clock = wall; }
     else if (sd && lib) {
-        if (sd != S.cues || ms < S.lastMs - 1500) { S.cues = sd; S.ptr = 0; S.mood = kIntro; S.pi = 0; S.hasOver = 0; S.strobe = 0; S.blendT = BLEND_DEFAULT; need = 0; S.nS = 0; S.strobeAt = -1e9; }   /* a new song, or the clock wound back */
+        if (sd != S.cues || ms < S.lastMs - 1500) { S.cues = sd; S.ptr = 0; S.mood = kIntro; S.pi = 0; S.hasOver = 0; S.strobe = 0; S.blendT = BLEND_DEFAULT; need = 0; S.nS = 0; S.strobeAt = S.flashAt = -1e9; }   /* a new song, or the clock wound back */
         S.lastMs = ms; S.clock = ms / 1000;
         while (S.ptr < sd->nlights && sd->lights[S.ptr][0] <= ms) { double late = ms - sd->lights[S.ptr][0]; int note = sd->lights[S.ptr][1]; S.ptr++; if (note < 0 || note > 127) continue; const gh3_lightnote *w = &lib->lightNote[note];
             switch (w->kind) {
-            case LN_MOOD: S.strobe = w->mood == kStrobe; if (w->mood != S.mood) { S.mood = w->mood; S.pi = 0; need = S.blendT; } break;
+            case LN_MOOD: if (w->mood == kStrobe && !S.strobe && ms - S.flashAt >= STROBE_GAP) S.flashAt = ms; S.strobe = w->mood == kStrobe; if (w->mood != S.mood) { S.mood = w->mood; S.pi = 0; need = S.blendT; } break;
             case LN_COLOUR: S.hasOver = w->rgb[0] >= 0; if (S.hasOver) memcpy(S.over, w->rgb, 12); need = BLEND_COLOUR; break;
             case LN_TIME: S.blendT = w->time < 0 ? BLEND_DEFAULT : w->time; break;
-            case LN_STROBE: S.strobe = !S.strobe; S.strobeAt = ms; break;
+            case LN_STROBE: S.strobe = !S.strobe; S.strobeAt = ms; if (S.strobe && ms - S.flashAt >= STROBE_GAP) S.flashAt = ms; break;   /* on: a flash, unless one went off just now */
             case LN_NEXT: S.pi++; need = S.blendT; break;
             case LN_PYRO: if (late < 600) S.pyro++; break; } }   /* a pyro cue long past is not set off */
         S.beat = sd->nfret > 1 ? gh3_beatpos(sd->fretbars, sd->nfret, ms) : ms / 500.0;
+        long bn = (long)floor(S.beat); if (S.strobe && ms - S.strobeAt > STROBE_RUN && bn != S.beatN && ms - S.flashAt >= STROBE_GAP) S.flashAt = ms; S.beatN = bn;   /* the strobe mood with no toggles of its own: a flash on each beat */
     } else {   /* no song: the verse presets one after another, calmly */
-        if (S.cues || S.mood == kFail || S.mood == kWin || S.mood == kIntro) { S.cues = NULL; S.hasOver = 0; S.strobe = 0; S.mood = kVerse; S.pi = 0; need = IDLE_BLEND; S.strobeAt = -1e9; }
+        if (S.cues || S.mood == kFail || S.mood == kWin || S.mood == kIntro) { S.cues = NULL; S.hasOver = 0; S.strobe = 0; S.mood = kVerse; S.pi = 0; need = IDLE_BLEND; S.strobeAt = S.flashAt = -1e9; }
         S.clock = wall; S.beat = wall * 2; long st = (long)floor(wall / IDLE_STEP); if (st != S.idleStep) { if (S.idleStep >= 0) { S.pi++; need = IDLE_BLEND; } S.idleStep = (int)st; }
     }
     if (need >= 0) apply(need);
@@ -214,31 +239,30 @@ static void step(const gh3_songdata *sd, double ms, double health, uint32_t endM
     while (S.pyro > 0) { S.pyro--; fire_pyro(); }   /* poor: the venues' scripts list no spot for it */
     sparks(dt);
 }
-/* what the venue shader gets this frame: the room's lights now against their base, the ambient's, and the lights that changed most */
+/* what the venue shader gets this frame: what each room light gives now against the bake (the strobe's flash in it), the ambient's ratio */
 static void frame(void) {
-    int strobing = S.strobe || S.clock * 1000 - S.strobeAt < 300; S.flick = strobing ? 0.72f + 0.28f * cosf((float)(S.clock * 6.2831853 * 2.5)) : 1;   /* the song flashes by toggling the strobe (note 60) eight times a second: here a strobe run only keeps the browser port's soft 2.5 Hz pulse going (no hard flash) */
+    double now = S.clock * 1000, e = now - S.flashAt; int strobing = S.strobe || now - S.strobeAt < STROBE_RUN; S.flick = 1; S.white = 0;
+    if (strobing) { S.flick = e < STROBE_HOLD ? STROBE_PEAK : e < STROBE_HOLD + STROBE_FADE ? STROBE_PEAK + (STROBE_LOW - STROBE_PEAK) * (float)((e - STROBE_HOLD) / STROBE_FADE) : STROBE_LOW; if (e < STROBE_HOLD) S.white = STROBE_WHITE; }
+    S.ambFlick = S.flick > 1 ? S.flick : fmaxf(S.flick, STROBE_AMB);   /* the flash takes the ambient too (a white light on everything); between flashes it only dips */
     float fb = (float)(S.beat - floor(S.beat)); S.pulse = 1 + 0.04f * (1 - fb) * (1 - fb); float k = S.flick * S.pulse;
-    double sc[3] = { 0 }, sb[3] = { 0 }, ac[3] = { 0 }, ab[3] = { 0 };
-    for (int i = 0; i < S.nL; i++) { const slight *s = &S.L[i]; if (!s->room) continue;
-        if (s->kind == L_AMBIENT) { for (int c = 0; c < 3; c++) { ac[c] += s->cur[c] * s->cur[3]; ab[c] += s->base[c] * s->base[3]; } continue; }
-        float rc = fminf(s->cur[4], 30), rb = fminf(s->base[4], 30); for (int c = 0; c < 3; c++) { sc[c] += s->cur[c] * s->cur[3] * k * rc; sb[c] += s->base[c] * s->base[3] * rb; } }
-    double mx = fmax(sb[0], fmax(sb[1], sb[2])), ma = fmax(ab[0], fmax(ab[1], ab[2]));
-    float ratio[3], L = 0, x = 1;
-    for (int c = 0; c < 3; c++) { ratio[c] = mx > 1e-6 ? (float)((sc[c] + 0.05 * mx) / (sb[c] + 0.05 * mx)) : 1; L = fmaxf(L, ratio[c]); S.ambk[c] = ma > 1e-6 ? clampf((float)((ac[c] + 0.05 * ma) / (ab[c] + 0.05 * ma)), 0.3f, 2) : 1; }
-    if (L > 1e-4f) x = clampf(powf(L, EXPOSURE), 0.3f, 1.35f) / L;   /* the presets run up to 3x the venue's base lights: brightness squeezed, colour kept */
-    for (int c = 0; c < 3; c++) S.bake[c] = clampf(ratio[c] * x, 0.12f, 2); k *= x;
-    float best[NDYN]; int bi[NDYN]; for (int d = 0; d < NDYN; d++) { best[d] = 0; bi[d] = -1; }
-    for (int i = 0; i < S.nL; i++) { const slight *s = &S.L[i]; if (!s->room || s->kind == L_AMBIENT || s->cur[4] > 200 || s->cur[4] < 0.05f) continue; float m = 0;
-        for (int c = 0; c < 3; c++) m = fmaxf(m, fabsf(s->cur[c] * s->cur[3] * k - S.bake[c] * s->base[c] * s->base[3])); m *= fminf(s->cur[4], 30);
-        for (int d = 0; d < NDYN; d++) if (m > best[d]) { for (int e = NDYN - 1; e > d; e--) { best[e] = best[e - 1]; bi[e] = bi[e - 1]; } best[d] = m; bi[d] = i; break; } }
-    for (int d = 0; d < NDYN; d++) { memset(S.lp[d], 0, 16); memset(S.lc[d], 0, 16); memset(S.ld[d], 0, 16); S.lp[d][3] = 1; if (bi[d] < 0) continue; const slight *s = &S.L[bi[d]];
-        memcpy(S.lp[d], s->pos, 12); S.lp[d][3] = s->cur[4]; for (int c = 0; c < 3; c++) S.lc[d][c] = clampf((s->cur[c] * s->cur[3] * k - S.bake[c] * s->base[c] * s->base[3]) * DYN_GAIN, -0.8f, 0.8f); S.lc[d][3] = s->cur[5];
-        memcpy(S.ld[d], s->dir, 12); S.ld[d][3] = s->kind == L_DIR ? 1 : 0; }
+    double ac[3] = { 0 }, ab[3] = { 0 };
+    for (int i = 0; i < S.nL; i++) { const slight *s = &S.L[i]; if (!s->room || s->kind != L_AMBIENT) continue; for (int c = 0; c < 3; c++) { ac[c] += s->cur[c] * s->cur[3]; ab[c] += s->base[c] * s->base[3]; } }
+    double ma = fmax(ab[0], fmax(ab[1], ab[2])); for (int c = 0; c < 3; c++) S.ambk[c] = ma > 1e-6 ? clampf((float)((ac[c] + 0.05 * ma) / (ab[c] + 0.05 * ma)), AMB_MIN, AMB_MAX) : 1;
+    /* the exposure: the presets run the room's lights up to 3x the venue's own, while the venue's ambient lights (summed: 2 and more in some, the
+     * flat wash under everything) stay. As the lights go up the ambient gives way (1/R, R: the lights' overall strength against the venue's own),
+     * so the room shows the presets' colours where they fall instead of going white. The strobe's flash is left out of R */
+    double sc[3] = { 0 }, sb[3] = { 0 };
+    for (int i = 0; i < S.nL; i++) { const slight *s = &S.L[i]; if (!s->room || s->kind == L_AMBIENT) continue; float rc = fminf(s->cur[4], 30), rb = fminf(s->base[4], 30);
+        for (int c = 0; c < 3; c++) { sc[c] += s->cur[c] * s->cur[3] * rc; sb[c] += s->base[c] * s->base[3] * rb; } }
+    double mb = fmax(sb[0], fmax(sb[1], sb[2])), R = 0; for (int c = 0; c < 3; c++) if (mb > 1e-6) R = fmax(R, (sc[c] + 0.05 * mb) / (sb[c] + 0.05 * mb));
+    S.ambGain = R > 1 ? clampf((float)(1 / R), AMB_GIVE, 1) : 1;
+    for (int t = 0; t < S.nslot; t++) { int i = S.slot[t]; if (i < 0) { S.rl[t][0] = S.rl[t][1] = S.rl[t][2] = 0; continue; } const float *v = S.L[i].cur;
+        for (int c = 0; c < 3; c++) S.rl[t][c] = (v[c] + (1 - v[c]) * S.white) * v[3] * k - S.slotBase[t][c]; }   /* the reach (far) is the bake's: the presets keep the venue's own, near enough */
     static const char *MN[] = { "intro", "verse", "chorus", "solo", "mood72", "flare", "strobe", "fail", "win" }; uint32_t MK[9] = { kIntro, kVerse, kChorus, kSolo, 0xf3b3b42au, kFlare, kStrobe, kFail, kWin }; const char *mn = "?";
     for (int i = 0; i < 9; i++) if (MK[i] == S.mood) mn = MN[i];
     int lit = 0; for (int i = 0; i < S.nB; i++) lit += S.B[i].cur[9] > 0.004f;
-    snprintf(S.info, sizeof S.info, "mood %s level %d preset %d (%08x) step %d blend %.2f mix %.2f colour %s strobe %d, %d beams lit, %d sparks, bake %.2f %.2f %.2f", mn, S.level, S.cur, S.cur >= 0 ? S.P[S.cur].key : 0, S.pi, S.blendT, S.mix,
-        S.hasOver ? "on" : "off", strobing, lit, S.nS, S.bake[0], S.bake[1], S.bake[2]);
+    snprintf(S.info, sizeof S.info, "mood %s level %d preset %d (%08x) step %d blend %.2f mix %.2f colour %s strobe %d (x%.2f), %d beams lit, %d sparks, amb %.2f %.2f %.2f", mn, S.level, S.cur, S.cur >= 0 ? S.P[S.cur].key : 0, S.pi, S.blendT, S.mix,
+        S.hasOver ? "on" : "off", strobing, S.flick, lit, S.nS, S.ambk[0], S.ambk[1], S.ambk[2]);
 }
 void r3d_lights_update(double t) {
     float dt = (float)(t - S.lastT); S.lastT = t; if (dt < 0) dt = 0; if (dt > 0.1f) dt = 0.1f;
@@ -251,7 +275,8 @@ void r3d_lights_update(double t) {
 void r3d_lights_sim(const gh3_songdata *sd, double ms, double health) {
     if (!sd) { S.sim = 0; return; } S.sim = 1; S.on = S.loaded && S.nP > 0; if (!S.on) return;
     double from = S.cues == sd && ms >= S.lastMs ? S.lastMs : (reset_show(), 0.0);
-    for (double m = from; m < ms; m += 1000.0 / 60) step(sd, m, health, 0, 1 / 60.0f, m / 1000);
+    int trace = getenv("R3D_STROBE") != NULL;   /* R3D_STROBE=1: the strobe's level at every frame of a run on the way */
+    for (double m = from; m < ms; m += 1000.0 / 60) { step(sd, m, health, 0, 1 / 60.0f, m / 1000); if (trace) { frame(); if (S.strobe || m - S.strobeAt < STROBE_RUN) printf("    strobe %7.0f ms x%.2f%s\n", m, S.flick, S.white > 0 ? " flash" : ""); } }
     step(sd, ms, health, 0, 0, ms / 1000); frame();
     /* R3D_LDEBUG=1: every light (base | now), every lit beam and the pyro spots */
     if (getenv("R3D_LDEBUG")) for (int i = 0; i < S.nL; i++) { const slight *s = &S.L[i]; printf("    light %08x %s%s%s base %.2f %.2f %.2f i%.2f far %.0f near %.0f | now %.2f %.2f %.2f i%.2f far %.0f near %.0f\n", s->key, s->kind == L_AMBIENT ? "amb " : s->kind == L_DIR ? "dir " : s->kind == L_POINT ? "pt  " : "spot",
@@ -260,21 +285,27 @@ void r3d_lights_sim(const gh3_songdata *sd, double ms, double health) {
     if (getenv("R3D_LDEBUG")) for (int i = 0; i < S.nJ; i++) printf("    jet %.1f %.1f %.1f mask %d\n", S.J[i].pos[0], S.J[i].pos[1], S.J[i].pos[2], S.J[i].mask);
 }
 const char *r3d_lights_info(void) { return S.on ? S.info : "light show off"; }
+int r3d_lights_get(uint32_t key, float v[6]) {
+    if (!S.on || !key) return 0; const slight *s = NULL; for (int i = 0; i < S.nL && !s; i++) if (S.L[i].key == key) s = &S.L[i]; if (!s) return 0;
+    memcpy(v, s->cur, NV * sizeof *v); if (s->kind != L_AMBIENT) { for (int c = 0; c < 3; c++) v[c] += (1 - v[c]) * S.white; v[3] *= S.flick * S.pulse; } else v[3] *= S.ambFlick; return 1;
+}
 
 /* ------------------------------------------------------------------ the venue shader's side */
+static void (*glUniform3fv_)(GLint, GLsizei, const GLfloat *);   /* not in r3d_gl.h's list: looked up here */
 void r3d_lights_program(int slot, GLuint prog) {
-    char nm[16]; lightlocs *U = &S.u[slot & 1]; U->uBake = GL(glGetUniformLocation)(prog, "uBake"); U->uDyn = GL(glGetUniformLocation)(prog, "uDyn"); U->uAmb = GL(glGetUniformLocation)(prog, "uAmb");
-    for (int d = 0; d < NDYN; d++) { snprintf(nm, sizeof nm, "uLP[%d]", d); U->uLP[d] = GL(glGetUniformLocation)(prog, nm); snprintf(nm, sizeof nm, "uLC[%d]", d); U->uLC[d] = GL(glGetUniformLocation)(prog, nm); snprintf(nm, sizeof nm, "uLD[%d]", d); U->uLD[d] = GL(glGetUniformLocation)(prog, nm); }
+    lightlocs *U = &S.u[slot & 1]; U->uDyn = GL(glGetUniformLocation)(prog, "uDyn"); U->uAmb = GL(glGetUniformLocation)(prog, "uAmb"); U->uRL = GL(glGetUniformLocation)(prog, "uRL[0]"); if (U->uRL < 0) U->uRL = GL(glGetUniformLocation)(prog, "uRL"); U->uKnee = GL(glGetUniformLocation)(prog, "uKnee");
+    if (!glUniform3fv_) glUniform3fv_ = (void (*)(GLint, GLsizei, const GLfloat *))SDL_GL_GetProcAddress("glUniform3fv");
 }
 void r3d_lights_uniforms(int slot) {
-    const lightlocs *U = &S.u[slot & 1];
-    if (!S.on) { GL(glUniform3f)(U->uBake, 1, 1, 1); for (int d = 0; d < NDYN; d++) GL(glUniform4f)(U->uLC[d], 0, 0, 0, 0); return; }
-    GL(glUniform3f)(U->uBake, S.bake[0], S.bake[1], S.bake[2]);
-    for (int d = 0; d < NDYN; d++) { GL(glUniform4f)(U->uLP[d], S.lp[d][0], S.lp[d][1], S.lp[d][2], S.lp[d][3]); GL(glUniform4f)(U->uLC[d], S.lc[d][0], S.lc[d][1], S.lc[d][2], S.lc[d][3]); GL(glUniform4f)(U->uLD[d], S.ld[d][0], S.ld[d][1], S.ld[d][2], S.ld[d][3]); }
+    const lightlocs *U = &S.u[slot & 1]; if (S.on && glUniform3fv_ && S.nslot) glUniform3fv_(U->uRL, S.nslot, &S.rl[0][0]);
 }
+static float kn[2] = { -1, 0 };
 void r3d_lights_batch(int slot, int lit, const float amb[3]) {
-    const lightlocs *U = &S.u[slot & 1]; int on = S.on && lit; GL(glUniform1f)(U->uDyn, on ? 1.0f : 0.0f);
-    if (on) GL(glUniform3f)(U->uAmb, amb[0] * S.ambk[0], amb[1] * S.ambk[1], amb[2] * S.ambk[2]); else GL(glUniform3f)(U->uAmb, amb[0], amb[1], amb[2]);
+    if (kn[0] < 0) { const char *e = getenv("R3D_KNEE"); kn[0] = KNEE; kn[1] = KNEE_SPAN; if (e) sscanf(e, "%f,%f", &kn[0], &kn[1]); if (kn[1] < 0.01f) kn[1] = 0.01f; }
+    GL(glUniform3f)(S.u[slot & 1].uKnee, lit ? kn[0] : 1e4f, kn[1] * (S.on && S.white > 0 ? STROBE_SPAN : 1), fmaxf(amb[0], fmaxf(amb[1], amb[2])));   /* the knee: lit parts only (signs and glows keep their own colour); a flash goes past it */
+    const lightlocs *U = &S.u[slot & 1]; int on = S.on && lit && glUniform3fv_ && S.nslot; GL(glUniform1f)(U->uDyn, on ? 1.0f : 0.0f);
+    if (on) { float a[3], m = 0; for (int c = 0; c < 3; c++) { a[c] = amb[c] * S.ambk[c]; m = fmaxf(m, a[c]); } for (int c = 0; c < 3; c++) a[c] = (a[c] + (m - a[c]) * S.white) * S.ambFlick * S.ambGain; GL(glUniform3f)(U->uAmb, a[0], a[1], a[2]); }
+    else GL(glUniform3f)(U->uAmb, amb[0], amb[1], amb[2]);
 }
 
 /* ------------------------------------------------------------------ beams, glows, sparks */
