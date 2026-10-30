@@ -38,4 +38,10 @@ O decodificador de MP3 é o [minimp3](https://github.com/lieff/minimp3) (CC0) e 
 [pl_mpeg](https://github.com/phoboslab/pl_mpeg) (MIT), ambos em `third_party/`.
 A pasta `tools/fixes/` guarda correções de outros ports usados no mesmo aparelho.
 
+## Licença
+
+O código deste projeto é livre, sob a [licença MIT](LICENSE). As bibliotecas em `third_party/` têm as suas próprias
+licenças (minimp3: CC0; pl_mpeg: MIT). A licença vale só para o código: os arquivos do jogo, as músicas e os vídeos
+continuam sendo da Activision e não fazem parte deste repositório.
+
 Guitar Hero é marca da Activision. Este projeto não é afiliado à Activision nem à RedOctane.

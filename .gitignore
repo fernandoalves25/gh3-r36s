@@ -6,3 +6,4 @@ DATA/
 frames/
 !docs/*.png
 .claude/
+gh3*.cfg
