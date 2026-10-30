@@ -40,7 +40,8 @@ make port       # build/gh3.aarch64, build/gh3-3d.aarch64 e o zip do PortMaster 
 O binário 3D é compilado dos mesmos fontes mais `src/r3d/` (leitor de cenas `.scn`, bancos `.tex`/DDS, câmeras e luzes do
 `.qb` da zona, e o desenho em GLES2 cru dentro da janela do SDL_Renderer, antes da camada 2D). Sem `-DGH3_3D` nada de
 `r3d/` entra no binário 2D. `build/gh3-3d --r3dtest z_dive --out DIR` carrega uma zona numa janela escondida, salva
-quadros e imprime malhas, texturas, triângulos, memória de vídeo e ms por quadro.
+quadros e imprime malhas, texturas, triângulos, memória de vídeo e ms por quadro nas três resoluções do palco
+(`R3D_NODXT=1` força o caminho do Mali: texturas decodificadas e comprimidas em ETC1).
 
 O decodificador de MP3 é o [minimp3](https://github.com/lieff/minimp3) (CC0) e o de vídeo (MPEG-1 + MP2) é o
 [pl_mpeg](https://github.com/phoboslab/pl_mpeg) (MIT), ambos em `third_party/`.

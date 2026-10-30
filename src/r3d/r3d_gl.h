@@ -101,8 +101,31 @@ typedef unsigned int GLuint; typedef float GLfloat; typedef float GLclampf; type
     X(void, glUniform1f, (GLint, GLfloat)) X(void, glUniform1i, (GLint, GLint)) X(void, glUniform2f, (GLint, GLfloat, GLfloat)) X(void, glUniform3f, (GLint, GLfloat, GLfloat, GLfloat)) X(void, glUniform4f, (GLint, GLfloat, GLfloat, GLfloat, GLfloat)) \
     X(void, glUniformMatrix4fv, (GLint, GLsizei, GLboolean, const GLfloat *)) X(void, glUseProgram, (GLuint)) X(void, glVertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, const void *)) X(void, glViewport, (GLint, GLint, GLsizei, GLsizei))
 
+/* the venue drawn at a lower size into a framebuffer of its own, then stretched under the 2D (all core GLES2) */
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#define GL_RENDERBUFFER 0x8D41
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_DEPTH_ATTACHMENT 0x8D00
+#define GL_DEPTH_COMPONENT16 0x81A5
+#define GL_RENDERBUFFER_BINDING 0x8CA7
+#define GL_COLOR_CLEAR_VALUE 0x0C22
+#define GL_TRIANGLE_STRIP 0x0005
+/* optional: ETC1 (GL_OES_compressed_ETC1_RGB8_texture; ETC2 RGB8 decodes the same blocks on desktop GL), timer queries, discard */
+#define GL_ETC1_RGB8_OES 0x8D64
+#define GL_COMPRESSED_RGB8_ETC2 0x9274
+#define GL_TIME_ELAPSED_EXT 0x88BF
+#define GL_QUERY_RESULT_EXT 0x8866
+#define GL_QUERY_RESULT_AVAILABLE_EXT 0x8867
+#define GL_GPU_DISJOINT_EXT 0x8FBB
+#define R3D_GL_FUNCS2(X) \
+    X(void, glGenFramebuffers, (GLsizei, GLuint *)) X(void, glBindFramebuffer, (GLenum, GLuint)) X(void, glFramebufferTexture2D, (GLenum, GLenum, GLenum, GLuint, GLint)) X(GLenum, glCheckFramebufferStatus, (GLenum)) \
+    X(void, glDeleteFramebuffers, (GLsizei, const GLuint *)) X(void, glGenRenderbuffers, (GLsizei, GLuint *)) X(void, glBindRenderbuffer, (GLenum, GLuint)) X(void, glRenderbufferStorage, (GLenum, GLenum, GLsizei, GLsizei)) \
+    X(void, glFramebufferRenderbuffer, (GLenum, GLenum, GLenum, GLuint)) X(void, glDeleteRenderbuffers, (GLsizei, const GLuint *)) X(void, glClearColor, (GLclampf, GLclampf, GLclampf, GLclampf)) X(void, glGetFloatv, (GLenum, GLfloat *)) \
+    X(void, glBindAttribLocation, (GLuint, GLuint, const GLchar *)) X(void, glDrawArrays, (GLenum, GLint, GLsizei))
+
 #define R3D_GL_DECL(ret, name, args) extern ret (*r3d_##name) args;
 R3D_GL_FUNCS(R3D_GL_DECL)
+R3D_GL_FUNCS2(R3D_GL_DECL)
 #undef R3D_GL_DECL
 int r3d_gl_load(void);   /* resolves every pointer above (through SDL); 0 when all were found */
 #endif

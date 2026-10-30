@@ -41,6 +41,12 @@ Na mesma pasta `gh3/` há dois programas feitos dos mesmos fontes:
   último palco carregado passeia pelas tomadas gerais do jogo. Banda, plateia, show de luzes dinâmico, fogo e brilho
   ainda não entram. É experimental: se engasgar ou a imagem sair errada, **Opções > Vídeo > Palco 3D** desliga o
   cenário (volta ao palco 2D) sem trocar de executável; `Escurecer o fundo` continua valendo sobre o cenário.
+  **Opções > Vídeo > Resolução do palco 3D** escolhe o tamanho em que o cenário é desenhado antes de ser ampliado atrás
+  da pista: Alta (640x480), **Média** (480x360, o padrão) ou Baixa (320x240, a mais leve); a pista e o placar ficam
+  sempre nítidos. Na primeira vez que um palco abre, as texturas são comprimidas (ETC1) e guardadas em `cache-3d/`
+  na pasta do port; das outras vezes ele abre mais rápido. Apagar `cache-3d/` só faz o próximo carregamento refazê-lo.
+  Enquanto uma música toca, o `log-3d.txt` ganha a cada 10 s uma linha `r3d perf:` com quadros por segundo, tempo
+  médio e máximo do quadro, tempo do cenário, chamadas de desenho, triângulos e memória de texturas.
 
 Os dois leem o mesmo `DATA` e os mesmos arquivos de save (`gh3.cfg`, `gh3-recordes.cfg`, `gh3-carreira.cfg`,
 `gh3-tutoriais.cfg`), então dá para alternar entre eles sem perder nada; cada um escreve o seu log (`log.txt` e
@@ -134,7 +140,7 @@ Organizadas como no jogo:
 - **Áudio**: volume da banda, da guitarra e dos efeitos, música do menu, prévia das músicas na lista, atraso do áudio.
 - **Calibrar atraso**: a medição descrita acima.
 - **Controle**: canhoto (lefty flip), palhetada normal ou toque livre (a nota toca ao segurar os trastes), botões.
-- **Vídeo**: palco 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
+- **Vídeo**: palco 3D e a resolução do palco 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
 
 O visual é o do próprio jogo, lido de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os trastes, as chamas, a pista com
 os seus trilhos, o medidor de rock com as válvulas do star power, a caixa do placar com a válvula do multiplicador e os

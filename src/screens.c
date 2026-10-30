@@ -194,9 +194,9 @@ static void draw_setup(double now) {
     encore_draw(now);
 }
 /* ------------------------------------------------------------------ options */
-enum { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, OPT_INTRO, OPT_STAGE3D, OPT_N };   /* OPT_STAGE3D: listed in the gh3-3d build only */
+enum { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, OPT_INTRO, OPT_STAGE3D, OPT_RES3D, OPT_N };   /* OPT_STAGE3D, OPT_RES3D: listed in the gh3-3d build only */
 static const char *OPT_LABEL[OPT_N] = { "Volume da banda", "Volume da guitarra", "Volume dos efeitos", "Música do menu", "Prévia das músicas", "Atraso do áudio", "Canhoto (lefty flip)", "Palhetada", "Botões…",
-    "Tema visual", "Efeitos de palco", "Escurecer o fundo", "Mostrar FPS", "Hyperspeed", "Sem falhar (No Fail)", "Liberar todas as músicas", "Vídeos de abertura", "Palco 3D" };
+    "Tema visual", "Efeitos de palco", "Escurecer o fundo", "Mostrar FPS", "Hyperspeed", "Sem falhar (No Fail)", "Liberar todas as músicas", "Vídeos de abertura", "Palco 3D", "Resolução do palco 3D" };
 static const char *OPT_HELP[OPT_N] = {
     "O volume da banda (as outras faixas da música) e da música do menu.", "O volume da parte que você toca. Ela silencia quando você erra, como no jogo.", "Volume dos sons do menu, erros e star power.",
     "As músicas do menu do próprio jogo tocam nos menus.", "Na lista de músicas, toca um trecho da música selecionada no lugar da música do menu.",
@@ -209,16 +209,17 @@ static const char *OPT_HELP[OPT_N] = {
     "Notas mais espaçadas e rápidas na pista. Não muda a dificuldade.", "O medidor de rock nunca encerra a música. A pontuação aparece, mas não vale recorde nem carreira.",
     "Abre todos os sets sem passar pela carreira. Os recordes continuam valendo.",
     "Os logotipos e a abertura do jogo ao ligar. A ou B pula um vídeo, Start pula todos.",
-    "O palco do próprio jogo em 3D atrás da pista (o cenário do set, com as câmeras do jogo). Desligue para o palco em pixel art." };
+    "O palco do próprio jogo em 3D atrás da pista (o cenário do set, com as câmeras do jogo). Desligue para o palco em pixel art.",
+    "O tamanho em que o cenário 3D é desenhado antes de ser ampliado atrás da pista: Alta (a tela inteira), Média (3/4, mais leve) ou Baixa (metade, a mais leve). A pista e o placar continuam nítidos." };
 enum { CAT_AUDIO, CAT_CALIB, CAT_CONTROL, CAT_VIDEO, CAT_TOP, CAT_CHEATS, CAT_RESET, CAT_N };
 static const char *CAT_LABEL[CAT_N] = { "ÁUDIO", "CALIBRAR ATRASO", "CONTROLE", "VÍDEO", "TOP ROCKERS", "TRAPAÇAS", "RESTAURAR PADRÕES" };
 static const char *CAT_HELP[CAT_N] = {
     "Volumes da banda, da guitarra e dos efeitos, a música do menu, as prévias e o atraso do áudio.",
     "Toca um clique e você palheta no ritmo: o jogo mede o atraso do som e ajusta as notas e o julgamento. Faça antes de jogar.",
-    "Canhoto, modo de palhetada e os botões de cada ação.", "Efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
+    "Canhoto, modo de palhetada e os botões de cada ação.", "Palco 3D e a sua resolução (no GH3 3D), efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
     "Os seus melhores resultados em cada música.", "As trapaças do jogo: toque os códigos nos trastes ou ligue cada uma direto.", "Volta todas as opções e controles ao padrão (recordes e carreira ficam)." };
 #ifdef GH3_3D
-#define VIDEO_ITEMS { OPT_STAGE3D, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
+#define VIDEO_ITEMS { OPT_STAGE3D, OPT_RES3D, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
 #else
 #define VIDEO_ITEMS { OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
 #endif
@@ -233,7 +234,8 @@ static void opt_value(int i, char *out, size_t n) {
     case OPT_MENUMUS: snprintf(out, n, "%s", SET.menuMusic ? "Ligada" : "Desligada"); break;
     case OPT_VOLB: snprintf(out, n, "%d%%", SET.volMusic); break; case OPT_VOLG: snprintf(out, n, "%d%%", SET.volGuitar); break; case OPT_VOLS: snprintf(out, n, "%d%%", SET.volSfx); break; case OPT_OFFSET: snprintf(out, n, "%+d ms", SET.offsetMs); break;
     case OPT_FPS: snprintf(out, n, "%s", SET.showFps ? "Sim" : "Não"); break; case OPT_UNLOCK: snprintf(out, n, "%s", SET.unlockAll ? "Ligado" : "Desligado"); break;
-    case OPT_INTRO: snprintf(out, n, "%s", SET.introMovies ? "Ligados" : "Desligados"); break; case OPT_STAGE3D: snprintf(out, n, "%s", SET.stage3d ? "Ligado" : "Desligado"); break; default: out[0] = 0; }
+    case OPT_INTRO: snprintf(out, n, "%s", SET.introMovies ? "Ligados" : "Desligados"); break; case OPT_STAGE3D: snprintf(out, n, "%s", SET.stage3d ? "Ligado" : "Desligado"); break;
+    case OPT_RES3D: { static const char *RN[3] = { "Alta", "Média", "Baixa" }; snprintf(out, n, "%s", RN[SET.stage3dRes < 0 || SET.stage3dRes > 2 ? 1 : SET.stage3dRes]); break; } default: out[0] = 0; }
 }
 static int clamp100(int v) { return v < 0 ? 0 : v > 100 ? 100 : v; }
 static void opt_change(int i, int d) {
@@ -243,7 +245,7 @@ static void opt_change(int i, int d) {
     case OPT_VOLB: SET.volMusic = clamp100(SET.volMusic + d * 10); app_apply_volumes(); break; case OPT_VOLG: SET.volGuitar = clamp100(SET.volGuitar + d * 10); app_apply_volumes(); break;
     case OPT_VOLS: SET.volSfx = clamp100(SET.volSfx + d * 10); app_apply_volumes(); break;
     case OPT_OFFSET: SET.offsetMs += d * 5; if (SET.offsetMs < -300) SET.offsetMs = -300; if (SET.offsetMs > 300) SET.offsetMs = 300; break;
-    case OPT_FPS: SET.showFps = !SET.showFps; break; case OPT_UNLOCK: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break; case OPT_INTRO: SET.introMovies = !SET.introMovies; break; case OPT_STAGE3D: SET.stage3d = !SET.stage3d; break; }
+    case OPT_FPS: SET.showFps = !SET.showFps; break; case OPT_UNLOCK: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break; case OPT_INTRO: SET.introMovies = !SET.introMovies; break; case OPT_STAGE3D: SET.stage3d = !SET.stage3d; break; case OPT_RES3D: SET.stage3dRes = (SET.stage3dRes + 3 + d) % 3; break; }
 }
 static void draw_options(double now) {
     if (SET.theme == 2 && orig_ready() && orig_options_draw(now, CAT_LABEL, CAT_HELP, CAT_ITEMS, CAT_N, OPT_LABEL, OPT_HELP, opt_value, cat_off)) return;

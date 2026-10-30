@@ -29,6 +29,7 @@ typedef struct {
     int introMovies;    /* the logos and the game's intro at start-up */
     int careerIntro;    /* the career's opening movie was shown (kept by Restaurar padrões) */
     int stage3d;        /* the game's venue in 3D behind the highway (only the gh3-3d build draws it; the 2D build ignores it) */
+    int stage3dRes;     /* the size the 3D venue is drawn at before it is stretched under the highway: 0 Alta (the screen's), 1 Média (3/4), 2 Baixa (1/2) */
     bind_t binds[ACT_N][BIND_SLOTS];
 } settings_t;
 extern settings_t SET;

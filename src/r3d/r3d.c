@@ -1,9 +1,12 @@
 /* The venue drawn in 3D behind the highway. A zone's meshes are read once (r3d_zone.c), lit on the CPU from the venue's
  * own lights (baked into the vertex colours), merged per material into one vertex buffer each (world space, objects
- * already placed), and the textures uploaded as DXT where the GPU takes it or decoded to 16/32-bit when it does not
- * (the Mali-G31). Every frame: SDL_RenderFlush, the GL state SDL relies on saved, the venue drawn through one shader
- * (lit / unlit / ambient-only are the same formula with different numbers), the state put back. The camera walks the
- * venue's own shots (cameras, _pan, _dolly…) one after another, as the game does between songs. */
+ * already placed; each part keeps its index range and bounding sphere), and the textures uploaded at most 256 px: DXT
+ * where the GPU takes it, else decoded and then ETC1 (opaque, encoded here at load) or 16-bit (565 / 4444), mipmapped.
+ * Every frame: SDL_RenderFlush, the GL state SDL relies on saved, the venue drawn through one shader (lit / unlit /
+ * ambient-only are the same formula with different numbers; a copy with the alpha test for the cut-out materials) into
+ * a framebuffer of 3/4 or 1/2 the screen (Opções > Vídeo > Resolução do palco 3D) stretched under the 2D, parts out of
+ * view or under a pixel left out, the state put back. The camera walks the venue's own shots (cameras, _pan, _dolly…)
+ * one after another, as the game does between songs. While a song plays a line of timings goes to the log every 10 s. */
 #include "r3d.h"
 #include "r3d_gl.h"
 #include "r3d_zone.h"
@@ -14,42 +17,56 @@
 #include <string.h>
 #include <math.h>
 #include <dlfcn.h>
+#include <sys/stat.h>
 
 #define R3D_GL_DEF(ret, name, args) ret (*r3d_##name) args;
 R3D_GL_FUNCS(R3D_GL_DEF)
+R3D_GL_FUNCS2(R3D_GL_DEF)
 #undef R3D_GL_DEF
 int r3d_gl_load(void) {
     int missing = 0;
 #define R3D_GL_GET(ret, name, args) r3d_##name = (ret (*) args)SDL_GL_GetProcAddress(#name); if (!r3d_##name) { missing++; SDL_Log("r3d: no %s", #name); }
     R3D_GL_FUNCS(R3D_GL_GET)
+    R3D_GL_FUNCS2(R3D_GL_GET)
 #undef R3D_GL_GET
     return missing ? -1 : 0;
 }
 #define GL(name) r3d_##name
 
-#define TEX_MAX 512          /* textures above this take a smaller mip level: VRAM */
+#define TEX_MAX 256          /* 16-bit textures above this take a smaller mip level, ETC1 / DXT / signs above twice this (R3D_TEXMAX=128..512 to compare): texel bandwidth, what bounds a Mali-G31 */
 #define VRAM_MAX (64u << 20)
 #define SHOT_MS 8000.0       /* with no cue list, the next shot every eight seconds */
 #define Z_NEAR 0.25f
 #define Z_FAR 1500.0f
+#define LOD_PX 1.0f          /* a part whose bounding sphere is under this radius on the screen (in 640x480 pixels) is left out */
+#define RUN_GAP 96           /* parts of a batch drawn in one call across a gap of up to this many hidden indices */
+#define PERF_MS 10000        /* the timings line in the log, while a song plays */
 
-/* ---- one vertex: 48 bytes ---- */
-typedef struct { float pos[3], ctr[3]; uint8_t col[4], lit[4]; float uv[2], uv2[2]; } vtx;
-typedef struct { uint32_t key; int clamp; GLuint id; } texref;
+/* ---- one vertex: 48 bytes (r3d_vtx) ---- */
+typedef r3d_vtx vtx;
+typedef struct { uint32_t key; int clamp, max; GLuint id; } texref;
+typedef struct { int first, count; float c[3], r; } part;   /* a mesh inside a batch: its indices and bounding sphere */
 typedef struct {
     uint32_t mat; int smapped; GLuint vbo, ibo, tex, smap; int nidx, nvert, blend /* 0 solid, 1 added, 2 see-through */, board, colA;
-    float colour[4], alphaRef, tile, anim[4], wibU[4], wibV[4], wibR[3]; int wib, hasAnim; float amb[3], centre[3], radius;
+    float colour[4], alphaRef, tile, anim[4], wibU[4], wibV[4], wibR[3]; int wib, hasAnim; float amb[3], centre[3], radius; part *p; int np; float order;
     vtx *v; uint16_t *i; int capV, capI; double ambSum[3]; float bmin[3], bmax[3];   /* build-time only */
 } batch;
 typedef struct { float pos[3], q[4], fov; } camend;
 typedef struct { uint32_t list, type, name; camend a, b; int hasB; float orbit; } shot;
+typedef struct { int frames; double sumFrame, maxFrame, sumCpu, maxCpu, sumGpu; int nGpu; long calls, tris; Uint64 last, t0; } perfwin;
 typedef struct {
     int ready, loaded; SDL_Renderer *ren; char zone[32]; int W, H;
-    GLuint prog, white; GLint aPos, aCtr, aCol, aLit, aUv, aUv2, uProj, uView, uBoard, uAnim, uWibU, uWibV, uWibR, uWib, uTime, uMap, uSmap, uColour, uAmb, uTint, uAlphaRef, uColA, uTile;
-    int s3tc, npot; int (*flush)(SDL_Renderer *);
-    batch *b; int nb; texref *tex; int ntex; shot *shots; int nshots; int *order, ngen; uint32_t kCameras; float ctr[3], span;   /* order: the general shots, shuffled */
+    r3d_prog P[2]; GLuint white; r3d_view V;   /* P[0] no alpha test, P[1] with it */
+    int s3tc, npot, etc1, texMax; GLenum etcFmt; int (*flush)(SDL_Renderer *);
+    batch *b; int nb; texref *tex; int ntex; shot *shots; int nshots; int *order, ngen, shotSeq, sortedSeq; uint32_t kCameras; float ctr[3], span;   /* order: the general shots, shuffled */
+    /* the framebuffer the venue is drawn into below Alta, and the program that stretches it */
+    GLuint fbo, fboTex, fboDepth, blitProg, blitVbo; GLint bPos, bTex; int fw, fh, fboBad, res;
+    /* optional GL: timer queries (GL_EXT_disjoint_timer_query, or desktop GL 3.3), framebuffer discard */
+    void (*genQ)(GLsizei, GLuint *); void (*beginQ)(GLenum, GLuint); void (*endQ)(GLenum); void (*getQ)(GLuint, GLenum, GLuint *); void (*discard)(GLenum, GLsizei, const GLenum *);
+    GLuint q[4]; int qBusy[4], qi, timer, disjoint;
+    perfwin pw;
     /* counts, for --r3dtest and the log */
-    int meshes, skipped, tris, textures; size_t vram; int drawCalls, drawnTris; double loadMs;
+    int meshes, skipped, tris, textures, nEtc, n16, nDxt; size_t vram, texBytes; int drawCalls, drawnTris, culled; double loadMs, texMs;
 } r3d_t;
 static r3d_t R;
 
@@ -80,10 +97,13 @@ static void mat_view(float *m, const float pos[3], const float q[4], float yaw) 
     m[3] = m[7] = m[11] = 0; m[15] = 1;
 }
 static void mat_mul(const float *a, const float *b, float *o) { for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) { float s = 0; for (int k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } }
-/* a sphere against the six planes of a projection*view matrix */
-static int sphere_visible(const float *vp, const float c[3], float rad) {
-    for (int i = 0; i < 6; i++) { int row = i >> 1; float s = (i & 1) ? -1.0f : 1.0f, p[4]; for (int k = 0; k < 4; k++) p[k] = vp[k * 4 + 3] + s * vp[k * 4 + row];
-        float L = sqrtf(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]); if (L < 1e-6f) continue; if ((p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3]) / L < -rad) return 0; }
+/* the six planes of a projection*view matrix, normalised (a, b, c, d: inside when a x + b y + c z + d >= 0) */
+static void frustum(const float *vp, float pl[6][4]) {
+    for (int i = 0; i < 6; i++) { int row = i >> 1; float s = (i & 1) ? -1.0f : 1.0f; for (int k = 0; k < 4; k++) pl[i][k] = vp[k * 4 + 3] + s * vp[k * 4 + row];
+        float L = sqrtf(pl[i][0] * pl[i][0] + pl[i][1] * pl[i][1] + pl[i][2] * pl[i][2]); if (L < 1e-6f) { pl[i][0] = pl[i][1] = pl[i][2] = 0; pl[i][3] = 1; continue; } for (int k = 0; k < 4; k++) pl[i][k] /= L; }
+}
+static int sphere_in(const float pl[6][4], const float c[3], float rad) {
+    for (int i = 0; i < 6; i++) if (pl[i][0] * c[0] + pl[i][1] * c[1] + pl[i][2] * c[2] + pl[i][3] < -rad) return 0;
     return 1;
 }
 
@@ -103,35 +123,51 @@ static const char *VS =
     "    vec2 c0 = aUv - uWibR.yz; uv = vec2(c0.x * cos(ra) + c0.y * sin(ra), c0.y * cos(ra) - c0.x * sin(ra)) + uWibR.yz + vec2(mod(su, 8.0), mod(sv, 8.0)); }\n"
     "  vUv = uv; vUv2 = aUv2; vCol = aCol; vLit = aLit.rgb * 4.0;\n"
     "}\n";
+/* mediump for the colour sums (half the work on Mali), highp kept for the texture coordinates (tiled and scrolled ones go past 8) */
 static const char *FS =
-    "#ifdef GL_ES\nprecision highp float;\n#endif\n"
-    "uniform sampler2D uMap; uniform sampler2D uSmap; uniform vec4 uColour; uniform vec3 uAmb; uniform vec3 uTint; uniform float uAlphaRef; uniform float uColA; uniform float uTile;\n"
-    "varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vLit;\n"
+    "#ifdef GL_ES\nprecision mediump float;\n#define HI highp\n#else\n#define HI\n#endif\n"
+    "uniform sampler2D uMap; uniform sampler2D uSmap; uniform vec4 uColour; uniform vec3 uAmb; uniform vec3 uTint; uniform float uAlphaRef; uniform float uColA; uniform HI float uTile;\n"
+    "varying HI vec2 vUv; varying HI vec2 vUv2; varying vec4 vCol; varying vec3 vLit;\n"
     "void main() {\n"
     "  vec4 t = texture2D(uMap, vUv * uTile) * uColour;\n"
     "  vec3 L = vLit * texture2D(uSmap, vUv2).rgb + uAmb;\n"   /* the game's sum: the lights dimmed by the baked map, plus ambient (unlit parts: lit 1, amb 0, map white) */
     "  float a = t.a * mix(1.0, vCol.a, uColA);\n"
-    "  if (a < uAlphaRef) discard;\n"
+    "#ifdef ATEST\n  if (a < uAlphaRef) discard;\n#endif\n"   /* only in P[1]: a discard anywhere in a program turns off Mali's early depth for all its draws */
     "  gl_FragColor = vec4(t.rgb * L * vCol.rgb * uTint, a);\n"
     "}\n";
-static GLuint shader(GLenum kind, const char *src) {
-    GLuint s = GL(glCreateShader)(kind); GL(glShaderSource)(s, 1, &src, NULL); GL(glCompileShader)(s); GLint ok = 0; GL(glGetShaderiv)(s, GL_COMPILE_STATUS, &ok);
+static const char *BLIT_VS = "attribute vec2 aP; varying vec2 vT; void main() { vT = aP * 0.5 + 0.5; gl_Position = vec4(aP, 0.0, 1.0); }\n";
+static const char *BLIT_FS = "#ifdef GL_ES\nprecision mediump float;\n#endif\nuniform sampler2D uT; varying vec2 vT; void main() { gl_FragColor = texture2D(uT, vT); }\n";
+static GLuint shader(GLenum kind, const char *pre, const char *src) {
+    GLuint s = GL(glCreateShader)(kind); const char *srcs[2] = { pre, src }; GL(glShaderSource)(s, 2, srcs, NULL); GL(glCompileShader)(s); GLint ok = 0; GL(glGetShaderiv)(s, GL_COMPILE_STATUS, &ok);
     if (!ok) { char log[1024]; GL(glGetShaderInfoLog)(s, sizeof log, NULL, log); SDL_Log("r3d: shader: %s", log); GL(glDeleteShader)(s); return 0; }
     return s;
 }
+static GLuint link(const char *vsrc, const char *pre, const char *fsrc) {
+    GLuint vs = shader(GL_VERTEX_SHADER, "", vsrc), fs = shader(GL_FRAGMENT_SHADER, pre, fsrc); if (!vs || !fs) return 0;
+    GLuint p = GL(glCreateProgram)(); GL(glAttachShader)(p, vs); GL(glAttachShader)(p, fs);
+    static const char *ATTR[6] = { "aPos", "aCtr", "aCol", "aLit", "aUv", "aUv2" }; for (int i = 0; i < 6; i++) GL(glBindAttribLocation)(p, i, ATTR[i]); GL(glBindAttribLocation)(p, 0, "aP");   /* the same slots in both venue programs */
+    GL(glLinkProgram)(p); GL(glDeleteShader)(vs); GL(glDeleteShader)(fs);
+    GLint ok = 0; GL(glGetProgramiv)(p, GL_LINK_STATUS, &ok); if (!ok) { char log[1024]; GL(glGetProgramInfoLog)(p, sizeof log, NULL, log); SDL_Log("r3d: link: %s", log); GL(glDeleteProgram)(p); return 0; }
+    return p;
+}
 static int build_program(void) {
-    GLuint vs = shader(GL_VERTEX_SHADER, VS), fs = shader(GL_FRAGMENT_SHADER, FS); if (!vs || !fs) return -1;
-    R.prog = GL(glCreateProgram)(); GL(glAttachShader)(R.prog, vs); GL(glAttachShader)(R.prog, fs); GL(glLinkProgram)(R.prog); GL(glDeleteShader)(vs); GL(glDeleteShader)(fs);
-    GLint ok = 0; GL(glGetProgramiv)(R.prog, GL_LINK_STATUS, &ok); if (!ok) { char log[1024]; GL(glGetProgramInfoLog)(R.prog, sizeof log, NULL, log); SDL_Log("r3d: link: %s", log); return -1; }
-    R.aPos = GL(glGetAttribLocation)(R.prog, "aPos"); R.aCtr = GL(glGetAttribLocation)(R.prog, "aCtr"); R.aCol = GL(glGetAttribLocation)(R.prog, "aCol"); R.aLit = GL(glGetAttribLocation)(R.prog, "aLit"); R.aUv = GL(glGetAttribLocation)(R.prog, "aUv"); R.aUv2 = GL(glGetAttribLocation)(R.prog, "aUv2");
-#define U(n) R.n = GL(glGetUniformLocation)(R.prog, #n)
-    U(uProj); U(uView); U(uBoard); U(uAnim); U(uWibU); U(uWibV); U(uWibR); U(uWib); U(uTime); U(uMap); U(uSmap); U(uColour); U(uAmb); U(uTint); U(uAlphaRef); U(uColA); U(uTile);
+    for (int k = 0; k < 2; k++) { r3d_prog *P = &R.P[k]; GLuint p = link(VS, k ? "#define ATEST 1\n" : "", FS); if (!p) return -1; P->prog = p;
+        P->aPos = GL(glGetAttribLocation)(p, "aPos"); P->aCtr = GL(glGetAttribLocation)(p, "aCtr"); P->aCol = GL(glGetAttribLocation)(p, "aCol"); P->aLit = GL(glGetAttribLocation)(p, "aLit"); P->aUv = GL(glGetAttribLocation)(p, "aUv"); P->aUv2 = GL(glGetAttribLocation)(p, "aUv2");
+#define U(n) P->n = GL(glGetUniformLocation)(p, #n)
+        U(uProj); U(uView); U(uBoard); U(uAnim); U(uWibU); U(uWibV); U(uWibR); U(uWib); U(uTime); U(uMap); U(uSmap); U(uColour); U(uAmb); U(uTint); U(uAlphaRef); U(uColA); U(uTile);
 #undef U
+    }
+    if ((R.blitProg = link(BLIT_VS, "", BLIT_FS))) { R.bPos = GL(glGetAttribLocation)(R.blitProg, "aP"); R.bTex = GL(glGetUniformLocation)(R.blitProg, "uT");
+        static const float tri[6] = { -1, -1, 3, -1, -1, 3 }; GL(glGenBuffers)(1, &R.blitVbo); GL(glBindBuffer)(GL_ARRAY_BUFFER, R.blitVbo); GL(glBufferData)(GL_ARRAY_BUFFER, sizeof tri, tri, GL_STATIC_DRAW); GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); }
+    else R.fboBad = 1;   /* no stretching: drawn at the screen's size */
     return 0;
 }
+const r3d_prog *r3d_program(int alphaTest) { return R.ready ? &R.P[alphaTest ? 1 : 0] : NULL; }
+const r3d_view *r3d_view_now(void) { return &R.V; }
 
 /* ------------------------------------------------------------------ init */
 int r3d_ready(void) { return R.ready; }
+static void *proc(const char *a, const char *b) { void *p = SDL_GL_GetProcAddress(a); if (!p && b) p = SDL_GL_GetProcAddress(b); return p; }
 int r3d_init(SDL_Renderer *ren) {
     memset(&R, 0, sizeof R); R.ren = ren; if (!ren) return -1;
     SDL_RendererInfo ri; SDL_GetRendererInfo(ren, &ri); if (!strstr(ri.name, "opengl")) { SDL_Log("r3d: renderer %s is not GL: 2D stage", ri.name); return -1; }
@@ -140,45 +176,160 @@ int r3d_init(SDL_Renderer *ren) {
     if (r3d_gl_load()) return -1;
     if (build_program()) return -1;
     const char *ext = (const char *)GL(glGetString)(GL_EXTENSIONS); if (!ext) ext = "";
+    const char *ver = (const char *)GL(glGetString)(GL_VERSION); int es = ver && strstr(ver, "ES") != NULL;
     R.s3tc = strstr(ext, "GL_EXT_texture_compression_s3tc") != NULL || (strstr(ext, "GL_EXT_texture_compression_dxt1") && strstr(ext, "GL_ANGLE_texture_compression_dxt"));
     if (getenv("R3D_NODXT")) R.s3tc = 0;   /* R3D_NODXT=1: the textures decoded on the CPU as on the Mali-G31, to check that path on a desktop GPU */
-    const char *ver = (const char *)GL(glGetString)(GL_VERSION); R.npot = strstr(ext, "GL_OES_texture_npot") != NULL || (ver && !strstr(ver, "ES"));   /* desktop GL: always */
+    R.npot = strstr(ext, "GL_OES_texture_npot") != NULL || !es;   /* desktop GL: always */
+    if (strstr(ext, "GL_OES_compressed_ETC1_RGB8_texture")) { R.etc1 = 1; R.etcFmt = GL_ETC1_RGB8_OES; } else if (!es && strstr(ext, "GL_ARB_ES3_compatibility")) { R.etc1 = 1; R.etcFmt = GL_COMPRESSED_RGB8_ETC2; }   /* ETC2 RGB8 reads ETC1 blocks the same */
+    if (getenv("R3D_NOETC")) R.etc1 = 0;
+    { const char *e = getenv("R3D_TEXMAX"); R.texMax = e && atoi(e) >= 16 ? atoi(e) : TEX_MAX; }
+    if (es ? strstr(ext, "GL_EXT_disjoint_timer_query") != NULL : strstr(ext, "GL_ARB_timer_query") != NULL) {
+        R.genQ = (void (*)(GLsizei, GLuint *))proc(es ? "glGenQueriesEXT" : "glGenQueries", NULL); R.beginQ = (void (*)(GLenum, GLuint))proc(es ? "glBeginQueryEXT" : "glBeginQuery", NULL);
+        R.endQ = (void (*)(GLenum))proc(es ? "glEndQueryEXT" : "glEndQuery", NULL); R.getQ = (void (*)(GLuint, GLenum, GLuint *))proc(es ? "glGetQueryObjectuivEXT" : "glGetQueryObjectuiv", NULL);
+        if (R.genQ && R.beginQ && R.endQ && R.getQ) { R.genQ(4, R.q); R.timer = 1; R.disjoint = es; } }
+    if (es ? strstr(ext, "GL_EXT_discard_framebuffer") != NULL : strstr(ext, "GL_ARB_invalidate_subdata") != NULL) R.discard = (void (*)(GLenum, GLsizei, const GLenum *))proc(es ? "glDiscardFramebufferEXT" : "glInvalidateFramebuffer", NULL);
     GL(glGenTextures)(1, &R.white); GL(glBindTexture)(GL_TEXTURE_2D, R.white); uint8_t px[4] = { 255, 255, 255, 255 }; GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
     GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); GL(glBindTexture)(GL_TEXTURE_2D, 0);
+    R.P[0].white = R.P[1].white = R.white;
     SDL_GetRendererOutputSize(ren, &R.W, &R.H);
-    SDL_Log("r3d: %s / %s, %s, s3tc %d npot %d", GL(glGetString)(GL_RENDERER), ver ? ver : "?", ri.name, R.s3tc, R.npot);
+    SDL_Log("r3d: %s / %s, %s, s3tc %d etc1 %d npot %d, gpu timer %d, discard %d, textures up to %d px", GL(glGetString)(GL_RENDERER), ver ? ver : "?", ri.name, R.s3tc, R.etc1, R.npot, R.timer, R.discard != NULL, R.texMax);
     R.ready = 1; return 0;
 }
 
 /* ------------------------------------------------------------------ textures */
 static int pot(int x) { return x > 0 && !(x & (x - 1)); }
-static GLuint tex_get(const uint8_t *bank, size_t bankLen, const r3d_texent *ents, int nents, uint32_t key, int clamp) {
-    for (int i = 0; i < R.ntex; i++) if (R.tex[i].key == key && R.tex[i].clamp == clamp) return R.tex[i].id;
+/* ---- ETC1, encoded at load: 4 bits a texel (a quarter of 565), what the Mali samples fastest. A quick encoder: per 4x4 block
+ * the split (two 2x4 or two 4x2 halves) that keeps each half's colours closest to its mean, the means as the base colours
+ * (555 + a 333 difference, else 444 each), and per half the modifier table with the least error, each texel taking the
+ * modifier nearest to its own offset from the base (exact for the error sum while nothing clips) */
+static const int ETC_T[8][2] = { { 2, 8 }, { 5, 17 }, { 9, 29 }, { 13, 42 }, { 18, 60 }, { 24, 80 }, { 33, 106 }, { 47, 183 } };
+static int etc_half(const int (*p)[3], const int *who, const int b[3], uint32_t *lo) {   /* the table; the texels' indices into *lo */
+    int s[8], bestT = 0, bestE = 0x7fffffff, mx = 0;
+    for (int i = 0; i < 8; i++) { s[i] = p[who[i]][0] - b[0] + p[who[i]][1] - b[1] + p[who[i]][2] - b[2]; int as = s[i] < 0 ? -s[i] : s[i]; if (as > mx) mx = as; }
+    int t0 = 0; while (t0 < 7 && 3 * ETC_T[t0][1] < mx) t0++;   /* only the tables round the one whose large step reaches the farthest texel */
+    for (int t = t0 > 0 ? t0 - 1 : 0; t <= t0 + 1 && t < 8; t++) { int a = ETC_T[t][0], B = ETC_T[t][1], lim = 3 * (a + B), e = 0;   /* per texel 3m^2 - 2ms: the large step once |s| > 1.5 (a + B) */
+        for (int i = 0; i < 8; i++) { int as = s[i] < 0 ? -s[i] : s[i], m = 2 * as > lim ? B : a; e += 3 * m * m - 2 * m * as; }
+        if (e < bestE) { bestE = e; bestT = t; } }
+    int a = ETC_T[bestT][0], B = ETC_T[bestT][1], lim = 3 * (a + B);
+    for (int i = 0; i < 8; i++) { int as = s[i] < 0 ? -s[i] : s[i], big = 2 * as > lim, neg = s[i] < 0, idx = (neg << 1) | big; *lo |= (uint32_t)(idx >> 1) << (16 + who[i]) | (uint32_t)(idx & 1) << who[i]; }
+    return bestT;
+}
+static void etc1_block(const uint8_t *rgba, int w, int h, int bx, int by, uint8_t *out) {
+    int p[16][3];   /* texel x, y at x * 4 + y, as the block numbers them; edges repeated past a small level's border */
+    for (int x = 0; x < 4; x++) for (int y = 0; y < 4; y++) { int sx = bx + x < w ? bx + x : w - 1, sy = by + y < h ? by + y : h - 1; const uint8_t *q = rgba + ((size_t)sy * w + sx) * 4; p[x * 4 + y][0] = q[0]; p[x * 4 + y][1] = q[1]; p[x * 4 + y][2] = q[2]; }
+    static const int HALF[2][2][8] = { { { 0, 1, 2, 3, 4, 5, 6, 7 }, { 8, 9, 10, 11, 12, 13, 14, 15 } }, { { 0, 1, 4, 5, 8, 9, 12, 13 }, { 2, 3, 6, 7, 10, 11, 14, 15 } } };   /* flip 0: left | right; 1: top / bottom */
+    int sum[2][2][3] = { { { 0 } } }, flip = 0; long best = -1;
+    for (int f = 0; f < 2; f++) { long v = 0; for (int hf = 0; hf < 2; hf++) for (int c = 0; c < 3; c++) { int S = 0; for (int i = 0; i < 8; i++) S += p[HALF[f][hf][i]][c]; sum[f][hf][c] = S; v += (long)S * S; } if (v > best) { best = v; flip = f; } }   /* the bigger sum of squared half-sums: the smaller spread inside the halves */
+    int q[2][3], base[2][3], diff = 1; uint32_t hi = 0, lo = 0;
+    for (int hf = 0; hf < 2; hf++) for (int c = 0; c < 3; c++) q[hf][c] = (sum[flip][hf][c] * 31 + 8 * 255 / 2) / (8 * 255);
+    for (int c = 0; c < 3; c++) { int d = q[1][c] - q[0][c]; if (d < -4 || d > 3) diff = 0; }
+    if (diff) { for (int hf = 0; hf < 2; hf++) for (int c = 0; c < 3; c++) base[hf][c] = (q[hf][c] << 3) | (q[hf][c] >> 2);
+        hi = (uint32_t)q[0][0] << 27 | (uint32_t)((q[1][0] - q[0][0]) & 7) << 24 | (uint32_t)q[0][1] << 19 | (uint32_t)((q[1][1] - q[0][1]) & 7) << 16 | (uint32_t)q[0][2] << 11 | (uint32_t)((q[1][2] - q[0][2]) & 7) << 8 | 2u; }
+    else { for (int hf = 0; hf < 2; hf++) for (int c = 0; c < 3; c++) { q[hf][c] = (sum[flip][hf][c] * 15 + 8 * 255 / 2) / (8 * 255); base[hf][c] = q[hf][c] * 17; }
+        hi = (uint32_t)q[0][0] << 28 | (uint32_t)q[1][0] << 24 | (uint32_t)q[0][1] << 20 | (uint32_t)q[1][1] << 16 | (uint32_t)q[0][2] << 12 | (uint32_t)q[1][2] << 8; }
+    int t0 = etc_half(p, HALF[flip][0], base[0], &lo), t1 = etc_half(p, HALF[flip][1], base[1], &lo);
+    hi |= (uint32_t)t0 << 5 | (uint32_t)t1 << 2 | (uint32_t)flip;
+    for (int k = 0; k < 4; k++) { out[k] = (uint8_t)(hi >> (24 - 8 * k)); out[4 + k] = (uint8_t)(lo >> (24 - 8 * k)); }
+}
+static size_t etc1_size(int w, int h) { return (size_t)((w + 3) / 4) * ((h + 3) / 4) * 8; }
+static void etc1_encode(const uint8_t *rgba, int w, int h, uint8_t *out) { for (int by = 0; by < h; by += 4) for (int bx = 0; bx < w; bx += 4, out += 8) etc1_block(rgba, w, h, bx, by, out); }
+static void half_size(const uint8_t *s, int w, int h, uint8_t *d) {   /* the next mip level: a 2x2 box (a side already 1 stays 1) */
+    int w2 = w > 1 ? w / 2 : 1, h2 = h > 1 ? h / 2 : 1, dx = w > 1, dy = h > 1;
+    for (int y = 0; y < h2; y++) for (int x = 0; x < w2; x++) for (int c = 0; c < 4; c++) { const uint8_t *a = s + ((size_t)(y * (dy + 1)) * w + x * (dx + 1)) * 4 + c;
+        d[((size_t)y * w2 + x) * 4 + c] = (uint8_t)((a[0] + a[dx * 4] + a[(size_t)dy * w * 4] + a[(size_t)dy * w * 4 + dx * 4] + 2) / 4); }
+}
+/* ---- the ETC1 cache: <GH3_HOME>/cache-3d/<zone>.etc, written when a load had to encode, read on the next ones (encoding is
+ * the slow part of a load on the A35). Header "R3DC", version, texture cap, a stamp of the zone's texture bank; then per
+ * picture 16 bytes (key, w, h, levels, size; levels 0: not opaque, kept 16-bit) and its ETC1 levels. R3D_NOCACHE=1: none. */
+#define CACHE_VER 2
+static struct { uint8_t *in; size_t inLen; uint8_t *out; size_t outLen, outCap; int hits, miss; uint32_t stamp; char path[600]; } C;
+static void put32(uint8_t *p, uint32_t v) { memcpy(p, &v, 4); }
+static uint32_t get32(const uint8_t *p) { uint32_t v; memcpy(&v, p, 4); return v; }
+static void cache_head(uint8_t *h, uint32_t key, int w, int hh, int nl, size_t size) { put32(h, key); put32(h + 4, (uint32_t)w | (uint32_t)hh << 16); put32(h + 8, (uint32_t)nl); put32(h + 12, (uint32_t)size); }
+static const uint8_t *cache_find(uint32_t key, int w, int h) {   /* in the file read, or among the ones this load already made (a picture used with two wrap modes) */
+    for (int k = 0; k < 2; k++) { const uint8_t *B = k ? C.out : C.in; size_t n = k ? C.outLen : C.inLen;
+        for (size_t p = k ? 0 : 16; B && p + 16 <= n; p += 16 + get32(B + p + 12)) if (get32(B + p) == key && get32(B + p + 4) == ((uint32_t)w | (uint32_t)h << 16) && p + 16 + get32(B + p + 12) <= n) return B + p; }
+    return NULL;
+}
+static void cache_keep(const uint8_t *rec, size_t n) {
+    if (C.out && rec >= C.out && rec < C.out + C.outLen) return;   /* already kept */
+    if (C.outLen + n > C.outCap) { C.outCap = (C.outLen + n) * 2; C.out = realloc(C.out, C.outCap); } memcpy(C.out + C.outLen, rec, n); C.outLen += n;
+}
+static void cache_open(const char *zone, const uint8_t *bank, size_t bankLen, const r3d_texent *ents, int n) {
+    free(C.in); free(C.out); memset(&C, 0, sizeof C); if (!R.etc1 || getenv("R3D_NOCACHE")) return;
+    uint32_t h = 2166136261u; for (int i = 0; i < n; i++) { uint32_t v[4] = { ents[i].key, (uint32_t)ents[i].w, (uint32_t)ents[i].h, ents[i].size }; for (int k = 0; k < 16; k++) h = (h ^ ((uint8_t *)v)[k]) * 16777619u; }
+    for (size_t k = 0; k < bankLen; k += 4093) h = (h ^ bank[k]) * 16777619u;   /* a sparse look at the bytes too */
+    C.stamp = h ^ (uint32_t)bankLen;
+    snprintf(C.path, sizeof C.path, "%s/cache-3d/%s.etc", settings_home(), zone);
+    FILE *f = fopen(C.path, "rb"); if (!f) return; fseek(f, 0, SEEK_END); long L = ftell(f); fseek(f, 0, SEEK_SET);
+    if (L >= 16) { C.in = malloc((size_t)L); if (fread(C.in, 1, (size_t)L, f) != (size_t)L || memcmp(C.in, "R3DC", 4) || get32(C.in + 4) != CACHE_VER || get32(C.in + 8) != (uint32_t)R.texMax || get32(C.in + 12) != C.stamp) { free(C.in); C.in = NULL; } else C.inLen = (size_t)L; }
+    fclose(f);
+}
+static void cache_close(void) {   /* written again only when something was missing from it */
+    if (C.miss && C.path[0]) { char dir[620], tmp[620]; snprintf(dir, sizeof dir, "%s/cache-3d", settings_home()); mkdir(dir, 0755); snprintf(tmp, sizeof tmp, "%s.tmp", C.path);
+        FILE *f = fopen(tmp, "wb"); uint8_t h[16]; memcpy(h, "R3DC", 4); put32(h + 4, CACHE_VER); put32(h + 8, (uint32_t)R.texMax); put32(h + 12, C.stamp);
+        if (f) { int ok = fwrite(h, 1, 16, f) == 16 && fwrite(C.out, 1, C.outLen, f) == C.outLen; ok = fclose(f) == 0 && ok; if (ok) rename(tmp, C.path); else { remove(tmp); SDL_Log("r3d: could not write %s", C.path); } } }
+    free(C.in); free(C.out); C.in = C.out = NULL; C.inLen = C.outLen = C.outCap = 0;
+}
+/* a picture of the bank as a GL texture, once per wrap mode. Sizes: 16-bit pictures at most texMax (256), ETC1 and DXT ones
+ * (4 bits a texel) at most twice that, the same bytes as a 16-bit one of half the side; with the mips the GPU reads the level
+ * that fits the screen anyway, so the larger side costs memory, not bandwidth, and keeps the close-ups sharp. sign: a sign,
+ * neon or glow (unlit or added light): twice the size whatever the format, and never ETC1 (thin coloured lines on black are
+ * where it loses most) */
+static GLuint tex_get(const uint8_t *bank, size_t bankLen, const r3d_texent *ents, int nents, uint32_t key, int clamp, int sign) {
+    for (int i = 0; i < R.ntex; i++) if (R.tex[i].key == key && R.tex[i].clamp == clamp && R.tex[i].max == sign) return R.tex[i].id;
     const r3d_texent *e = NULL; for (int i = 0; i < nents; i++) if (ents[i].key == key) { e = &ents[i]; break; }
     GLuint id = 0; r3d_dds d;
     if (e && r3d_dds_info(bank + e->off, e->size, &d) == 0) {
-        const uint8_t *b = bank + e->off; size_t n = e->size; int l0 = 0; while (l0 + 1 < d.nlev && (d.lev[l0].w > TEX_MAX || d.lev[l0].h > TEX_MAX)) l0++;
-        int gpu = R.s3tc && d.cc != DDS_RGBA32;   /* over the budget, a smaller level still (decoded pictures take 16 bits a texel, plus a third for the mips) */
-        while (l0 + 1 < d.nlev && R.vram + (gpu ? (size_t)d.lev[l0].size : (size_t)d.lev[l0].w * d.lev[l0].h * 2 * 4 / 3) > VRAM_MAX) l0++;
-        int w = d.lev[l0].w, h = d.lev[l0].h, full = d.lev[d.nlev - 1].w == 1 && d.lev[d.nlev - 1].h == 1, isPot = pot(w) && pot(h);
-        GL(glGenTextures)(1, &id); GL(glBindTexture)(GL_TEXTURE_2D, id); int mips = 0; size_t bytes = 0;
+        const uint8_t *b = bank + e->off; size_t n = e->size; int gpu = R.s3tc && d.cc != DDS_RGBA32, etc = !gpu && R.etc1 && !sign, big = R.texMax * 2, small = gpu || etc || sign ? big : R.texMax;
+        int l0 = 0; while (l0 + 1 < d.nlev && (d.lev[l0].w > small || d.lev[l0].h > small)) l0++;
+        while (l0 + 1 < d.nlev && R.vram + (gpu ? (size_t)d.lev[l0].size : (size_t)d.lev[l0].w * d.lev[l0].h * 2 * 4 / 3) > VRAM_MAX) l0++;   /* over the budget, a smaller level still */
+        int full = d.lev[d.nlev - 1].w == 1 && d.lev[d.nlev - 1].h == 1, mips = 0; size_t bytes = 0;
+        GL(glGenTextures)(1, &id); GL(glBindTexture)(GL_TEXTURE_2D, id);
+        const uint8_t *cr = etc ? cache_find(key, d.lev[l0].w, d.lev[l0].h) : NULL;   /* the ETC1 cache: this picture's levels as encoded the first time, or a mark that it is not opaque */
+        int w = d.lev[l0].w, h = d.lev[l0].h, isPot = pot(w) && pot(h);
         if (gpu) {
             GLenum fmt = d.cc == DDS_DXT1 ? GL_COMPRESSED_RGBA_S3TC_DXT1_EXT : d.cc == DDS_DXT3 ? GL_COMPRESSED_RGBA_S3TC_DXT3_EXT : GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
             int nl = full ? d.nlev - l0 : 1; for (int l = 0; l < nl; l++) { GL(glCompressedTexImage2D)(GL_TEXTURE_2D, l, fmt, d.lev[l0 + l].w, d.lev[l0 + l].h, 0, (GLsizei)d.lev[l0 + l].size, b + d.lev[l0 + l].off); bytes += d.lev[l0 + l].size; }
-            mips = nl > 1;
-        } else {   /* decoded on the CPU, 16 bits a texel: 565 when the picture is opaque, 4444 when it has holes or soft edges */
-            uint8_t *rgba = malloc((size_t)w * h * 4); int trans = r3d_dds_decode(b, n, &d, l0, rgba); uint16_t *p16 = malloc((size_t)w * h * 2);
+            mips = nl > 1; R.nDxt++;
+        } else if (cr && cr[8]) {   /* opaque, levels at hand: no decoding, no encoding */
+            const uint8_t *q = cr + 16; int lw = w, lh = h, nl = cr[8];
+            for (int l = 0; l < nl; l++) { size_t sz = etc1_size(lw, lh); GL(glCompressedTexImage2D)(GL_TEXTURE_2D, l, R.etcFmt, lw, lh, 0, (GLsizei)sz, q); q += sz; bytes += sz; lw = lw > 1 ? lw / 2 : 1; lh = lh > 1 ? lh / 2 : 1; }
+            mips = nl > 1; R.nEtc++; cache_keep(cr, (size_t)(q - cr)); C.hits++;
+        } else {
+            int known = cr != NULL, trans = known;   /* a cache mark: not opaque, so straight to the 16-bit size */
+            if (known) { cache_keep(cr, 16); C.hits++; }
+            uint8_t *rgba = NULL;
+            if (!known) { rgba = malloc((size_t)w * h * 4); trans = r3d_dds_decode(b, n, &d, l0, rgba); }
             GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 1);
-            if (!trans) { for (int i = 0; i < w * h; i++) p16[i] = (uint16_t)(((rgba[i * 4] >> 3) << 11) | ((rgba[i * 4 + 1] >> 2) << 5) | (rgba[i * 4 + 2] >> 3)); GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, p16); }
-            else { for (int i = 0; i < w * h; i++) p16[i] = (uint16_t)(((rgba[i * 4] >> 4) << 12) | ((rgba[i * 4 + 1] >> 4) << 8) | ((rgba[i * 4 + 2] >> 4) << 4) | (rgba[i * 4 + 3] >> 4)); GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, p16); }
-            bytes = (size_t)w * h * 2; GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 4); free(rgba); free(p16);
-            if (isPot) { GL(glGenerateMipmap)(GL_TEXTURE_2D); mips = 1; bytes += bytes / 3; }
+            if (!trans && etc) {   /* opaque: ETC1, every level encoded here (a compressed texture cannot glGenerateMipmap), kept for the cache */
+                int nl = 1; if (isPot) { int lw = w, lh = h; while (lw > 1 || lh > 1) { lw = lw > 1 ? lw / 2 : 1; lh = lh > 1 ? lh / 2 : 1; nl++; } }
+                size_t total = 0; { int lw = w, lh = h; for (int l = 0; l < nl; l++) { total += etc1_size(lw, lh); lw = lw > 1 ? lw / 2 : 1; lh = lh > 1 ? lh / 2 : 1; } }
+                uint8_t *rec = malloc(16 + total), *q = rec + 16, *nx = malloc((size_t)(w / 2 + 1) * (h / 2 + 1) * 4); int lw = w, lh = h; Uint64 c0 = SDL_GetPerformanceCounter();
+                cache_head(rec, key, w, h, nl, total);
+                for (int l = 0; l < nl; l++) { size_t sz = etc1_size(lw, lh); etc1_encode(rgba, lw, lh, q); q += sz;
+                    if (l + 1 < nl) { half_size(rgba, lw, lh, nx); uint8_t *t = rgba; rgba = nx; nx = t; lw = lw > 1 ? lw / 2 : 1; lh = lh > 1 ? lh / 2 : 1; } }
+                R.texMs += (SDL_GetPerformanceCounter() - c0) * 1000.0 / SDL_GetPerformanceFrequency();   /* the encoder alone (not the upload) */
+                q = rec + 16; lw = w; lh = h; for (int l = 0; l < nl; l++) { size_t sz = etc1_size(lw, lh); GL(glCompressedTexImage2D)(GL_TEXTURE_2D, l, R.etcFmt, lw, lh, 0, (GLsizei)sz, q); q += sz; bytes += sz; lw = lw > 1 ? lw / 2 : 1; lh = lh > 1 ? lh / 2 : 1; }
+                mips = nl > 1; cache_keep(rec, 16 + total); free(rec); free(nx); R.nEtc++; C.miss++;
+            } else {   /* 16 bits a texel: 565 when the picture is opaque, 4444 when it has holes or soft edges; at most texMax unless a sign */
+                if (etc && !known) { uint8_t h16[16]; cache_head(h16, key, w, h, 0, 0); cache_keep(h16, 16); C.miss++; }   /* remembered as not for ETC1 */
+                if (!sign) { int l1 = l0; while (l1 + 1 < d.nlev && (d.lev[l1].w > R.texMax || d.lev[l1].h > R.texMax)) l1++;
+                    if (l1 != l0 || !rgba) { l0 = l1; w = d.lev[l0].w; h = d.lev[l0].h; isPot = pot(w) && pot(h); free(rgba); rgba = malloc((size_t)w * h * 4); trans = r3d_dds_decode(b, n, &d, l0, rgba); } }
+                uint16_t *p16 = malloc((size_t)w * h * 2);
+                if (!trans) { for (int i = 0; i < w * h; i++) p16[i] = (uint16_t)(((rgba[i * 4] >> 3) << 11) | ((rgba[i * 4 + 1] >> 2) << 5) | (rgba[i * 4 + 2] >> 3)); GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, p16); }
+                else { for (int i = 0; i < w * h; i++) p16[i] = (uint16_t)(((rgba[i * 4] >> 4) << 12) | ((rgba[i * 4 + 1] >> 4) << 8) | ((rgba[i * 4 + 2] >> 4) << 4) | (rgba[i * 4 + 3] >> 4)); GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, p16); }
+                bytes = (size_t)w * h * 2; free(p16); R.n16++;
+                if (isPot) { GL(glGenerateMipmap)(GL_TEXTURE_2D); mips = 1; bytes += bytes / 3; }
+            }
+            GL(glPixelStorei)(GL_UNPACK_ALIGNMENT, 4); free(rgba);
         }
-        GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        /* bilinear within the nearest mip level: one level read per texel instead of two, the mips keeping the far walls from shimmering */
+        GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mips ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         int rep = isPot || R.npot; GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (clamp & 1) || !rep ? GL_CLAMP_TO_EDGE : GL_REPEAT); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (clamp & 2) || !rep ? GL_CLAMP_TO_EDGE : GL_REPEAT);
-        GL(glBindTexture)(GL_TEXTURE_2D, 0); R.vram += bytes; R.textures++;
+        GL(glBindTexture)(GL_TEXTURE_2D, 0); R.vram += bytes; R.texBytes += bytes; R.textures++;
     }
-    R.tex = realloc(R.tex, (R.ntex + 1) * sizeof *R.tex); R.tex[R.ntex].key = key; R.tex[R.ntex].clamp = clamp; R.tex[R.ntex].id = id; R.ntex++;
+    R.tex = realloc(R.tex, (R.ntex + 1) * sizeof *R.tex); R.tex[R.ntex].key = key; R.tex[R.ntex].clamp = clamp; R.tex[R.ntex].max = sign; R.tex[R.ntex].id = id; R.ntex++;
     return id;
 }
 
@@ -207,10 +358,10 @@ static void default_lights(lightset *L) {
 
 /* ------------------------------------------------------------------ building the batches */
 static void unload(void) {
-    for (int i = 0; i < R.nb; i++) { GL(glDeleteBuffers)(1, &R.b[i].vbo); GL(glDeleteBuffers)(1, &R.b[i].ibo); free(R.b[i].v); free(R.b[i].i); }
+    for (int i = 0; i < R.nb; i++) { GL(glDeleteBuffers)(1, &R.b[i].vbo); GL(glDeleteBuffers)(1, &R.b[i].ibo); free(R.b[i].v); free(R.b[i].i); free(R.b[i].p); }
     for (int i = 0; i < R.ntex; i++) if (R.tex[i].id) GL(glDeleteTextures)(1, &R.tex[i].id);
     free(R.b); free(R.tex); free(R.shots); free(R.order); R.b = NULL; R.tex = NULL; R.shots = NULL; R.order = NULL; R.nb = R.ntex = R.nshots = R.ngen = 0; R.loaded = 0; R.zone[0] = 0;
-    R.meshes = R.skipped = R.tris = R.textures = 0; R.vram = 0;
+    R.meshes = R.skipped = R.tris = R.textures = R.nEtc = R.n16 = R.nDxt = 0; R.vram = R.texBytes = 0; R.texMs = 0; R.sortedSeq = -1;
 }
 static uint8_t q8(float v, float scale) { float x = v * scale; return (uint8_t)(x < 0 ? 0 : x > 255 ? 255 : x + 0.5f); }
 static void euler_xyz(const float a[3], float m[9]) {   /* three.js rotation.set(x, y, z), order XYZ: Rx * Ry * Rz */
@@ -228,7 +379,7 @@ static int load_zone(const char *zone) {
         if (e->type == K_SCN && (!se || e->nameKey == kz || (se->nameKey != kz && e->len > se->len))) se = e;
         if (e->type == K_TEX && (!te || e->nameKey == kz || (te->nameKey != kz && e->len > te->len))) te = e; }
     r3d_scene sc; if (!se || !te || r3d_scene_read(se->data, se->len, &sc)) { SDL_Log("r3d: %s holds no stage", name); free(ents); free(pak); return -1; }
-    r3d_texent *tents; int nt = r3d_texbank_read(te->data, te->len, &tents);
+    r3d_texent *tents; int nt = r3d_texbank_read(te->data, te->len, &tents); cache_open(zone, te->data, te->len, tents, nt);
     r3d_venueqb vq; r3d_venueqb_read(ents, ne, &vq);
     lightset L = { NULL, 0 }; int roomLit = 0;   /* the lights that fall on the room: not the ones kept for the band or the crowd */
     for (int i = 0; i < vq.nlights && L.n < 32; i++) if (!vq.lights[i].band) { L.l = realloc(L.l, (L.n + 1) * sizeof *L.l); L.l[L.n++] = vq.lights[i]; if (vq.lights[i].kind != L_AMBIENT) roomLit = 1; }
@@ -248,8 +399,9 @@ static int load_zone(const char *zone) {
                 if (e && lk.flat && lk.w <= 32) { R.skipped++; continue; } } }   /* a part with only a flat filler for a picture: a stand-in (the grey figure on the dive bar's stage), not scenery */
         int tf = r3d_template_flags(m->template), unlit = tf & TPL_UNLIT, amb = tf & TPL_AMB, lit = !unlit && !amb, board = tf & TPL_BOARD;
         int smapOk = 0; if (lit && light >= 0 && (me->uvLast || me->uv2) && m->tex[light] != m->tex[pic]) { const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[light]) e = &tents[k]; if (e && e->w > 32) smapOk = 1; }
-        GLuint tex = tex_get(te->data, te->len, tents, nt, m->tex[pic], m->clamp[pic < 3 ? pic : 3]); if (!tex) { R.skipped++; continue; }   /* a screen or sign whose picture the game makes while it runs */
-        GLuint smap = smapOk ? tex_get(te->data, te->len, tents, nt, m->tex[light], 3) : 0;
+        int sign = unlit || m->blend == 1;   /* signs, neon and glows: fine lines that are the room's focus */
+        GLuint tex = tex_get(te->data, te->len, tents, nt, m->tex[pic], m->clamp[pic < 3 ? pic : 3], sign); if (!tex) { R.skipped++; continue; }   /* a screen or sign whose picture the game makes while it runs */
+        GLuint smap = smapOk ? tex_get(te->data, te->len, tents, nt, m->tex[light], 3, 0) : 0;
         if (getenv("R3D_DEBUG")) { const r3d_texent *e = NULL; for (int k = 0; k < nt; k++) if (tents[k].key == m->tex[pic]) e = &tents[k]; r3d_look lk = e ? r3d_tex_look(te->data + e->off, e->size) : (r3d_look){ 0 };
             printf("mesh %3d sector %08x mat %08x tpl %08x tf %02x blend %u aref %u ntex %d pic %08x(%dx%d avg %.0f,%.0f,%.0f%s) tris %5d at %.1f %.1f %.1f r %.1f%s\n", me->n, me->sector, m->key, m->template, tf, m->blend, m->alphaRef, m->ntex, m->tex[pic], lk.w, lk.h, lk.r, lk.g, lk.b, lk.flat ? " flat" : "", me->ntri, me->centre[0], me->centre[1], me->centre[2], me->radius, me->sector && r3d_venueqb_object(&vq, me->sector) ? " (object)" : ""); }
         /* the batch of this material (and whether its parts carry a light map) */
@@ -266,6 +418,7 @@ static int load_zone(const char *zone) {
         float rot[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, tr[3] = { 0, 0, 0 }; const r3d_object *ob = me->sector ? r3d_venueqb_object(&vq, me->sector) : NULL; if (ob) { euler_xyz(ob->angles, rot); memcpy(tr, ob->pos, 12); }
         if (b->nvert + me->nvert > b->capV) { b->capV = (b->nvert + me->nvert) * 2; if (b->capV > 65535) b->capV = 65535; b->v = realloc(b->v, (size_t)b->capV * sizeof *b->v); }
         if (b->nidx + me->ntri * 3 > b->capI) { b->capI = (b->nidx + me->ntri * 3) * 2; b->i = realloc(b->i, (size_t)b->capI * sizeof *b->i); }
+        float pmin[3] = { 1e30f, 1e30f, 1e30f }, pmax[3] = { -1e30f, -1e30f, -1e30f };   /* the part's bounds (a card's: its centre and how far its corners reach) */
         for (int v = 0; v < me->nvert; v++) { vtx *o = &b->v[b->nvert + v]; const float *p = me->pos + v * 3, *nn = me->nrm + v * 3; float wp[3], wn[3], wc[3];
             for (int r = 0; r < 3; r++) { wp[r] = rot[r * 3] * p[0] + rot[r * 3 + 1] * p[1] + rot[r * 3 + 2] * p[2] + tr[r]; wn[r] = rot[r * 3] * nn[0] + rot[r * 3 + 1] * nn[1] + rot[r * 3 + 2] * nn[2]; }
             if (board) { for (int r = 0; r < 3; r++) wc[r] = rot[r * 3] * nn[0] + rot[r * 3 + 1] * nn[1] + rot[r * 3 + 2] * nn[2] + tr[r]; for (int r = 0; r < 3; r++) wp[r] = wc[r] + (p[r] - nn[r]); }   /* a card: its centre is stored as the normal */
@@ -274,10 +427,25 @@ static int load_zone(const char *zone) {
             o->uv[0] = me->uv[v * 2]; o->uv[1] = me->uv[v * 2 + 1]; const float *u2 = me->uvLast ? me->uvLast : me->uv2 ? me->uv2 : me->uv; o->uv2[0] = u2[v * 2]; o->uv2[1] = u2[v * 2 + 1];
             float lt[3], am[3]; if (lit) light_at(&L, wp, board ? (float[3]){ 0, 0, 0 } : wn, lt, am); else if (amb) { lt[0] = lt[1] = lt[2] = 0; light_at(&L, wp, wn, (float[3]){ 0 }, am); } else { lt[0] = lt[1] = lt[2] = 1; am[0] = am[1] = am[2] = 0; }
             for (int c = 0; c < 3; c++) { o->lit[c] = q8(lt[c], 255 / 4.0f); b->ambSum[c] += am[c]; } o->lit[3] = 255;
-            for (int c = 0; c < 3; c++) { if (wp[c] < b->bmin[c]) b->bmin[c] = wp[c]; if (wp[c] > b->bmax[c]) b->bmax[c] = wp[c]; } }
+            float reach = board ? sqrtf((wp[0] - wc[0]) * (wp[0] - wc[0]) + (wp[1] - wc[1]) * (wp[1] - wc[1]) + (wp[2] - wc[2]) * (wp[2] - wc[2])) : 0;
+            for (int c = 0; c < 3; c++) { float lo = wc[c] - reach, hi = wc[c] + reach; if (!board) lo = hi = wp[c]; if (lo < pmin[c]) pmin[c] = lo; if (hi > pmax[c]) pmax[c] = hi; if (lo < b->bmin[c]) b->bmin[c] = lo; if (hi > b->bmax[c]) b->bmax[c] = hi; } }
+        { b->p = realloc(b->p, (b->np + 1) * sizeof *b->p); part *pt = &b->p[b->np++]; pt->first = b->nidx; pt->count = me->ntri * 3; float r2 = 0;
+            for (int c = 0; c < 3; c++) { pt->c[c] = (pmin[c] + pmax[c]) / 2; r2 += (pmax[c] - pmin[c]) * (pmax[c] - pmin[c]); } pt->r = sqrtf(r2) / 2; }
         for (int i = 0; i < me->ntri * 3; i++) b->i[b->nidx + i] = (uint16_t)(me->idx[i] + b->nvert);
         b->nvert += me->nvert; b->nidx += me->ntri * 3; R.meshes++; R.tris += me->ntri;
     }
+    /* batches of different materials that draw the same (same pictures and numbers, ambient within 1/64) become one: fewer calls */
+    int merged = 0;
+    for (int i = 0; i < R.nb; i++) for (int j = i + 1; j < R.nb; j++) { batch *a = &R.b[i], *c = &R.b[j]; int same = a->tex == c->tex && a->smap == c->smap && a->blend == c->blend && a->board == c->board && a->colA == c->colA && a->wib == c->wib && a->hasAnim == c->hasAnim
+            && !memcmp(a->colour, c->colour, sizeof a->colour) && a->alphaRef == c->alphaRef && a->tile == c->tile && !memcmp(a->anim, c->anim, sizeof a->anim) && !memcmp(a->wibU, c->wibU, sizeof a->wibU) && !memcmp(a->wibV, c->wibV, sizeof a->wibV) && !memcmp(a->wibR, c->wibR, sizeof a->wibR);
+        for (int k = 0; k < 3 && same; k++) if (fabs(a->ambSum[k] / a->nvert - c->ambSum[k] / c->nvert) > 1 / 64.0) same = 0;
+        if (!same || a->nvert + c->nvert > 65535) continue;
+        a->v = realloc(a->v, (size_t)(a->nvert + c->nvert) * sizeof *a->v); memcpy(a->v + a->nvert, c->v, (size_t)c->nvert * sizeof *c->v);
+        a->i = realloc(a->i, (size_t)(a->nidx + c->nidx) * 2); for (int k = 0; k < c->nidx; k++) a->i[a->nidx + k] = (uint16_t)(c->i[k] + a->nvert);
+        a->p = realloc(a->p, (size_t)(a->np + c->np) * sizeof *a->p); for (int k = 0; k < c->np; k++) { a->p[a->np + k] = c->p[k]; a->p[a->np + k].first += a->nidx; }
+        for (int k = 0; k < 3; k++) { a->ambSum[k] += c->ambSum[k]; a->bmin[k] = fminf(a->bmin[k], c->bmin[k]); a->bmax[k] = fmaxf(a->bmax[k], c->bmax[k]); }
+        a->nvert += c->nvert; a->nidx += c->nidx; a->np += c->np; a->capV = a->nvert; a->capI = a->nidx; free(c->v); free(c->i); free(c->p);
+        R.b[j] = R.b[--R.nb]; j--; merged++; }
     /* upload; the ambient of a batch is the mean over its points (the venues' ambient lights reach the whole room) */
     for (int i = 0; i < R.nb; i++) { batch *b = &R.b[i];
         GL(glGenBuffers)(1, &b->vbo); GL(glBindBuffer)(GL_ARRAY_BUFFER, b->vbo); GL(glBufferData)(GL_ARRAY_BUFFER, (GLsizeiptr)b->nvert * sizeof(vtx), b->v, GL_STATIC_DRAW);
@@ -287,8 +455,10 @@ static int load_zone(const char *zone) {
         float dx = b->bmax[0] - b->bmin[0], dy = b->bmax[1] - b->bmin[1], dz = b->bmax[2] - b->bmin[2]; b->radius = sqrtf(dx * dx + dy * dy + dz * dz) / 2;
         free(b->v); free(b->i); b->v = NULL; b->i = NULL; }
     GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0);
-    /* the opaque batches first (by texture), the see-through ones after: those are sorted back to front when drawn */
-    for (int i = 1; i < R.nb; i++) for (int j = i; j > 0 && (R.b[j].blend != 0) * 1000000 + (int)R.b[j].tex < (R.b[j - 1].blend != 0) * 1000000 + (int)R.b[j - 1].tex; j--) { batch t = R.b[j]; R.b[j] = R.b[j - 1]; R.b[j - 1] = t; }
+    /* the solid batches first, then the solid ones with an alpha test (cut-outs: their own program, after the walls that hide them),
+     * then the see-through ones; by texture inside each group (the first two are put near to far at each new shot, the last far to near each frame) */
+#define GROUP(b) ((b).blend ? 2 : (b).alphaRef > 0 ? 1 : 0)
+    for (int i = 1; i < R.nb; i++) for (int j = i; j > 0 && GROUP(R.b[j]) * 1000000 + (int)R.b[j].tex < GROUP(R.b[j - 1]) * 1000000 + (int)R.b[j - 1].tex; j--) { batch t = R.b[j]; R.b[j] = R.b[j - 1]; R.b[j - 1] = t; }
     /* the camera shots fixed in the room (no band here: the ones that follow a member and the close-ups are left out); the general lists, shuffled, for when no song is cueing */
     uint32_t gk[16]; int ng = 0; for (int i = 0; i < (int)(sizeof GENERAL / sizeof *GENERAL); i++) { char s[64]; snprintf(s, sizeof s, "%s_%s", zone, GENERAL[i]); gk[ng++] = gh3_qbkey(s); } R.kCameras = gk[0];
     for (int i = 0; i < vq.nshots; i++) { const r3d_shot *s = &vq.shots[i]; if (s->a.lock || s->a.fov < 45) continue;
@@ -298,8 +468,9 @@ static int load_zone(const char *zone) {
     if (!R.ngen) for (int i = 0; i < R.nshots; i++) R.order[R.ngen++] = i;
     for (int i = R.ngen - 1, r = 0x2545f491; i > 0; i--) { r = (uint32_t)((r ^ (r >> 15)) * 0x2c1b3c6du); int j = (int)(r % (uint32_t)(i + 1)), t = R.order[i]; R.order[i] = R.order[j]; R.order[j] = t; }   /* the browser port's fixed shuffle */
     for (int c = 0; c < 3; c++) R.ctr[c] = (sc.bmin[c] + sc.bmax[c]) / 2; R.span = fmaxf(sc.bmax[0] - sc.bmin[0], sc.bmax[2] - sc.bmin[2]);
-    SDL_Log("r3d: %s: %d meshes in %d batches (%d skipped, %d crowd cards), %d triangles, %d textures, %.1f MB on the GPU, %d shots (%d general; %d lights, %d objects, %d hidden), %u ms",
-        zone, R.meshes, R.nb, R.skipped, panels, R.tris, R.textures, R.vram / 1048576.0, R.nshots, R.ngen, vq.nlights, vq.nobjects, vq.nhidden, SDL_GetTicks() - t0);
+    int cHits = C.hits, cMiss = C.miss; cache_close();
+    SDL_Log("r3d: %s: %d meshes in %d batches (%d merged; %d skipped, %d crowd cards), %d triangles, %d textures (%d ETC1, %d 16-bit, %d DXT; %.1f MB; ETC1 cache %d found, %d made in %.0f ms), %.1f MB on the GPU, %d shots (%d general; %d lights, %d objects, %d hidden), %u ms",
+        zone, R.meshes, R.nb, merged, R.skipped, panels, R.tris, R.textures, R.nEtc, R.n16, R.nDxt, R.texBytes / 1048576.0, cHits, cMiss, R.texMs, R.vram / 1048576.0, R.nshots, R.ngen, vq.nlights, vq.nobjects, vq.nhidden, SDL_GetTicks() - t0);
     R.loadMs = SDL_GetTicks() - t0; snprintf(R.zone, sizeof R.zone, "%s", zone); R.loaded = 1;
     free(L.l); r3d_venueqb_free(&vq); free(tents); r3d_scene_free(&sc); free(ents); free(pak); return 0;
 }
@@ -311,14 +482,14 @@ void r3d_select(const char *zone) {
 }
 
 /* ------------------------------------------------------------------ drawing */
-typedef struct { GLint prog, abuf, ebuf, active, tex0, tex1, view[4], scissor[4], beq[2], bfn[4], attribs[8], nattr; GLboolean blend, scis, depth, cull, dmask, cmask[4]; } glstate;
+typedef struct { GLint prog, abuf, ebuf, active, tex0, tex1, view[4], scissor[4], beq[2], bfn[4], attribs[8], nattr, fbo; GLfloat clear[4]; GLboolean blend, scis, depth, cull, dmask, cmask[4]; } glstate;
 static void state_save(glstate *s) {
     GL(glGetIntegerv)(GL_CURRENT_PROGRAM, &s->prog); GL(glGetIntegerv)(GL_ARRAY_BUFFER_BINDING, &s->abuf); GL(glGetIntegerv)(GL_ELEMENT_ARRAY_BUFFER_BINDING, &s->ebuf);
     GL(glGetIntegerv)(GL_ACTIVE_TEXTURE, &s->active); GL(glActiveTexture)(GL_TEXTURE0); GL(glGetIntegerv)(GL_TEXTURE_BINDING_2D, &s->tex0); GL(glActiveTexture)(GL_TEXTURE1); GL(glGetIntegerv)(GL_TEXTURE_BINDING_2D, &s->tex1);
     GL(glGetIntegerv)(GL_VIEWPORT, s->view); GL(glGetIntegerv)(GL_SCISSOR_BOX, s->scissor); GL(glGetIntegerv)(GL_BLEND_EQUATION_RGB, &s->beq[0]); GL(glGetIntegerv)(GL_BLEND_EQUATION_ALPHA, &s->beq[1]);
     GL(glGetIntegerv)(GL_BLEND_SRC_RGB, &s->bfn[0]); GL(glGetIntegerv)(GL_BLEND_DST_RGB, &s->bfn[1]); GL(glGetIntegerv)(GL_BLEND_SRC_ALPHA, &s->bfn[2]); GL(glGetIntegerv)(GL_BLEND_DST_ALPHA, &s->bfn[3]);
     s->blend = GL(glIsEnabled)(GL_BLEND); s->scis = GL(glIsEnabled)(GL_SCISSOR_TEST); s->depth = GL(glIsEnabled)(GL_DEPTH_TEST); s->cull = GL(glIsEnabled)(GL_CULL_FACE);
-    GL(glGetBooleanv)(GL_DEPTH_WRITEMASK, &s->dmask); GL(glGetBooleanv)(GL_COLOR_WRITEMASK, s->cmask);
+    GL(glGetBooleanv)(GL_DEPTH_WRITEMASK, &s->dmask); GL(glGetBooleanv)(GL_COLOR_WRITEMASK, s->cmask); GL(glGetIntegerv)(GL_FRAMEBUFFER_BINDING, &s->fbo); GL(glGetFloatv)(GL_COLOR_CLEAR_VALUE, s->clear);   /* SDL keeps its clear colour cached */
     GLint n = 0; GL(glGetIntegerv)(GL_MAX_VERTEX_ATTRIBS, &n); s->nattr = n < 8 ? n : 8; for (int i = 0; i < s->nattr; i++) GL(glGetVertexAttribiv)(i, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &s->attribs[i]);
 }
 static void state_restore(const glstate *s) {
@@ -329,7 +500,7 @@ static void state_restore(const glstate *s) {
     GL(glBlendEquationSeparate)(s->beq[0], s->beq[1]); GL(glBlendFuncSeparate)(s->bfn[0], s->bfn[1], s->bfn[2], s->bfn[3]);
     if (s->blend) GL(glEnable)(GL_BLEND); else GL(glDisable)(GL_BLEND); if (s->scis) GL(glEnable)(GL_SCISSOR_TEST); else GL(glDisable)(GL_SCISSOR_TEST);
     if (s->depth) GL(glEnable)(GL_DEPTH_TEST); else GL(glDisable)(GL_DEPTH_TEST); if (s->cull) GL(glEnable)(GL_CULL_FACE); else GL(glDisable)(GL_CULL_FACE);
-    GL(glDepthMask)(s->dmask); GL(glColorMask)(s->cmask[0], s->cmask[1], s->cmask[2], s->cmask[3]);
+    GL(glDepthMask)(s->dmask); GL(glColorMask)(s->cmask[0], s->cmask[1], s->cmask[2], s->cmask[3]); GL(glBindFramebuffer)(GL_FRAMEBUFFER, (GLuint)s->fbo); GL(glClearColor)(s->clear[0], s->clear[1], s->clear[2], s->clear[3]);
 }
 /* a song's camera cues (cameracuts_notemapping of qb.pak: a midi note names a shot list, and sometimes the shot's Type or NAME) */
 typedef struct { int note; const char *prefix, *type; uint32_t name; } cuemap;
@@ -360,7 +531,7 @@ static void place(const shot *s, double u, double t, float *view, float *fov) {
 }
 /* the camera at this moment: over a song, the song's own cue list cuts between the venue's shots; otherwise the general shots one after another
  * (a->b moves eased, single ones swaying); with no shots at all, a slow circle round the room */
-static void camera(double t, float *view, float *proj) {
+static void camera(double t, float *view, float *proj, int *shotId) {   /* shotId: changes when the camera cuts */
     float fov = 72; if (t < 0) t = 0; int placed = 0;
     const gh3_songdata *sd = A.screen == SC_PLAY && A.S.loaded && A.S.sd.ncams ? &A.S.sd : NULL;
     static const gh3_songdata *song; static int pCam = -1, cur = -1; static double t0, t1, lastMs;
@@ -369,54 +540,138 @@ static void camera(double t, float *view, float *proj) {
         lastMs = ms; int k = pCam < 0 ? 0 : pCam; while (k + 1 < n && sd->cams[k + 1][0] <= ms) k++;
         if (k != pCam) { pCam = k; int nx = cut_to(cue_of(sd->cams[k][1]), k, cur);
             if (nx != cur || cur < 0) { cur = nx >= 0 ? nx : R.order[0]; t0 = sd->cams[k][0]; int j = k + 1; while (j < n && !cue_of(sd->cams[j][1])) j++; t1 = j < n ? sd->cams[j][0] : t0 + (sd->cams[k][2] > 4000 ? sd->cams[k][2] : 4000); } }   /* a cue that lands on the shot already showing lets it carry on */
-        if (cur >= 0) { double u = (ms - t0) / (t1 - t0 > 1 ? t1 - t0 : 1); place(&R.shots[cur], u < 0 ? 0 : u > 1 ? 1 : u, t, view, &fov); placed = 1; } }
+        if (cur >= 0) { double u = (ms - t0) / (t1 - t0 > 1 ? t1 - t0 : 1); place(&R.shots[cur], u < 0 ? 0 : u > 1 ? 1 : u, t, view, &fov); placed = 1; *shotId = cur * 7919 + (int)t0; } }
     else song = NULL;
-    if (!placed && R.nshots) { double n = floor(t / (SHOT_MS / 1000)), u = t / (SHOT_MS / 1000) - n; place(&R.shots[R.order[(int)((long)n % R.ngen)]], u, t, view, &fov); placed = 1; }
-    if (!placed) { float pos[3], q[4], a = (float)t * 0.05f; pos[0] = R.ctr[0] + sinf(a) * R.span * 0.2f; pos[1] = R.ctr[1]; pos[2] = R.ctr[2] + cosf(a) * R.span * 0.2f;
+    if (!placed && R.nshots) { double n = floor(t / (SHOT_MS / 1000)), u = t / (SHOT_MS / 1000) - n; place(&R.shots[R.order[(int)((long)n % R.ngen)]], u, t, view, &fov); placed = 1; *shotId = -1 - (int)n; }
+    if (!placed) { float pos[3], q[4], a = (float)t * 0.05f; *shotId = (int)(t / 2); pos[0] = R.ctr[0] + sinf(a) * R.span * 0.2f; pos[1] = R.ctr[1]; pos[2] = R.ctr[2] + cosf(a) * R.span * 0.2f;
         float d[3] = { R.ctr[0] - pos[0], 0, R.ctr[2] - pos[2] }, L = sqrtf(d[0] * d[0] + d[2] * d[2]); if (L < 1e-4f) { d[2] = 1; L = 1; } float yaw = atan2f(d[0] / L, d[2] / L); q[0] = 0; q[1] = sinf(yaw / 2); q[2] = 0; q[3] = cosf(yaw / 2);   /* the camera's +Z toward the middle */
         mat_view(view, pos, q, 0); }
     float vf = 2 * atanf(tanf(fov * (float)M_PI / 360) * 0.75f);   /* the stored angle is the width of a 4:3 picture */
     mat_perspective(proj, vf, (float)R.W / R.H, Z_NEAR, Z_FAR);
 }
-static void draw_batch(const batch *b) {
+/* one batch: the runs of its parts that are in view and not under a pixel, each run one call (small hidden gaps drawn through) */
+typedef struct { float pl[6][4], view[16], pxk; } cullctx;
+static void draw_batch(const batch *b, const r3d_prog *P, const cullctx *cc) {
+    if (!sphere_in(cc->pl, b->centre, b->radius)) { R.culled += b->np; return; }
+    static int (*run)[2], cap; if (b->np > cap) { cap = b->np; run = realloc(run, (size_t)cap * sizeof *run); } int nr = 0;
+    for (int k = 0; k < b->np; k++) { const part *p = &b->p[k];
+        float z = -(cc->view[2] * p->c[0] + cc->view[6] * p->c[1] + cc->view[10] * p->c[2] + cc->view[14]);   /* how far in front of the camera */
+        if (!sphere_in(cc->pl, p->c, p->r) || (z > p->r && p->r * cc->pxk < LOD_PX * z)) { R.culled++; continue; }
+        if (nr && p->first - run[nr - 1][1] <= RUN_GAP && p->first >= run[nr - 1][1]) run[nr - 1][1] = p->first + p->count; else { run[nr][0] = p->first; run[nr][1] = p->first + p->count; nr++; } }
+    if (!nr) return;
     GL(glBindBuffer)(GL_ARRAY_BUFFER, b->vbo); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, b->ibo);
-    GL(glVertexAttribPointer)(R.aPos, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)0); GL(glVertexAttribPointer)(R.aCtr, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)12);
-    GL(glVertexAttribPointer)(R.aCol, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)24); GL(glVertexAttribPointer)(R.aLit, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)28);
-    GL(glVertexAttribPointer)(R.aUv, 2, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)32); GL(glVertexAttribPointer)(R.aUv2, 2, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)40);
+    GL(glVertexAttribPointer)(0, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)0); GL(glVertexAttribPointer)(1, 3, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)12);
+    GL(glVertexAttribPointer)(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)24); GL(glVertexAttribPointer)(3, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vtx), (void *)28);
+    GL(glVertexAttribPointer)(4, 2, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)32); GL(glVertexAttribPointer)(5, 2, GL_FLOAT, GL_FALSE, sizeof(vtx), (void *)40);
     GL(glActiveTexture)(GL_TEXTURE1); GL(glBindTexture)(GL_TEXTURE_2D, b->smap); GL(glActiveTexture)(GL_TEXTURE0); GL(glBindTexture)(GL_TEXTURE_2D, b->tex);
-    GL(glUniform1f)(R.uBoard, (float)b->board); GL(glUniform4f)(R.uAnim, b->hasAnim ? b->anim[0] : 0, b->anim[1], b->anim[2], b->anim[3]);
-    GL(glUniform1f)(R.uWib, (float)b->wib); if (b->wib) { GL(glUniform4f)(R.uWibU, b->wibU[0], b->wibU[1], b->wibU[2], b->wibU[3]); GL(glUniform4f)(R.uWibV, b->wibV[0], b->wibV[1], b->wibV[2], b->wibV[3]); GL(glUniform3f)(R.uWibR, b->wibR[0], b->wibR[1], b->wibR[2]); }
-    GL(glUniform4f)(R.uColour, b->colour[0], b->colour[1], b->colour[2], b->colour[3]); GL(glUniform3f)(R.uAmb, b->amb[0], b->amb[1], b->amb[2]); GL(glUniform1f)(R.uAlphaRef, b->alphaRef); GL(glUniform1f)(R.uColA, (float)b->colA); GL(glUniform1f)(R.uTile, b->tile);
+    GL(glUniform1f)(P->uBoard, (float)b->board); GL(glUniform4f)(P->uAnim, b->hasAnim ? b->anim[0] : 0, b->anim[1], b->anim[2], b->anim[3]);
+    GL(glUniform1f)(P->uWib, (float)b->wib); if (b->wib) { GL(glUniform4f)(P->uWibU, b->wibU[0], b->wibU[1], b->wibU[2], b->wibU[3]); GL(glUniform4f)(P->uWibV, b->wibV[0], b->wibV[1], b->wibV[2], b->wibV[3]); GL(glUniform3f)(P->uWibR, b->wibR[0], b->wibR[1], b->wibR[2]); }
+    GL(glUniform4f)(P->uColour, b->colour[0], b->colour[1], b->colour[2], b->colour[3]); GL(glUniform3f)(P->uAmb, b->amb[0], b->amb[1], b->amb[2]); GL(glUniform1f)(P->uAlphaRef, b->alphaRef); GL(glUniform1f)(P->uColA, (float)b->colA); GL(glUniform1f)(P->uTile, b->tile);
     if (b->blend == 1) { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_ONE, GL_ONE); GL(glDepthMask)(GL_FALSE); } else if (b->blend == 2) { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); GL(glDepthMask)(GL_FALSE); } else { GL(glDisable)(GL_BLEND); GL(glDepthMask)(GL_TRUE); }
-    GL(glDrawElements)(GL_TRIANGLES, b->nidx, GL_UNSIGNED_SHORT, (void *)0); R.drawCalls++; R.drawnTris += b->nidx / 3;
+    for (int r = 0; r < nr; r++) { GL(glDrawElements)(GL_TRIANGLES, run[r][1] - run[r][0], GL_UNSIGNED_SHORT, (void *)(size_t)(run[r][0] * 2)); R.drawCalls++; R.drawnTris += (run[r][1] - run[r][0]) / 3; }
 }
+
+/* ---- the framebuffer the venue is drawn into below Alta ---- */
+static int fbo_ready(int w, int h) {
+    if (R.fboBad) return 0; if (R.fbo && R.fw == w && R.fh == h) return 1;
+    if (!R.fbo) { GL(glGenFramebuffers)(1, &R.fbo); GL(glGenTextures)(1, &R.fboTex); GL(glGenRenderbuffers)(1, &R.fboDepth); }
+    GL(glBindTexture)(GL_TEXTURE_2D, R.fboTex); GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);   /* stretched smooth */
+    GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    GL(glBindRenderbuffer)(GL_RENDERBUFFER, R.fboDepth); GL(glRenderbufferStorage)(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, w, h); GL(glBindRenderbuffer)(GL_RENDERBUFFER, 0);
+    GL(glBindFramebuffer)(GL_FRAMEBUFFER, R.fbo); GL(glFramebufferTexture2D)(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.fboTex, 0); GL(glFramebufferRenderbuffer)(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, R.fboDepth);
+    GLenum st = GL(glCheckFramebufferStatus)(GL_FRAMEBUFFER);
+    if (st != GL_FRAMEBUFFER_COMPLETE) { SDL_Log("r3d: the venue's framebuffer %dx%d is not complete (0x%x): drawn at the screen's size", w, h, st); R.fboBad = 1;
+        GL(glDeleteFramebuffers)(1, &R.fbo); GL(glDeleteTextures)(1, &R.fboTex); GL(glDeleteRenderbuffers)(1, &R.fboDepth); R.fbo = R.fboTex = R.fboDepth = 0; return 0; }
+    R.fw = w; R.fh = h; SDL_Log("r3d: venue drawn at %dx%d, stretched to %dx%d", w, h, R.W, R.H); return 1;
+}
+static int res_mode(void) { const char *e = getenv("R3D_RES"); int r = e && *e ? atoi(e) : SET.stage3dRes; return r < 0 ? 0 : r > 2 ? 2 : r; }   /* 0 Alta, 1 Média, 2 Baixa */
+static const char *RES_NAME[3] = { "Alta", "Média", "Baixa" };
+
+/* ---- GPU time of the venue's pass (timer queries, read a few frames later so nothing waits) ---- */
+static void timer_poll(int i) {
+    if (!R.qBusy[i]) return; GLuint av = 0; R.getQ(R.q[i], GL_QUERY_RESULT_AVAILABLE_EXT, &av); if (!av) return;
+    GLuint ns = 0; R.getQ(R.q[i], GL_QUERY_RESULT_EXT, &ns); R.qBusy[i] = 0;
+    GLint dj = 0; if (R.disjoint) { GL(glGetIntegerv)(GL_GPU_DISJOINT_EXT, &dj); if (dj) return; }   /* the clock jumped (a frequency change): this one does not count */
+    if (R.pw.t0) { R.pw.sumGpu += ns / 1e6; R.pw.nGpu++; }
+}
+
 static int draw(double perf, int sp, float energy) {
-    double t = perf / 1000; float view[16], proj[16], vp[16]; camera(t, view, proj); mat_mul(proj, view, vp);
-    R.flush(R.ren); glstate st; state_save(&st); R.drawCalls = R.drawnTris = 0;
-    GL(glDisable)(GL_SCISSOR_TEST); GL(glViewport)(0, 0, R.W, R.H); GL(glEnable)(GL_DEPTH_TEST); GL(glDepthFunc)(GL_LEQUAL); GL(glDepthMask)(GL_TRUE); GL(glColorMask)(1, 1, 1, 1); GL(glDisable)(GL_CULL_FACE);
-    GL(glClear)(GL_DEPTH_BUFFER_BIT); GL(glBlendEquationSeparate)(GL_FUNC_ADD, GL_FUNC_ADD);
-    GL(glUseProgram)(R.prog); GL(glUniformMatrix4fv)(R.uProj, 1, GL_FALSE, proj); GL(glUniformMatrix4fv)(R.uView, 1, GL_FALSE, view); GL(glUniform1f)(R.uTime, (float)fmod(t, 4096)); GL(glUniform1i)(R.uMap, 0); GL(glUniform1i)(R.uSmap, 1);
-    float k = 1 + 0.12f * energy; if (sp) GL(glUniform3f)(R.uTint, k * 0.78f, k * 0.98f, k * 1.18f); else GL(glUniform3f)(R.uTint, k, k, k);   /* star power: the room goes blue */
+    double t = perf / 1000; float view[16], proj[16], vp[16]; int shotId = 0; camera(t, view, proj, &shotId); mat_mul(proj, view, vp);
+    R.flush(R.ren); glstate st; state_save(&st); R.drawCalls = R.drawnTris = R.culled = 0;
+    int res = res_mode(), fw = R.W, fh = R.H; if (res && R.blitProg) { float k = res == 2 ? 0.5f : 0.75f; fw = ((int)(R.W * k + 0.5f) + 1) & ~1; fh = ((int)(R.H * k + 0.5f) + 1) & ~1; }
+    int off = (fw != R.W || fh != R.H) && fbo_ready(fw, fh); if (!off) { fw = R.W; fh = R.H; }
+    int qi = -1; if (R.timer) { for (int i = 0; i < 4; i++) timer_poll(i); if (!R.qBusy[R.qi]) { qi = R.qi; R.beginQ(GL_TIME_ELAPSED_EXT, R.q[qi]); } }
+    GL(glDisable)(GL_SCISSOR_TEST); GL(glEnable)(GL_DEPTH_TEST); GL(glDepthFunc)(GL_LEQUAL); GL(glDepthMask)(GL_TRUE); GL(glColorMask)(1, 1, 1, 1); GL(glDisable)(GL_CULL_FACE); GL(glDisable)(GL_BLEND);
+    if (off) { GL(glBindFramebuffer)(GL_FRAMEBUFFER, R.fbo); GL(glViewport)(0, 0, fw, fh); GL(glClearColor)(18 / 255.0f, 16 / 255.0f, 24 / 255.0f, 1); GL(glClear)(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); }   /* all of it cleared: a tiler reads nothing back */
+    else { GL(glViewport)(0, 0, R.W, R.H); GL(glClear)(GL_DEPTH_BUFFER_BIT); }
+    GL(glBlendEquationSeparate)(GL_FUNC_ADD, GL_FUNC_ADD);
+    float k = 1 + 0.12f * energy, tint[3] = { k, k, k }; if (sp) { tint[0] = k * 0.78f; tint[1] = k * 0.98f; tint[2] = k * 1.18f; }   /* star power: the room goes blue */
+    for (int p = 0; p < 2; p++) { const r3d_prog *P = &R.P[p]; GL(glUseProgram)(P->prog); GL(glUniformMatrix4fv)(P->uProj, 1, GL_FALSE, proj); GL(glUniformMatrix4fv)(P->uView, 1, GL_FALSE, view);
+        GL(glUniform1f)(P->uTime, (float)fmod(t, 4096)); GL(glUniform1i)(P->uMap, 0); GL(glUniform1i)(P->uSmap, 1); GL(glUniform3f)(P->uTint, tint[0], tint[1], tint[2]); }
     for (int i = 0; i < st.nattr; i++) GL(glDisableVertexAttribArray)(i);
-    GL(glEnableVertexAttribArray)(R.aPos); GL(glEnableVertexAttribArray)(R.aCtr); GL(glEnableVertexAttribArray)(R.aCol); GL(glEnableVertexAttribArray)(R.aLit); GL(glEnableVertexAttribArray)(R.aUv); GL(glEnableVertexAttribArray)(R.aUv2);
+    for (int i = 0; i < 6; i++) GL(glEnableVertexAttribArray)(i);
     float cam[3] = { -(view[0] * view[12] + view[1] * view[13] + view[2] * view[14]), -(view[4] * view[12] + view[5] * view[13] + view[6] * view[14]), -(view[8] * view[12] + view[9] * view[13] + view[10] * view[14]) };
-    int first = R.nb; for (int i = 0; i < R.nb; i++) { if (R.b[i].blend) { if (first == R.nb) first = i; continue; } if (R.b[i].board || sphere_visible(vp, R.b[i].centre, R.b[i].radius)) draw_batch(&R.b[i]); }
-    if (first < R.nb) {   /* the see-through parts, farthest first */
-        static float *dist; static int *idx, cap; int n = R.nb - first; if (n > cap) { cap = n; dist = realloc(dist, cap * sizeof *dist); idx = realloc(idx, cap * sizeof *idx); }
-        for (int i = 0; i < n; i++) { const batch *b = &R.b[first + i]; float dx = b->centre[0] - cam[0], dy = b->centre[1] - cam[1], dz = b->centre[2] - cam[2]; dist[i] = dx * dx + dy * dy + dz * dz; idx[i] = first + i; }
-        for (int i = 1; i < n; i++) for (int j = i; j > 0 && dist[idx[j] - first] > dist[idx[j - 1] - first]; j--) { int t2 = idx[j]; idx[j] = idx[j - 1]; idx[j - 1] = t2; }
-        for (int i = 0; i < n; i++) if (R.b[idx[i]].board || sphere_visible(vp, R.b[idx[i]].centre, R.b[idx[i]].radius)) draw_batch(&R.b[idx[i]]); }
-    GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0); GL(glDepthMask)(GL_TRUE);
-    GL(glDisableVertexAttribArray)(R.aPos); GL(glDisableVertexAttribArray)(R.aCtr); GL(glDisableVertexAttribArray)(R.aCol); GL(glDisableVertexAttribArray)(R.aLit); GL(glDisableVertexAttribArray)(R.aUv); GL(glDisableVertexAttribArray)(R.aUv2);
+    memcpy(R.V.view, view, 64); memcpy(R.V.proj, proj, 64); memcpy(R.V.vp, vp, 64); memcpy(R.V.cam, cam, 12); memcpy(R.V.tint, tint, 12); R.V.t = t; R.V.w = fw; R.V.h = fh;
+    cullctx cc; frustum(vp, cc.pl); memcpy(cc.view, view, 64); cc.pxk = proj[5] * R.H / 2;
+    /* the solid groups near to far, put in order again at each cut (not every frame: an order that flips mid-shot could make touching surfaces flicker) */
+    int g1 = 0, g2 = 0; while (g1 < R.nb && GROUP(R.b[g1]) == 0) g1++; g2 = g1; while (g2 < R.nb && GROUP(R.b[g2]) == 1) g2++;
+    if (shotId != R.sortedSeq) { R.sortedSeq = shotId;
+        for (int i = 0; i < g2; i++) { batch *b = &R.b[i]; float dx = b->centre[0] - cam[0], dy = b->centre[1] - cam[1], dz = b->centre[2] - cam[2]; b->order = sqrtf(dx * dx + dy * dy + dz * dz) - b->radius; }
+        for (int g = 0; g < 2; g++) { int lo = g ? g1 : 0, hi = g ? g2 : g1; for (int i = lo + 1; i < hi; i++) for (int j = i; j > lo && R.b[j].order < R.b[j - 1].order; j--) { batch t2 = R.b[j]; R.b[j] = R.b[j - 1]; R.b[j - 1] = t2; } } }
+    GL(glUseProgram)(R.P[0].prog); for (int i = 0; i < g1; i++) draw_batch(&R.b[i], &R.P[0], &cc);
+    GL(glUseProgram)(R.P[1].prog); for (int i = g1; i < g2; i++) draw_batch(&R.b[i], &R.P[1], &cc);
+    /* (the band and the light show's solid parts draw here, before the see-through batches: r3d_view_now(), r3d_program()) */
+    if (g2 < R.nb) {   /* the see-through parts, farthest first */
+        static float *dist; static int *idx, cap; int n = R.nb - g2; if (n > cap) { cap = n; dist = realloc(dist, cap * sizeof *dist); idx = realloc(idx, cap * sizeof *idx); }
+        for (int i = 0; i < n; i++) { const batch *b = &R.b[g2 + i]; float dx = b->centre[0] - cam[0], dy = b->centre[1] - cam[1], dz = b->centre[2] - cam[2]; dist[i] = dx * dx + dy * dy + dz * dz; idx[i] = g2 + i; }
+        for (int i = 1; i < n; i++) for (int j = i; j > 0 && dist[idx[j] - g2] > dist[idx[j - 1] - g2]; j--) { int t2 = idx[j]; idx[j] = idx[j - 1]; idx[j - 1] = t2; }
+        int cur = -1; for (int i = 0; i < n; i++) { const batch *b = &R.b[idx[i]]; int p = b->alphaRef > 0; if (p != cur) { cur = p; GL(glUseProgram)(R.P[p].prog); } draw_batch(b, &R.P[p], &cc); } }
+    GL(glDepthMask)(GL_TRUE);
+    if (off) {   /* the depth is not needed past the pass (Mali then never writes it out); the picture stretched over the window */
+        if (R.discard) { GLenum att = GL_DEPTH_ATTACHMENT; R.discard(GL_FRAMEBUFFER, 1, &att); }
+        GL(glBindFramebuffer)(GL_FRAMEBUFFER, (GLuint)st.fbo); GL(glViewport)(0, 0, R.W, R.H); GL(glDisable)(GL_DEPTH_TEST); GL(glDisable)(GL_BLEND);
+        for (int i = 1; i < 6; i++) GL(glDisableVertexAttribArray)(i);
+        GL(glUseProgram)(R.blitProg); GL(glUniform1i)(R.bTex, 0); GL(glActiveTexture)(GL_TEXTURE0); GL(glBindTexture)(GL_TEXTURE_2D, R.fboTex);
+        GL(glBindBuffer)(GL_ARRAY_BUFFER, R.blitVbo); GL(glVertexAttribPointer)(0, 2, GL_FLOAT, GL_FALSE, 8, (void *)0); GL(glDrawArrays)(GL_TRIANGLES, 0, 3); R.drawCalls++; }
+    if (qi >= 0) { R.endQ(GL_TIME_ELAPSED_EXT); R.qBusy[qi] = 1; R.qi = (qi + 1) & 3; }
+    GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0);
+    for (int i = 0; i < 6; i++) GL(glDisableVertexAttribArray)(i);
     state_restore(&st); return 1;
+}
+
+/* ---- the timings line: every PERF_MS while a song plays (log-3d.txt on the device) ---- */
+static void perf_frame(Uint64 c0) {
+    Uint64 c1 = SDL_GetPerformanceCounter(); double f = (double)SDL_GetPerformanceFrequency(), cpu = (c1 - c0) * 1000.0 / f; perfwin *w = &R.pw;
+    if (A.screen != SC_PLAY) { memset(w, 0, sizeof *w); return; }   /* menus, pause, results: not counted; a new window starts with the song */
+    if (!w->t0) { w->t0 = w->last = c0; return; }
+    double fr = (c0 - w->last) * 1000.0 / f; w->last = c0;
+    w->frames++; w->sumFrame += fr; if (fr > w->maxFrame) w->maxFrame = fr; w->sumCpu += cpu; if (cpu > w->maxCpu) w->maxCpu = cpu; w->calls += R.drawCalls; w->tris += R.drawnTris;
+    static double every; if (!every) { const char *e = getenv("R3D_PERF_MS"); every = e && atoi(e) > 0 ? atoi(e) : PERF_MS; }
+    double span = (c0 - w->t0) * 1000.0 / f; if (span < every || !w->frames) return;
+    int n = w->frames, res = res_mode(); char gpu[32]; if (w->nGpu) snprintf(gpu, sizeof gpu, "%.1f ms", w->sumGpu / w->nGpu); else snprintf(gpu, sizeof gpu, R.timer ? "(no result)" : "n/a");
+    SDL_Log("r3d perf: %s %dx%d (%s) | %.1f fps, frame %.1f ms avg %.1f max | venue cpu %.2f ms avg %.2f max, gpu %s | %ld draws %ld tris per frame | tex %.1f MB (%d ETC1, %d 16-bit, %d DXT) vram %.1f MB",
+        R.zone, res && R.fbo && !R.fboBad ? R.fw : R.W, res && R.fbo && !R.fboBad ? R.fh : R.H, RES_NAME[res], n * 1000.0 / span, w->sumFrame / n, w->maxFrame, w->sumCpu / n, w->maxCpu, gpu, w->calls / n, w->tris / n,
+        R.texBytes / 1048576.0, R.nEtc, R.n16, R.nDxt, R.vram / 1048576.0);
+    Uint64 last = w->last; memset(w, 0, sizeof *w); w->t0 = w->last = last;
 }
 int r3d_draw_stage(double perf, int sp, float energy) {
     if (!R.ready || !R.loaded || !SET.stage3d) return 0;
-    return draw(perf, sp, energy);
+    Uint64 c0 = SDL_GetPerformanceCounter(); int r = draw(perf, sp, energy); perf_frame(c0); return r;
 }
-void r3d_shutdown(void) { if (!R.ready) return; unload(); GL(glDeleteProgram)(R.prog); GL(glDeleteTextures)(1, &R.white); R.ready = 0; }
+void r3d_shutdown(void) {
+    if (!R.ready) return; unload(); for (int p = 0; p < 2; p++) GL(glDeleteProgram)(R.P[p].prog); GL(glDeleteTextures)(1, &R.white);
+    if (R.blitProg) { GL(glDeleteProgram)(R.blitProg); GL(glDeleteBuffers)(1, &R.blitVbo); }
+    if (R.fbo) { GL(glDeleteFramebuffers)(1, &R.fbo); GL(glDeleteTextures)(1, &R.fboTex); GL(glDeleteRenderbuffers)(1, &R.fboDepth); }
+    R.ready = 0;
+}
 
 /* ------------------------------------------------------------------ --r3dtest */
+static void save_frame(const char *outdir, const char *name, int W, int H, uint8_t *px) {
+    GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1); GL(glReadPixels)(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    for (int y = 0; y < H / 2; y++) for (int x = 0; x < W * 4; x++) { uint8_t t = px[(size_t)y * W * 4 + x]; px[(size_t)y * W * 4 + x] = px[(size_t)(H - 1 - y) * W * 4 + x]; px[(size_t)(H - 1 - y) * W * 4 + x] = t; }
+    SDL_Surface *sf = SDL_CreateRGBSurfaceFrom(px, W, H, 32, W * 4, 0x000000FF, 0x0000FF00, 0x00FF0000, 0); char p[700]; snprintf(p, sizeof p, "%s/%s.bmp", outdir && *outdir ? outdir : ".", name); SDL_SaveBMP(sf, p); SDL_FreeSurface(sf);
+}
 int r3d_test(const char *zone, const char *outdir, int W, int H) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);   /* as main() asks for the game's window */
@@ -425,19 +680,25 @@ int r3d_test(const char *zone, const char *outdir, int W, int H) {
     SDL_RendererInfo ri; SDL_GetRendererInfo(ren, &ri); printf("renderer: %s\n", ri.name);
     if (r3d_init(ren)) { puts("r3d: no GL (see the log above)"); return 1; }
     if (load_zone(zone)) { printf("could not load %s\n", zone); return 1; }
-    printf("%s: %d meshes in %d batches, %d skipped, %d triangles, %d textures, %.1f MB on the GPU (%s), %d camera shots, loaded in %.0f ms\n", zone, R.meshes, R.nb, R.skipped, R.tris, R.textures, R.vram / 1048576.0, R.s3tc ? "DXT" : "decoded", R.nshots, R.loadMs);
-    /* one picture per shot (the first few), read back from the window */
-    uint8_t *px = malloc((size_t)W * H * 4); int nsave = R.nshots < 4 ? (R.nshots ? R.nshots : 1) : 4;
+    printf("%s: %d meshes in %d batches, %d skipped, %d triangles, %d textures (%d ETC1, %d 16-bit, %d DXT; %.1f MB of textures, %.0f ms encoding ETC1, up to %d px), %.1f MB on the GPU, %d camera shots, loaded in %.0f ms\n",
+        zone, R.meshes, R.nb, R.skipped, R.tris, R.textures, R.nEtc, R.n16, R.nDxt, R.texBytes / 1048576.0, R.texMs, R.texMax, R.vram / 1048576.0, R.nshots, R.loadMs);
+    uint8_t *px = malloc((size_t)W * H * 4); int nsave = R.nshots < 4 ? (R.nshots ? R.nshots : 1) : 4, keep = SET.stage3dRes; char nm[96];
+    /* one picture per shot (the first few) at Média, the game's default, read back from the window; the first shot also at Alta and Baixa */
+    SET.stage3dRes = 1;
     for (int s = 0; s < nsave; s++) { double perf = s * SHOT_MS + SHOT_MS * 0.35;
         SDL_SetRenderDrawColor(ren, 18, 16, 24, 255); SDL_RenderClear(ren); draw(perf, 0, 0.5f); R.flush(ren); GL(glFinish)();
-        GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1); GL(glReadPixels)(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px);
-        for (int y = 0; y < H / 2; y++) for (int x = 0; x < W * 4; x++) { uint8_t t = px[(size_t)y * W * 4 + x]; px[(size_t)y * W * 4 + x] = px[(size_t)(H - 1 - y) * W * 4 + x]; px[(size_t)(H - 1 - y) * W * 4 + x] = t; }
-        SDL_Surface *sf = SDL_CreateRGBSurfaceFrom(px, W, H, 32, W * 4, 0x000000FF, 0x0000FF00, 0x00FF0000, 0); char p[700]; snprintf(p, sizeof p, "%s/%s_%d.bmp", outdir && *outdir ? outdir : ".", zone, s); SDL_SaveBMP(sf, p); SDL_FreeSurface(sf);
-        printf("  shot %d: %d draw calls, %d triangles -> %s\n", s, R.drawCalls, R.drawnTris, p); SDL_RenderPresent(ren); }
-    /* timing: frames across all the shots, the GPU made to finish each */
-    int N = 120; Uint64 f0 = SDL_GetPerformanceCounter(); long calls = 0;
-    for (int f = 0; f < N; f++) { SDL_RenderClear(ren); draw(f * 1000.0 / 60 * 7, 0, 0.5f); R.flush(ren); GL(glFinish)(); calls += R.drawCalls; }
-    double ms = (SDL_GetPerformanceCounter() - f0) * 1000.0 / SDL_GetPerformanceFrequency() / N;
-    printf("%d frames: %.2f ms/frame on this GPU (%s), %.0f draw calls/frame\n", N, ms, GL(glGetString)(GL_RENDERER), (double)calls / N);
+        snprintf(nm, sizeof nm, "%s_%d", zone, s); save_frame(outdir, nm, W, H, px);
+        printf("  shot %d: %d draw calls, %d triangles, %d parts left out -> %s/%s.bmp\n", s, R.drawCalls, R.drawnTris, R.culled, outdir && *outdir ? outdir : ".", nm); SDL_RenderPresent(ren); }
+    for (int m = 0; m < 3; m += 2) { SET.stage3dRes = m; SDL_RenderClear(ren); draw(SHOT_MS * 0.35, 0, 0.5f); R.flush(ren); GL(glFinish)(); snprintf(nm, sizeof nm, "%s_0_%s", zone, m ? "baixa" : "alta"); save_frame(outdir, nm, W, H, px); SDL_RenderPresent(ren); }
+    /* timing at each size: frames across all the shots, the GPU made to finish each; and the CPU time of the venue's calls alone */
+    for (int m = 0; m < 3; m++) { SET.stage3dRes = m; int N = 120; double cpu = 0; long calls = 0, tris = 0; draw(0, 0, 0.5f); GL(glFinish)(); Uint64 f0 = SDL_GetPerformanceCounter();
+        for (int f = 0; f < N; f++) { SDL_RenderClear(ren); Uint64 c0 = SDL_GetPerformanceCounter(); draw(f * 1000.0 / 60 * 7, 0, 0.5f); cpu += (SDL_GetPerformanceCounter() - c0) * 1000.0 / SDL_GetPerformanceFrequency(); R.flush(ren); GL(glFinish)(); calls += R.drawCalls; tris += R.drawnTris; }
+        double ms = (SDL_GetPerformanceCounter() - f0) * 1000.0 / SDL_GetPerformanceFrequency() / N;
+        printf("%-6s %dx%d: %d frames, %.2f ms/frame on this GPU (%s), venue calls %.2f ms CPU, %.0f draw calls, %.0f triangles per frame\n", RES_NAME[m], m && R.fbo ? R.fw : W, m && R.fbo ? R.fh : H, N, ms, GL(glGetString)(GL_RENDERER), cpu / N, (double)calls / N, (double)tris / N); }
+    /* the log line as a song gets it (window shortened to 1 s), at the default size */
+    { SET.stage3dRes = 1; int scr = A.screen; A.screen = SC_PLAY; setenv("R3D_PERF_MS", "1000", 0); Uint64 t0 = SDL_GetPerformanceCounter(); int f = 0;
+        while ((SDL_GetPerformanceCounter() - t0) * 1000.0 / SDL_GetPerformanceFrequency() < 2100) { SDL_RenderClear(ren); r3d_draw_stage(f++ * 1000.0 / 60 * 7, 0, 0.5f); SDL_RenderPresent(ren); }
+        A.screen = scr; }
+    SET.stage3dRes = keep;
     free(px); r3d_shutdown(); SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit(); return 0;
 }
