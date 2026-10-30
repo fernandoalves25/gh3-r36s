@@ -227,6 +227,13 @@ static view_t lane_view(void) { view_t v = V; if (RL.on) { v.cx = RL.cx + RL.dx;
 void render_lane_xy(int f, float z, float *x, float *y, float *s) { view_t v0 = V; V = lane_view(); proj(laneX(f, SET.lefty ^ RL.flip), z, x, y, s); V = v0; }
 float render_lane_hw(void) { return lane_view().hw; }
 void render_stage(double perf, float pulse, float energy, int fx) { stage(perf, pulse, 0, (int)(perf / 2400) % 5, fx, energy); }
+int render_venue(double perf) {
+#ifdef GH3_3D
+    return r3d_draw_stage(perf, 0, 0.5f);
+#else
+    (void)perf; return 0;
+#endif
+}
 static unsigned flick_hash(unsigned x) { x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x; }
 static int lastMult = 1; static double multAt = -1e9;
 void render_game(gh3_run *r, double perf, const hud_info *hi) {

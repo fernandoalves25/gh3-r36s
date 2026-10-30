@@ -29,6 +29,7 @@ typedef struct {
     tierstate_t *tiers;                      /* career state for selDiff */
     double resumeAt;                         /* > 0: the countdown after a pause runs until this time */
     int newRecord, resultStars, resultPct; long resultScore; double resultsAt; int starsSounded;
+    double outroUntil;                       /* gh3-3d: the results wait until then, the venue showing the band's win or lose (the song's end) */
     char unlockMsg[120]; double unlockAt; int unlockPending;   /* a message waiting to be shown on the set list */
     int fps, autoPlay;
     int testHeld, testStrum; double testStrumAt; float testWhammy; int testStar;

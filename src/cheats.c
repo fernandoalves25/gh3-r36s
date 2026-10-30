@@ -6,7 +6,10 @@
  * What they do, from the scripts: Easy Expert doubles check_time_early/late (not in Career, and the run is kept off
  * the leaderboard like No Fail), Precision Mode halves them, the two exclude each other; the hammer-on windows stay.
  * Hyperspeed has five levels. Air Guitar, Bret Michaels (the singer) and Performance Mode (no highway or HUD, the 3D
- * band plays alone) only change the 3D band, which this port does not draw. */
+ * band plays alone) only change the 3D band: the gh3-3d build does them (r3d_band.c, main.c), the 2D build lists them
+ * as needing it. Air Guitar: the scripts that dress the players take the instrument away (guitarist and bassist, the
+ * boss too). Bret Michaels: the singer is the Singer_Bret profile (its body is PAK/Singer_Brett, not in every copy of
+ * the game). Performance Mode: the highway never rises and the HUD scripts end at once; the band plays the song. */
 #include "cheats.h"
 #include "app.h"
 #include "render.h"
@@ -32,7 +35,12 @@ static const cheat_t CH[CH_N] = { { "Air Guitar", PAT(CODE_AIR) }, { "Performanc
     { "Easy Expert", PAT(CODE_EASY) }, { "Precision Mode", PAT(CODE_PREC) }, { "Bret Michaels", PAT(CODE_BRET) }, { "Liberar todas as músicas", PAT(CODE_SONGS) }, { "Liberar tudo", PAT(CODE_ALL) } };
 
 static int row, retRow, entry, held, prog[CH_N], hist[16], nhist, lastUnlock = -1; static double entryAt, unlockAt = -1e9, strumAt = -1e9;
+#ifdef GH3_3D
+static int avail(int c) { (void)c; return 1; }
+static int bret_here(void) { return app_data_path("pak", "Singer_Brett.pak.xen") != NULL; }   /* the body the Singer_Bret profile asks for */
+#else
 static int avail(int c) { return c != CH_AIR && c != CH_PERF && c != CH_BRET; }
+#endif
 
 const gh3_tuning *cheats_tuning(const gh3_tuning *base, int mode) {
     static gh3_tuning t; t = *base;
@@ -45,17 +53,23 @@ static void value(int c, char *out, size_t n) {
     switch (c) { case CH_HYPER: if (SET.hyper) snprintf(out, n, "+%d", SET.hyper); else snprintf(out, n, "Desligada"); break;
         case CH_NOFAIL: snprintf(out, n, "%s", SET.noFail ? "Ligado" : "Desligado"); break; case CH_EASY: snprintf(out, n, "%s", SET.easyExpert ? "Ligado" : "Desligado"); break;
         case CH_PRECISION: snprintf(out, n, "%s", SET.precision ? "Ligado" : "Desligado"); break; case CH_SONGS: case CH_ALL: snprintf(out, n, "%s", SET.unlockAll ? "Ligado" : "Desligado"); break;
+#ifdef GH3_3D
+        case CH_AIR: snprintf(out, n, "%s", SET.airGuitar ? "Ligado" : "Desligado"); break; case CH_PERF: snprintf(out, n, "%s", SET.perfMode ? "Ligado" : "Desligado"); break;
+        case CH_BRET: snprintf(out, n, "%s", SET.bretMichaels ? (bret_here() ? "Ligado" : "Ligado (sem os arquivos)") : "Desligado"); break;
+#endif
         default: snprintf(out, n, "precisa da banda 3D"); }
 }
 static void change(int c, int d) {
     switch (c) { case CH_HYPER: SET.hyper = (SET.hyper + 6 + d) % 6; break; case CH_NOFAIL: SET.noFail = !SET.noFail; break;
         case CH_EASY: SET.easyExpert = !SET.easyExpert; if (SET.easyExpert) SET.precision = 0; break;
         case CH_PRECISION: SET.precision = !SET.precision; if (SET.precision) SET.easyExpert = 0; break;
-        case CH_SONGS: case CH_ALL: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break; }
+        case CH_SONGS: case CH_ALL: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break;
+        case CH_AIR: SET.airGuitar = !SET.airGuitar; break; case CH_PERF: SET.perfMode = !SET.perfMode; break; case CH_BRET: SET.bretMichaels = !SET.bretMichaels; break; }
 }
 static void turn_on(int c) {
     switch (c) { case CH_HYPER: if (!SET.hyper) SET.hyper = 1; break; case CH_NOFAIL: SET.noFail = 1; break; case CH_EASY: SET.easyExpert = 1; SET.precision = 0; break;
-        case CH_PRECISION: SET.precision = 1; SET.easyExpert = 0; break; case CH_SONGS: case CH_ALL: if (!SET.unlockAll) { SET.unlockAll = 1; app_refresh_career(0); } break; }
+        case CH_PRECISION: SET.precision = 1; SET.easyExpert = 0; break; case CH_SONGS: case CH_ALL: if (!SET.unlockAll) { SET.unlockAll = 1; app_refresh_career(0); } break;
+        case CH_AIR: SET.airGuitar = 1; break; case CH_PERF: SET.perfMode = 1; break; case CH_BRET: SET.bretMichaels = 1; break; }
 }
 static void strum_code(int mask, double now) {   /* the game's matcher (cheat menu script): every code advances or restarts on each chord */
     int g = 0; for (int f = 0; f < 5; f++) if (mask & (1 << f)) g |= 1 << (16 - 4 * f);
@@ -72,13 +86,21 @@ static void chord(int x, int y, int g, int cell) {   /* a chord as a column of f
 static void help(int c, char *b, size_t n) {
     const gh3_tuning *t = &A.lib->tuning; int e = (int)(t->early + 0.5), l = (int)(t->late + 0.5);
     switch (c) {
+#ifdef GH3_3D
+    case CH_AIR: snprintf(b, n, "O guitarrista e o baixista (e o chefe, nas batalhas) tocam sem o instrumento, como no jogo. Precisa da Banda 3D ligada."); break;
+    case CH_PERF: snprintf(b, n, "Sem pista nem painel: a banda 3D toca a música sozinha e você assiste. Não vale recorde nem carreira; não vale nas batalhas nem no treino."); break;
+    case CH_BRET: if (bret_here()) snprintf(b, n, "Troca o vocalista da banda 3D por Bret Michaels (o perfil Singer_Bret do jogo)."); else snprintf(b, n, "Troca o vocalista por Bret Michaels, mas o corpo dele (PAK/Singer_Brett.pak.xen) não está nos arquivos deste jogo: fica o vocalista de sempre."); break;
+#else
     case CH_AIR: snprintf(b, n, "O guitarrista da banda toca sem a guitarra. Só muda o personagem 3D, que este port não desenha."); break;
     case CH_PERF: snprintf(b, n, "No jogo, tira a pista e o painel da tela para a banda 3D tocar sozinha. Sem a banda, não há o que assistir aqui."); break;
+#endif
     case CH_HYPER: snprintf(b, n, "As notas descem mais rápido e mais espaçadas, em 5 níveis como no jogo. Não muda a dificuldade."); break;
     case CH_NOFAIL: snprintf(b, n, "O medidor de rock nunca encerra a música. A pontuação aparece, mas não vale recorde nem carreira."); break;
     case CH_EASY: snprintf(b, n, "Janelas de acerto dobradas: %d ms antes e %d depois da nota (normal %d e %d). Como no jogo, não vale na carreira; fora dela não vale recorde. Desliga o Precision Mode.", e * 2, l * 2, e, l); break;
     case CH_PRECISION: snprintf(b, n, "Janelas de acerto pela metade: %d ms antes e %d depois da nota (normal %d e %d); os hammer-ons mantêm a janela deles. Desliga o Easy Expert.", e / 2, l / 2, e, l); break;
+#ifndef GH3_3D
     case CH_BRET: snprintf(b, n, "Troca o vocalista da banda por Bret Michaels. Só muda o personagem 3D, que este port não desenha."); break;
+#endif
     case CH_SONGS: snprintf(b, n, "Abre todos os sets sem passar pela carreira. Os recordes continuam valendo."); break;
     default: snprintf(b, n, "No jogo também libera a loja (guitarras, roupas e personagens). Aqui só há músicas para liberar: é o mesmo que a de cima."); }
 }

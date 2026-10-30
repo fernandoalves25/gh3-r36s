@@ -17,6 +17,7 @@ extern render_lane_t RL;
 void render_lane_xy(int fret, float z, float *x, float *y, float *s);   /* a point of the highway RL places (z 0: the strike line) */
 float render_lane_hw(void);                                             /* its half width at the strike line */
 void render_stage(double perf, float pulse, float energy, int stageFx); /* the stage alone, undimmed */
+int render_venue(double perf);   /* gh3-3d: the 3D venue and its band alone (1); 0, nothing drawn, when there is none (the 2D build) */
 #define C_INK RGB(240, 234, 223)
 #define C_MUTED RGB(163, 156, 176)
 #define C_AMP RGB(233, 176, 76)

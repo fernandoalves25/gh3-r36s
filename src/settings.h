@@ -25,6 +25,7 @@ typedef struct {
     int unlockAll;      /* every song open whatever the career says */
     int easyExpert, precision;   /* cheats of the game: hit windows doubled / halved (cheats.c) */
     int cheatCodes;     /* bit per cheat (the game's order) whose code was played on the cheats screen */
+    int airGuitar, perfMode, bretMichaels;   /* cheats of the game that change the 3D band (gh3-3d; the 2D build keeps them and ignores them) */
     int theme;          /* 0 pixel art, 1 HD (smooth), 2 Original (the game's art) */
     int introMovies;    /* the logos and the game's intro at start-up */
     int careerIntro;    /* the career's opening movie was shown (kept by Restaurar padrões) */

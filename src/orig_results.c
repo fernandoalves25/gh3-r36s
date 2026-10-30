@@ -197,7 +197,7 @@ static void stack(const ga_font *f, const char *const *parts, const float *sc, c
 static int failed_window(double T) {
     const ga_font *title = ga_font_get("fontgrid_title_a1"); if (!title || !ga_img("dialog_menu_bg")) return 0;
     const gh3_run *r = &A.S.run; int W = A.W, H = A.H; char b[200], song[160]; float k = T < 0.3 ? (float)(T / 0.3) : 1, e = 1 - (1 - k) * (1 - k);
-    render_backdrop(A.resultsAt + T * 1000, SET.stageFx); gfx_rect(0, 0, (float)W, (float)H, RGBA(0, 0, 0, (int)(140 * e)));
+    if (A.mode == MODE_PRACTICE || !render_venue(A.resultsAt + T * 1000)) render_backdrop(A.resultsAt + T * 1000, SET.stageFx); gfx_rect(0, 0, (float)W, (float)H, RGBA(0, 0, 0, (int)(140 * e)));   /* (gh3-3d: the band's lose stance behind it, as in the game) */
     OY -= 40 * S * (1 - e); GA = e;
     ui_panel(X(388), Y(190), 508 * S, 340 * S, UI_PANEL_DARK);   /* the pause menu's frame */
     spr_s(mirror("dialog_title_bg", 1, 0), 416, 100, 224, 224, WHITE); spr("dialog_title_bg", 640, 100, 224, 224, WHITE);
@@ -228,7 +228,7 @@ int orig_results_draw(double now) {
     if (r->failed) { if (!failed_window(T)) return 0; hints(); return 1; }
     /* the magazine lands: a little large and see-through at first, over the stage */
     float k = T < 0.45 ? (float)(T / 0.45) : 1, e = 1 - (1 - k) * (1 - k), z = 1 + 0.12f * (1 - e);
-    if (k < 1) { if (!ga_img("song_summary_bg")) return 0; render_backdrop(now, SET.stageFx); }
+    if (k < 1) { if (!ga_img("song_summary_bg")) return 0; if (A.mode == MODE_PRACTICE || !render_venue(now)) render_backdrop(now, SET.stageFx); }
     float S0 = S; S = S0 * z; OX = W / 2.0f - 640 * S; OY = H / 2.0f - 360 * S; GA = fminf(1, (float)T / 0.3f);
     if (!magazine(T)) return 0;
     const ga_font *small = ga_font_get("fontgrid_text_a11"), *title = ga_font_get("fontgrid_title_a1");

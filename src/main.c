@@ -68,6 +68,7 @@ static uint8_t *read_data(const char *dir, const char *name, size_t *len) { cons
 typedef struct {
     char data[520]; int W, H, fullscreen, vsync, soft;
     int frames, every; char song[64], tutorial[16]; int diff, part, autoPlay, dump, audiotest, menutest, screens, stretchtest, sfxtest; char outdir[520]; char movietest[64]; int movieplay; int miss;
+    char play[64]; double playFrom;   /* --play NAME [--from MS]: straight into that song (Quickplay), for tests on a real window */
 } cfg_t;
 static cfg_t cfg;
 static int moneyTest, judgeTest;   /* --moneytest: the career's pay rules, the store data and the encore chants */
@@ -103,6 +104,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--miss")) { cfg.miss = atoi(v); i++; }   /* a battle's autoplay misses that share of the notes */
         else if (!strcmp(a, "--out")) { snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
         else if (!strcmp(a, "--auto")) cfg.autoPlay = 1;
+        else if (!strcmp(a, "--play")) { snprintf(cfg.play, sizeof cfg.play, "%s", v); i++; } else if (!strcmp(a, "--from")) { cfg.playFrom = atof(v); i++; }
         else if (!strcmp(a, "--tap")) SET.tap = 1;
         else if (!strcmp(a, "--theme")) { SET.theme = atoi(v); i++; }
         else if (!strcmp(a, "--soft")) cfg.soft = 1;
@@ -112,8 +114,9 @@ static void cfg_args(int argc, char **argv) {
 #ifdef GH3_3D
         else if (!strcmp(a, "--r3dtest")) { snprintf(r3dTest, sizeof r3dTest, "%s", v); i++; }   /* --r3dtest z_dive --out DIR: a venue drawn offscreen, frames saved, counts and timings printed */
         else if (!strcmp(a, "--band")) r3d_test_band = 1;   /* --r3dtest ZONE --band [--song NAME]: and the band, a picture of each member */
+        else if (!strcmp(a, "--cheat")) { if (strstr(v, "air")) SET.airGuitar = 1; if (strstr(v, "perf")) SET.perfMode = 1; if (strstr(v, "bret")) SET.bretMichaels = 1; i++; }   /* --cheat air,perf,bret: the 3D band's cheats on (not saved unless the options are) */
 #endif
-        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--sfxtest] [--judgetest] [--r3dtest ZONE [--band] [--song NAME] --out DIR (gh3-3d)] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
+        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--sfxtest] [--judgetest] [--r3dtest ZONE [--band] [--song NAME] [--cheat air,perf,bret] --out DIR (gh3-3d)] [--play NAME [--from MS]] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
     }
 }
 
@@ -385,12 +388,20 @@ static void movie_test(void) {   /* --movietest NAME|all [--movieplay]: decodes 
 }
 
 /* ---- playing ---- */
+#ifdef GH3_3D
+static int band_on_stage(void) { return r3d_ready() && SET.stage3d && SET.band3d && A.mode != MODE_PRACTICE; }   /* the venue in 3D with its band (else the 2D stage is drawn) */
+static int perf_mode(void) { return SET.perfMode && band_on_stage() && !battle_song(A.selSong); }   /* the Performance Mode cheat: no highway, no HUD, the band plays it (a battle needs its highways) */
+#endif
 static int song_load(void) {   /* the blocking part: the set's venue (3D build), the chart and the audio */
     char err[300];
 #ifdef GH3_3D
     r3d_select(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "");   /* the set's venue (levelzones); a bonus song with none gets the default */
 #endif
-    if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, A.autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
+    int autoPlay = A.autoPlay;
+#ifdef GH3_3D
+    if (perf_mode()) autoPlay = 1;   /* Performance Mode: the band plays the song on its own (and the run counts for nothing, as autoplay) */
+#endif
+    if (load_song(&lib.songs[A.selSong], A.selPart, A.selDiff, autoPlay, 1, err, sizeof err)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", err); A.screen = SC_ERROR; return -1; }
     { Uint32 t0 = SDL_GetTicks(); sfx_song_prepare(A.mode != MODE_PRACTICE && A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : ""); static int once; if (!once) { once = 1; SDL_Log("sfx: the song's sounds decoded in %u ms (behind the loading screen)", SDL_GetTicks() - t0); } }
     return 0;
 }
@@ -406,7 +417,7 @@ static void song_go(void) {
     if (A.mode == MODE_PRACTICE) { /* the notes outside the sections are gone (load_song); the clock runs at the speed chosen */
         double sp = PRACTICE_SPEED[A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0], from, to, at, lead;
         practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, 1e12, &from, &to); practice_lead(from, sp, &at, &lead); audio_set_speed(sp); audio_play(at, lead); sfx_song_begin(NULL, lead / sp); }   /* (no crowd in practice) */
-    else { double from = 0, lead = 2600; battle_start(A.selSong, &from, &lead); audio_play(from, lead);   /* a boss song is a battle (or the devil's last part) */
+    else { double from = cfg.playFrom, lead = 2600; cfg.playFrom = 0; battle_start(A.selSong, &from, &lead); audio_play(from, lead);   /* a boss song is a battle (or the devil's last part) */
         sfx_song_begin(A.selTier >= 0 && A.selTier < lib.ntiers ? lib.shop.tierZone[A.selTier] : "", lead); }   /* the venue's crowd, the highway's rise and the intro kick */
     input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
     A.screen = SC_PLAY; A.S.section[0] = 0; A.resumeAt = 0; A.S.run.held = 0; fx_clear();
@@ -449,7 +460,10 @@ void app_finish_song(double now) {
     else if (A.mode == MODE_PRACTICE) audio_fade_out(0.8);   /* the run may end mid-song, at its last section */
     else if (!r->autoPlay && !SET.noFail && cheats_records_ok(A.mode) && A.mode != MODE_PRACTICE) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars, A.mode == MODE_CAREER); app_refresh_career(A.mode == MODE_CAREER); }
     resultCash = store_result(A.S.song, A.S.diff, A.resultStars, !r->failed && !r->autoPlay && !SET.noFail && A.mode == MODE_CAREER);   /* the career's pay (none elsewhere); its Cash_Sound comes with the stars */
-    A.screen = SC_RESULTS;
+    A.screen = SC_RESULTS; A.outroUntil = 0;
+#ifdef GH3_3D
+    if (band_on_stage() && !BTL.shown) { A.outroUntil = now + (r->failed ? 2600 : 4200); A.resultsAt = A.outroUntil; }   /* the band's win or lose on the stage first (a battle had its banner over it) */
+#endif
 }
 
 /* ------------------------------------------------------------------ headless modes */
@@ -620,6 +634,8 @@ int main(int argc, char **argv) {
     gh3_sfx_hook = sfx_hook; gh3_mute_hook = mute_hook;
     bank_index(); srand(SDL_GetTicks() ^ (unsigned)time(NULL));
     if (!A.libOk) { snprintf(A.errMsg, sizeof A.errMsg, "%s", libErr); A.screen = SC_ERROR; } else { app_refresh_career(0); screens_build_rows(); A.screen = SC_TITLE; A.titleAt = SDL_GetTicks(); if (SET.introMovies) boot_movies(); }
+    if (cfg.play[0] && A.libOk) for (int i = 0; i < lib.nsongs; i++) if (!strcmp(lib.songs[i].name, cfg.play)) { A.selSong = i; A.selDiff = cfg.diff; A.selPart = cfg.part; A.mode = MODE_QUICK; A.selTier = -1;
+        for (int t = 0; t < lib.ntiers; t++) for (int k = 0; k < lib.tiers[t].nsongs; k++) if (lib.tiers[t].songIdx[k] == i && A.selTier < 0) A.selTier = t; app_begin_song(); break; }
     Uint32 last = SDL_GetTicks(), fpsAt = last; int fpsN = 0;
     while (running) {
         double now = SDL_GetTicks(); SDL_Event ev;
@@ -642,7 +658,11 @@ int main(int argc, char **argv) {
             if (A.resumeAt > 0) { if (now >= A.resumeAt) { A.resumeAt = 0; audio_pause(0); input_reset_axes(); audio_sfx(SFX_GO); } else { static int lastTick = -1; int tk = (int)((A.resumeAt - now) / 1000); if (tk != lastTick) { lastTick = tk; } } }
             if (A.resumeAt == 0) { songT = song_time(); game_step(r, songT, now); battle_tick(now); sfx_song_tick(r, songT); snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(songT)); }
             audio_set_bend(A.resumeAt == 0 && r->sus && !r->autoPlay && !r->failed ? r->whammy : 0);
-            hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail, A.starKeys }; if (BTL.on) render_battle(now, 1); else render_game(r, now, &hi);
+            hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 1, SET.lefty, SET.stageFx, SET.bgDim, SET.showFps ? A.fps : 0, SET.noFail, A.starKeys }; if (BTL.on) render_battle(now, 1);
+#ifdef GH3_3D
+            else if (r->autoPlay && !A.autoPlay && perf_mode() && render_venue(now)) {}   /* Performance Mode: the highway never rises, the HUD never comes */
+#endif
+            else render_game(r, now, &hi);
             if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); ui_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, "Continuando…", C_AMP, C_SHADOW); }
             else if (r->failed || r->finished) app_finish_song(now);
         } else if (A.screen == SC_MOVIE) { if (!movie_tick(now)) movie_finish(now, 0); if (A.screen == SC_MOVIE) movie_draw(A.W, A.H); else screens_draw(now);
@@ -652,7 +672,10 @@ int main(int argc, char **argv) {
             if (SET.showFps) { char b[16]; snprintf(b, sizeof b, "%d fps", A.fps); gfx_text(A.W / 2 - 20, 60, 1, b, C_MUTED); }
         }
         if (softTex) { fb_t *fb = gfx_soft_fb(); SDL_UpdateTexture(softTex, NULL, fb->px, fb->w * 4); SDL_RenderCopy(ren, softTex, NULL, NULL); SDL_RenderPresent(ren); }
-        else gfx_end();
+        else { static double shotAt; const char *sd = getenv("GH3_SHOTS");   /* GH3_SHOTS=DIR: the window saved every GH3_SHOT_MS (1000) ms, for tests */
+            if (sd && ren && now - shotAt >= (getenv("GH3_SHOT_MS") ? atof(getenv("GH3_SHOT_MS")) : 1000)) { shotAt = now; SDL_Surface *s = SDL_CreateRGBSurface(0, cfg.W, cfg.H, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0);
+                SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch); char p[700]; snprintf(p, sizeof p, "%s/shot_%06.0f_%d.bmp", sd, now, A.screen); SDL_SaveBMP(s, p); SDL_FreeSurface(s); }
+            gfx_end(); if (getenv("GH3_QUIT_MS") && now > atof(getenv("GH3_QUIT_MS"))) running = 0; }
         fpsN++; Uint32 t2 = SDL_GetTicks(); if (t2 - fpsAt >= 1000) { A.fps = fpsN; fpsN = 0; fpsAt = t2; }
         if (!cfg.vsync) { if (t2 - last < 16) SDL_Delay(16 - (t2 - last)); } last = SDL_GetTicks();
     }

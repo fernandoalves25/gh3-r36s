@@ -44,8 +44,11 @@ typedef struct { char name[24]; uint32_t nameKey; int role; uint32_t ske, set, s
 typedef struct { uint32_t id; qbv *v; } keptsec;
 static struct { int tried, ok; profile *pf; int npf; keptsec *sec; int nsec; } L;
 static uint32_t K_IDLE, K_INTRO, K_STARPOWER, K_TRANS, K_FACIAL, K_WALKING, K_STANCE_A, K_SLOW, K_MED, K_FAST, K_BAD, K_NORMAL, K_GOOD, K_EV_STANCE, K_EV_PLAY, K_EV_FACE, K_EV_WALK, F_CYCLE, F_NOARMS, K_SKA, K_SKIN, K_TEX, K_SKE, K_QB;
+static uint32_t K_WIN, K_LOSE, K_WIN_SM, K_LOSE_SM, K_INTRO_SM, K_BTL1, K_BTL2, K_ATK_ANIM, K_RESP_ANIM, K_NONE;
 static void keys_init(void) {
     if (K_IDLE) return;
+    K_WIN = gh3_qbkey("win"); K_LOSE = gh3_qbkey("lose"); K_WIN_SM = gh3_qbkey("win_smstg"); K_LOSE_SM = gh3_qbkey("lose_smstg"); K_INTRO_SM = gh3_qbkey("intro_smstg");
+    K_BTL1 = gh3_qbkey("player1_battlemode_anims"); K_BTL2 = gh3_qbkey("player2_battlemode_anims"); K_ATK_ANIM = gh3_qbkey("attack_anim"); K_RESP_ANIM = gh3_qbkey("response_anim"); K_NONE = gh3_qbkey("none");
     K_IDLE = gh3_qbkey("idle"); K_INTRO = gh3_qbkey("intro"); K_STARPOWER = gh3_qbkey("starpower"); K_TRANS = gh3_qbkey("transitions"); K_FACIAL = gh3_qbkey("facial_anims"); K_WALKING = gh3_qbkey("walking"); K_STANCE_A = gh3_qbkey("stance_a");
     K_SLOW = gh3_qbkey("slow"); K_MED = gh3_qbkey("med"); K_FAST = gh3_qbkey("fast"); K_BAD = gh3_qbkey("bad"); K_NORMAL = gh3_qbkey("normal"); K_GOOD = gh3_qbkey("good");
     K_EV_STANCE = gh3_qbkey("band_changestance"); K_EV_PLAY = gh3_qbkey("band_playanim"); K_EV_FACE = gh3_qbkey("band_playfacialanim"); K_EV_WALK = gh3_qbkey("band_walktonode");
@@ -86,7 +89,7 @@ static int lib_load(void) {
         if (qb_keyof(qb_get(qb_get(st, "musician_instrument"), "desc_id"), &id)) { const qbv *d = desc_of(mi, id); if (d) basename_of(qb_str(qb_get(d, "pak")), p.inst, sizeof p.inst); }
         if (p.role < 0 || !p.name[0]) continue;
         L.pf = realloc(L.pf, (L.npf + 1) * sizeof *L.pf); L.pf[L.npf++] = p; KEEP(p.set); KEEP(p.fingers); KEEP(p.frets); }
-    KEEP(gh3_qbkey("drummer_anims")); KEEP(gh3_qbkey("cymbal_anims"));
+    KEEP(gh3_qbkey("drummer_anims")); KEEP(gh3_qbkey("cymbal_anims")); KEEP(K_BTL1); KEEP(K_BTL2);   /* who plays what when a battle's attack lands */
     if (A.lib) for (int s = 0; s < A.lib->nsongs; s++) if (A.lib->songs[s].isBoss) KEEP(A.lib->songs[s].bossKey);
 #undef KEEP
 #undef FINDSEC
@@ -415,10 +418,13 @@ void r3d_band_select(void) {
     if (!lib_load()) return; files_open(); if (!F.hasGlobal) { SDL_Log("band: no ZONES/global.pak + global.pab: no skeletons"); return; }
     const profile *want[BAND_ROLES] = { NULL }; want[BAND_GUITARIST] = profile_named(guitarist_name(), BAND_GUITARIST); if (!want[BAND_GUITARIST]) want[BAND_GUITARIST] = profile_named("Axel", -1);
     for (int r = 1; r < BAND_ROLES; r++) for (int i = 0; i < L.npf && !want[r]; i++) if (L.pf[i].role == r) want[r] = &L.pf[i];
+    if (SET.bretMichaels) { static int said; const profile *b = profile_named("Singer_Bret", BAND_VOCALIST); char fn[96] = "";   /* the cheat (Cheat_BretMichaels: "singer_bret" for the singer) */
+        if (b) snprintf(fn, sizeof fn, "%s.pak.xen", b->body); if (b && app_data_path("pak", fn)) want[BAND_VOCALIST] = b; else if (!said++) SDL_Log("band: Bret Michaels: no PAK/%s in this copy of the game, the usual singer sings", b ? fn : "(Singer_Bret profile)"); }
     int si = A.selSong; const char *song = "";
     if (A.lib && si >= 0 && si < A.lib->nsongs) { song = A.lib->songs[si].name;
         if (battle_song(si)) { const qbv *bp = sec(A.lib->songs[si].bossKey); uint32_t ck; const profile *b = qb_keyof(qb_get(bp, "character_profile"), &ck) ? profile_key(ck) : NULL; if (b) want[BAND_BASSIST] = b; } }   /* the boss in the bassist's place */
-    for (int r = 0; r < BAND_ROLES; r++) { member *m = &M[r]; if (m->on && m->pf == want[r]) continue; member_free(m); if (want[r] && member_load(m, r, want[r])) member_free(m); }
+    for (int r = 0; r < BAND_ROLES; r++) { member *m = &M[r]; if (m->on && m->pf == want[r]) continue; member_free(m); if (want[r] && member_load(m, r, want[r])) member_free(m);
+        if (!m->on && r == BAND_VOCALIST && want[r] && strcasecmp(want[r]->name, "Singer")) { const profile *s = profile_named("Singer", BAND_VOCALIST); if (s && !member_load(m, r, s)) continue; member_free(m); } }   /* (a singer that would not load: the usual one) */
     song_load(song); place_all();
     memset(&ST, 0, sizeof ST); for (int r = 0; r < BAND_ROLES; r++) if (M[r].on) { ST.members++; snprintf(ST.who[r], sizeof ST.who[r], "%s", M[r].pf->name); ST.vram += M[r].vram; ST.animBytes += M[r].animBytes; ST.clips += M[r].nclips; ST.verts += M[r].body.verts + M[r].inst.verts; }
     ST.pal = G.pal; ST.loadMs = SDL_GetTicks() - t0;
@@ -471,8 +477,11 @@ static void member_reset(member *m, int mood, int speed) {
     for (int i = 0; i < m->nacts; ) if (m->acts[i].slot == S_HIT) m->acts[i] = m->acts[--m->nacts]; else i++;
     if (cur_body(m)) next(m, mood, speed);
 }
+static int small_stage(void) {   /* the venues the scripts give the _smstg intro / win / lose stances (a list in their small-venue check) */
+    static const char *SM[5] = { "z_party", "z_dive", "z_video", "z_prison", "z_hell" }; for (int i = 0; i < 5; i++) if (!strcmp(Z.zone, SM[i])) return 1; return 0; }
+static uint32_t stage_stance(const member *m, uint32_t big, uint32_t sm) { return m->role != BAND_DRUMMER && small_stage() && set_of(m, sm) ? sm : big; }   /* (the drummer has only the big ones) */
 static void member_intro(member *m, int mood, int speed) {
-    uint32_t l[16], ok[16]; int n = anim_keys(qsub(set_of(m, K_INTRO), K_IDLE), mood, speed, l, 16), k = 0; for (int i = 0; i < n; i++) if (clip_of(m, l[i])) ok[k++] = l[i];
+    uint32_t l[16], ok[16]; int n = anim_keys(qsub(set_of(m, stage_stance(m, K_INTRO, K_INTRO_SM)), K_IDLE), mood, speed, l, 16), k = 0; for (int i = 0; i < n; i++) if (clip_of(m, l[i])) ok[k++] = l[i];
     if (!k) return; const r3d_clip *c = clip_of(m, ok[(m->introN++) % k]); if (c) { begin(m, c, 0.2f, 0, speed); m->played = K_INTRO; }
 }
 static float wrap_angle(float a) { a = fmodf(a + (float)M_PI, (float)(2 * M_PI)); if (a < 0) a += (float)(2 * M_PI); return a - (float)M_PI; }
@@ -496,6 +505,17 @@ static void member_hit(member *m, int note, int struck) {
     if (note < 0 || note > 127 || !m->drum[note]) return; const r3d_clip *c = clip_of(m, m->drum[note]); if (!c) return;
     float t0 = struck ? 0 : fmaxf(0, c->land - HIT_LEAD); act_add(m, c, S_HIT, 0, 0, t0);
     if (dbg() >= 2) printf("band: hit %d clip %08x land %.3f dur %.2f\n", note, c->key, c->land, c->dur);   /* struck: a cymbal's own swing, which begins as it is hit */
+}
+/* the song's end: the win or lose stance's idle at once (the scripts' anim_struct { stance, anim = idle, blendduration = 0 }:
+ * a cut hides it there; here a short fade), round robin from then on; the guitarist and the bassist take the _smstg ones in
+ * the small venues, the drummer and the singer never */
+static void member_finale(member *m, int win, int mood, int speed) {
+    uint32_t st = m->role == BAND_GUITARIST || m->role == BAND_BASSIST ? stage_stance(m, win ? K_WIN : K_LOSE, win ? K_WIN_SM : K_LOSE_SM) : win ? K_WIN : K_LOSE;
+    m->walk.go = 0; m->walk.v = 0; m->noArms = 0; m->spWas = 0;
+    for (int i = 0; i < m->nacts; ) { int s = m->acts[i].slot; if (s == S_HIT) m->acts[i] = m->acts[--m->nacts]; else { if (s == S_FACE) { m->acts[i].wTo = 0; m->acts[i].rate = 4; } i++; } }   /* the sticks stop, the words too */
+    if (!set_of(m, st)) return; m->stance = st; m->cycle = K_IDLE;
+    uint32_t l[16]; int n = keys_for(m, K_IDLE, mood, speed, l); const r3d_clip *c = n ? clip_of(m, l[(m->n++) % n]) : NULL; if (!c) return;
+    begin(m, c, 0.25f, 0, speed); m->curIdle = 1; m->played = K_IDLE;
 }
 typedef struct { int speed, mood, frets, note, sp; } bandstate;
 static void member_tick(member *m, float dt, const bandstate *S) {
@@ -564,10 +584,22 @@ static int visible(const float *vp, const float c[3], float rad) {
 }
 
 /* ------------------------------------------------------------------ every frame */
-static struct { double lastPerf, lastMs; int pPerf, pDrum, pSwing, pAnim; const void *song; float bpm; double lastBeat; int hasBeat; double testMs; int test; char testSong[64]; } T;
+static struct { double lastPerf, lastMs; int pPerf, pDrum, pSwing, pAnim; const void *song; float bpm; double lastBeat; int hasBeat; double testMs; int test, testFin; char testSong[64]; int mood, speed; } T;
+static struct { int how, battle; } FIN;   /* the song's end: 1 won, 2 lost (battle: the boss in the bassist's place takes the other stance) */
 void r3d_band_test_clock(double ms, const char *song) { T.test = song && *song; T.testMs = ms; if (song) snprintf(T.testSong, sizeof T.testSong, "%s", song); }
+static void finale(int how) {
+    FIN.how = how; FIN.battle = M[BAND_BASSIST].on && M[BAND_BASSIST].pf->role == BAND_GUITARIST;   /* a guitarist's profile where the bassist stands: the boss */
+    if (dbg()) printf("band: the song is over: %s%s, %s venue\n", how == 1 ? "won" : "lost", FIN.battle ? " (a battle)" : "", small_stage() ? "a small" : "a big");
+    for (int r = 0; r < BAND_ROLES; r++) if (M[r].on) member_finale(&M[r], r == BAND_BASSIST && FIN.battle ? how != 1 : how == 1, T.mood, T.speed);
+}
+void r3d_band_test_finale(int how) { T.testFin = how; if (how) finale(how); }
 static void update(double perf) {
-    int live = A.screen == SC_PLAY && A.S.loaded && A.S.song; double ms; float dt;
+    int live = (A.screen == SC_PLAY || A.screen == SC_PAUSE) && A.S.loaded && A.S.song; double ms; float dt;   /* (paused: the song's clock stands, so does the band) */
+    if (FIN.how) { int keep = T.test ? T.testFin != 0 : live ? A.S.run.finished || A.S.run.failed : A.screen == SC_RESULTS || A.screen == SC_BATTLE;
+        if (!keep) { FIN.how = 0; T.song = &FIN; }   /* a new song or the menus: the reset below */
+        else { float d = (float)((perf - T.lastPerf) / 1000); T.lastPerf = perf; if (d < 0 || d > 0.25f) d = d < 0 ? 0 : 0.25f;
+            bandstate S; memset(&S, 0, sizeof S); S.mood = T.mood; S.speed = T.speed; S.note = -1; for (int r = 0; r < BAND_ROLES; r++) if (M[r].on) member_tick(&M[r], d, &S); return; } }
+    else if (live && (A.S.run.finished || A.S.run.failed) && !T.test) { T.lastPerf = perf; finale(BTL.on ? (BTL.won ? 1 : 2) : A.S.run.failed ? 2 : 1); return; }   /* (a battle is won only by making the boss fail) */
     if (live) { ms = A.S.run.now; dt = (float)((ms - T.lastMs) / 1000); } else if (T.test) { ms = T.testMs; dt = (float)((ms - T.lastMs) / 1000); } else { ms = 0; dt = (float)((perf - T.lastPerf) / 1000); }
     if (dt < 0 || dt > 0.25f) dt = dt < 0 ? 0 : 0.25f; T.lastPerf = perf;
     const void *song = live ? (const void *)A.S.song : T.test ? (const void *)T.testSong : NULL; int cues = song && SG.loaded && ((live && !strcmp(SG.name, A.S.song->name)) || (T.test && !strcmp(SG.name, T.testSong)));
@@ -580,6 +612,7 @@ static void update(double perf) {
         const gh3_chart *ch = &A.S.chart; int lo = 0, hi = ch->nnotes - 1, k = -1; while (lo <= hi) { int mid = (lo + hi) >> 1; if (ch->notes[mid].t <= ms) { k = mid; lo = mid + 1; } else hi = mid - 1; }
         if (k >= 0) { S.note = k; if (ms - ch->notes[k].t <= fmax(ch->notes[k].sus, 450)) S.frets = ch->notes[k].mask; } }
     else if (T.test) { S.note = (int)(ms / 240); S.frets = 1 << ((int)(ms / 960) % 3); }
+    T.mood = S.mood; T.speed = S.speed;
     /* a new song (or the clock wound back): everyone home, the intro move */
     if (song != T.song || ms < T.lastMs - 1500) { T.song = song; T.pPerf = T.pDrum = T.pSwing = T.pAnim = 0; for (int r = 0; r < BAND_ROLES; r++) if (M[r].on) { member_reset(&M[r], S.mood, S.speed); if (song && ms < 4000) member_intro(&M[r], S.mood, S.speed); } }
     T.lastMs = ms;
@@ -590,6 +623,13 @@ static void update(double perf) {
         while (T.pSwing < SG.ndr && SG.drums[T.pSwing][0] <= ms) { if (dr && SG.drums[T.pSwing][1] >= 67 && ms - SG.drums[T.pSwing][0] < 300) member_hit(dr, SG.drums[T.pSwing][1], 1); T.pSwing++; }
         while (T.pAnim < SG.nan && SG.an[T.pAnim][0] <= ms) { int nt = SG.an[T.pAnim][1]; if (nt >= 118 && nt <= 127 && M[BAND_GUITARIST].on) layer(&M[BAND_GUITARIST], S_FRET, M[BAND_GUITARIST].fret[nt], 0.18f); else if (nt >= 101 && nt <= 110 && M[BAND_BASSIST].on) layer(&M[BAND_BASSIST], S_FRET, M[BAND_BASSIST].fret[nt], 0.18f); T.pAnim++; } }
     for (int r = 0; r < BAND_ROLES; r++) if (M[r].on) member_tick(&M[r], dt, &S);
+}
+void r3d_band_attack(int from, uint32_t pu) {   /* the battle scripts' attack / response anim scripts: the kind from the side's table, played once (no_wait) */
+    if (!G.ready || FIN.how || !pu) return; keys_init();
+    for (int s = 0; s < 2; s++) { member *m = &M[s ? BAND_BASSIST : BAND_GUITARIST]; uint32_t kind = 0; if (!m->on || m->walk.go) continue;
+        if (!qb_keyof(qsub(qsub(sec(s ? K_BTL2 : K_BTL1), pu), s == from ? K_ATK_ANIM : K_RESP_ANIM), &kind) || !kind || kind == K_NONE) continue;
+        int ok = play(m, kind, T.mood, T.speed); if (ok) { m->cycle = K_IDLE; m->noArms = 0; }
+        if (dbg()) printf("band: battle: %s %s %08x (%s): %s\n", m->pf->name, s == from ? "attacks with" : "takes", pu, s == from ? "attack_anim" : "response_anim", ok ? "playing" : "no clip in this stance"); }
 }
 static void mat4_mul(const float *a, const float *b, float *o) { for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) { float s = 0; for (int k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } }
 static void draw_model(const member *m, const gmodel *g, int add) {
@@ -624,7 +664,7 @@ int r3d_band_draw(const float *view, const float *proj, double perf, int sp, flo
         if (pass == 0) { GL(glDisable)(GL_BLEND); GL(glDepthMask)(GL_TRUE); } else { GL(glEnable)(GL_BLEND); GL(glBlendFunc)(GL_ONE, GL_ONE); GL(glDepthMask)(GL_FALSE); }
         for (int r = 0; r < BAND_ROLES; r++) { if (!vis[r]) continue; member *m = &M[r];
             GL(glUniform3f)(G.uLdir, m->ldir[0], m->ldir[1], m->ldir[2]); GL(glUniform3f)(G.uLcol, m->lcol[0], m->lcol[1], m->lcol[2]); GL(glUniform3f)(G.uAmb, m->amb[0], m->amb[1], m->amb[2]);
-            draw_model(m, &m->body, pass); draw_model(m, &m->inst, pass); } }
+            draw_model(m, &m->body, pass); if (!(SET.airGuitar && (r == BAND_GUITARIST || r == BAND_BASSIST))) draw_model(m, &m->inst, pass); } }   /* Air Guitar: the scripts dress both with musician_instrument none (the boss too) */
     GL(glDisable)(GL_BLEND); GL(glDepthMask)(GL_TRUE);
     GL(glDisableVertexAttribArray)(G.aPos); GL(glDisableVertexAttribArray)(G.aNrm); GL(glDisableVertexAttribArray)(G.aUv); GL(glDisableVertexAttribArray)(G.aIdx); GL(glDisableVertexAttribArray)(G.aW);
     GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0);

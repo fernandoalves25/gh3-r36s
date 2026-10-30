@@ -351,3 +351,19 @@ Step 3: bassist + drummer (hits from `_drums_notes`) + singer (jaw from song lip
 - Unnamed hash keys: stance 0x24e8bc01 (Johnny's default), 0xdaee973d, 0x19fffcb1; kinds 0x4729e84d etc. (names not recovered; just treat them as opaque keys, they are looked up by key).
 - `.rag` (ragdoll, 77 KB each) and global `.skin`/`.mdl` are not used for the band by the browser port.
 - Reference scripts (Python, tested): tools/research/gh3.py (crc+pak), skin.py (skin parse), ska.py (ska+ske), tex.py.
+
+## 12. Song end, battle reactions, the band cheats (read from qb.pak's scripts; done in r3d_band.c)
+- `play_win_anims` / `play_lose_anims`: guitarist and bassist get `{ stance = win|lose, anim = idle, blendduration = 0 }`, the
+  `win_smstg` / `lose_smstg` stances in the small venues (the scripts' small-venue check: z_party, z_dive, z_video, z_prison, z_hell;
+  z_artdeco only under a condition not decoded); drummer and vocalist always plain `win` / `lose`. In a boss battle the guitarist
+  takes win and the boss (bassist's place) lose, or the other way round. `play_intro_anims` the same way with `intro` /
+  `intro_smstg` (drummer: `intro`), then `stance_a`. 0x19fffcb1 = `intro_walk`.
+- Battle anims: `player1_battlemode_anims` and `player2_battlemode_anims`, keyed by power-up name (lightning, difficultyup,
+  doublenotes, powerupsteal, brokenstring, whammyattack, 0x24ede700 = the lefty one), each `{ attack_anim, response_anim }`.
+  Player 1: attack_anim `attack`, response_anim 0x879394b9; player 2: attack_anim 0x95790fef, response_anim `react` (the same for
+  every attack; no Death Drain entry, so it has no anim). The scripts send the attacker its attack_anim and the other its
+  response_anim (`no_wait`, auto arms left on). All guitarist and boss sets have the four kinds (Slash's stance_b lacks `attack`).
+- Cheats: Air Guitar sets `musician_instrument = none` in the script that dresses the player characters (guitarist and bassist,
+  the boss included). Bret Michaels: the singer is "singer_bret" (profile Singer_Bret: skeleton 0x2825681c, which is in
+  global.pak, body PAK/Singer_Brett.pak + _anims, which are NOT in this copy of the game). Performance Mode: the script that
+  raises the highway at the intro is not spawned, the note streak / star power HUD scripts return at once.

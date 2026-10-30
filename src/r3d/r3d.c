@@ -16,6 +16,7 @@
 #include "r3d_band.h"
 #include "app.h"
 #include "settings.h"
+#include "battle.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -707,23 +708,36 @@ static void look_at(float *m, const float e[3], const float at[3]) {
     m[0] = s[0]; m[4] = s[1]; m[8] = s[2]; m[12] = -(s[0] * e[0] + s[1] * e[1] + s[2] * e[2]); m[1] = u[0]; m[5] = u[1]; m[9] = u[2]; m[13] = -(u[0] * e[0] + u[1] * e[1] + u[2] * e[2]);
     m[2] = -f[0]; m[6] = -f[1]; m[10] = -f[2]; m[14] = f[0] * e[0] + f[1] * e[1] + f[2] * e[2]; m[3] = m[7] = m[11] = 0; m[15] = 1;
 }
+static void band_shots(SDL_Renderer *ren, const char *zone, const char *outdir, int W, int H, uint8_t *px, double ms, const char *tag);
 static void band_test_frames(SDL_Renderer *ren, const char *zone, const char *outdir, int W, int H, uint8_t *px) {
     /* the song's clock from 0, a frame every 1/60 s; at two moments, a picture of each member from the front and one of the whole band */
-    static const double AT[3] = { 6000, 21000, 47000 }; static const char *RN[BAND_ROLES] = { "guitarist", "bassist", "drummer", "vocalist" }; double ms = 0, poseMs = 0, drawMs = 0; int nf = 0, maxDraws = 0, maxTris = 0;
+    static const double AT[3] = { 6000, 21000, 47000 }; double ms = 0, poseMs = 0, drawMs = 0; int nf = 0, maxDraws = 0, maxTris = 0; char tag[16];
     for (int k = 0; k < 3; k++) {
         for (; ms < AT[k]; ms += 1000.0 / 60) { r3d_band_test_clock(ms, r3d_test_song); camOver.on = 0; SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); GL(glFinish)(); const r3d_bandstats *b = r3d_band_stats(); poseMs += b->poseMs; drawMs += b->drawMs; nf++; if (b->draws > maxDraws) { maxDraws = b->draws; maxTris = b->tris; } }
-        float c[3] = { 0, 0, 0 }, fwd[3] = { 0, 0, 0 }; int n = 0;
+        snprintf(tag, sizeof tag, "%d", k); band_shots(ren, zone, outdir, W, H, px, ms, tag); }
+    printf("band over %d frames: %.3f ms/frame animating + skinning matrices, %.3f ms/frame submitting (host CPU); up to %d draws, %d triangles a frame\n", nf, poseMs / nf, drawMs / nf, maxDraws, maxTris);
+    /* a battle (the boss where the bassist stands): an attack each way, as battle.c sends them; then the song's end, won and lost */
+    float p[3];
+    if (A.lib && A.selSong >= 0 && battle_song(A.selSong) && r3d_band_where(BAND_BASSIST, p, NULL)) for (int side = 0; side < 2; side++) {
+        r3d_band_attack(side, gh3_qbkey("lightning")); double until = ms + 900; for (; ms < until; ms += 1000.0 / 60) { r3d_band_test_clock(ms, r3d_test_song); camOver.on = 0; SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); }
+        band_shots(ren, zone, outdir, W, H, px, ms, side ? "attack_p2" : "attack_p1"); }
+    for (int how = 1; how <= 2; how++) { r3d_band_test_finale(how); double until = ms + 2500;
+        for (; ms < until; ms += 1000.0 / 60) { r3d_band_test_clock(ms, r3d_test_song); camOver.on = 0; SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); }
+        band_shots(ren, zone, outdir, W, H, px, ms, how == 1 ? "win" : "lose"); r3d_band_test_finale(0); }
+}
+static void band_shots(SDL_Renderer *ren, const char *zone, const char *outdir, int W, int H, uint8_t *px, double ms, const char *tag) {
+    static const char *RN[BAND_ROLES] = { "guitarist", "bassist", "drummer", "vocalist" };
+    {   float c[3] = { 0, 0, 0 }, fwd[3] = { 0, 0, 0 }; int n = 0;
         for (int r = 0; r <= BAND_ROLES; r++) { float p[3], yaw; char path[96];
             if (r < BAND_ROLES) { if (!r3d_band_where(r, p, &yaw)) continue; c[0] += p[0]; c[1] += p[1]; c[2] += p[2]; fwd[0] += sinf(yaw); fwd[2] += cosf(yaw); n++;
                 float d = r == BAND_DRUMMER ? 3.6f : 2.6f, e[3] = { p[0] + sinf(yaw) * d, p[1] + 1.35f, p[2] + cosf(yaw) * d }, at[3] = { p[0], p[1] + 1.0f, p[2] }; look_at(camOver.view, e, at); camOver.fov = 50;
-                snprintf(path, sizeof path, "%s_band_%s_%d", zone, RN[r], k); }
+                snprintf(path, sizeof path, "%s_band_%s_%s", zone, RN[r], tag); }
             else { if (!n) break; for (int i = 0; i < 3; i++) c[i] /= n; float L = sqrtf(fwd[0] * fwd[0] + fwd[2] * fwd[2]); if (L < 1e-3f) { fwd[2] = 1; L = 1; } float e[3] = { c[0] + fwd[0] / L * 7.5f, c[1] + 2.4f, c[2] + fwd[2] / L * 7.5f }, at[3] = { c[0], c[1] + 1.0f, c[2] };
-                look_at(camOver.view, e, at); camOver.fov = 72; snprintf(path, sizeof path, "%s_band_all_%d", zone, k); }
+                look_at(camOver.view, e, at); camOver.fov = 72; snprintf(path, sizeof path, "%s_band_all_%s", zone, tag); }
             camOver.on = 1; camOver.seq++; SDL_SetRenderDrawColor(ren, 18, 16, 24, 255); SDL_RenderClear(ren); draw(ms, 0, 0.5f); R.flush(ren); GL(glFinish)();
             save_frame(outdir, path, W, H, px);
             const r3d_bandstats *b = r3d_band_stats(); printf("  band %s at %.1f s: %d draws, %d triangles -> %s/%s.bmp\n", r < BAND_ROLES ? RN[r] : "all", ms / 1000, b->draws, b->tris, outdir && *outdir ? outdir : ".", path); } }
     camOver.on = 0;
-    printf("band over %d frames: %.3f ms/frame animating + skinning matrices, %.3f ms/frame submitting (host CPU); up to %d draws, %d triangles a frame\n", nf, poseMs / nf, drawMs / nf, maxDraws, maxTris);
 }
 int r3d_test(const char *zone, const char *outdir, int W, int H) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }

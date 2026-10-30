@@ -9,6 +9,9 @@
 #include <string.h>
 #include <stddef.h>
 #include <math.h>
+#ifdef GH3_3D
+#include "r3d/r3d_band.h"   /* the boss and the guitarist react to the attacks (their battlemode anims) */
+#endif
 
 battle_t BTL;
 static int introSkip, legendShown, verbose, nAttacks, nAwards;
@@ -95,6 +98,9 @@ static void hit(bside_t *v, int pi, double t, double perf, bside_t *a, double dr
     else if (id == PU_STEAL) { if (v->ncards && a) { a->cards[a->ncards++] = v->cards[--v->ncards]; if (a->ncards > BTL.max) { memmove(a->cards, a->cards + 1, (a->ncards - 1) * sizeof a->cards[0]); a->ncards--; } } }
     else if (id == PU_DEATH) { v->death = 1; v->deathFrom = t; v->deathUntil = t + drain; }
     sfx(id >= 0 && id < PU_KINDS ? SFX_ATK_LIGHTNING + id : SFX_STAR_ON);   /* GH_SFX_BattleMode_<attack> */
+#ifdef GH3_3D
+    r3d_band_attack(a ? a->side : !v->side, p->key);   /* the attacker's attack_anim, the other's response_anim */
+#endif
     if (id == PU_LIGHTNING || id == PU_DIFFUP || id == PU_DOUBLE || id == PU_LEFTY) addfx(v, 0, t + drain); else if (id == PU_STRING) addfx(v, 1, 1e18);   /* GH_Guitar_Battle_DSP_Effects: what is heard on the victim's guitar while it lasts */
     alert(label, v->side, 0, perf, id == PU_DEATH ? RGB(255, 90, 60) : RGB(255, 255, 255)); nAttacks++;
     if (verbose) printf("  %6.0f ms  %-20s on %s (meters %.2f / %.2f)\n", t, label, v->cpu ? BTL.boss->name : "the player", BTL.me.r->health, BTL.cpu.r->health);

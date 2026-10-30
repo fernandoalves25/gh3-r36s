@@ -361,7 +361,7 @@ static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = 
 void screens_draw(double now) {
     switch (A.screen) { case SC_TITLE: draw_title(now); break; case SC_MAIN: draw_main(now); break; case SC_TRAINING: draw_training(now); break; case SC_TOPROCK: draw_toprock(now); break;
         case SC_SETLIST: draw_setlist(now); break; case SC_SETUP: draw_setup(now); break; case SC_OPTIONS: draw_options(now); break; case SC_CONTROLS: draw_controls(now); break;
-        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CHEATS: cheats_draw(now); break; case SC_TUTORIAL: tutorial_frame(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; case SC_BATTLE: battle_screen_draw(now); break; case SC_LOADING: loading_draw(now); break; default: draw_error(now); }
+        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CHEATS: cheats_draw(now); break; case SC_TUTORIAL: tutorial_frame(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: if (A.outroUntil > now) { if (render_venue(now)) break; A.outroUntil = 0; A.resultsAt = now; } draw_results(now); break;   /* (gh3-3d: the song's end on the stage first; no venue to show, none) */ case SC_BATTLE: battle_screen_draw(now); break; case SC_LOADING: loading_draw(now); break; default: draw_error(now); }
     draw_note(now);
 }
 
@@ -445,7 +445,8 @@ void screens_event(int in, double now) {
         else if (in == IN_OK) { audio_sfx(SFX_OK); if (A.pauseRow == 0) app_resume_play(); else if (A.pauseRow == 1) app_begin_song(); else if (A.pauseRow == 2) go_options(SC_PAUSE); else { app_session_free(); app_refresh_career(0); to_setlist(now); } }
         else if (in == IN_BACK) app_resume_play();
     } else if (A.screen == SC_RESULTS) {
-        if (in == IN_LEFT || in == IN_RIGHT) { A.resRow = !A.resRow; audio_sfx(SFX_MOVE); }
+        if (A.outroUntil > now) { if (in == IN_OK || in == IN_BACK) { A.outroUntil = 0; A.resultsAt = now; } }   /* the song's end on the stage: a button skips it */
+        else if (in == IN_LEFT || in == IN_RIGHT) { A.resRow = !A.resRow; audio_sfx(SFX_MOVE); }
         else if (in == IN_OK && A.resRow == 1 && store_encore_offer() >= 0) { int enc = store_encore_offer(); app_session_free(); A.selSong = enc; A.practiceSec = A.practiceEnd = 0;   /* sent to the encore: its setup, the chant, the song */
             for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind && A.rows[i].idx == enc && A.rows[i].tier == A.selTier) A.cursor = i;
             if (app_prepare_song(enc) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; encore_begin(now); } }
