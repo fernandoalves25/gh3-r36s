@@ -27,6 +27,7 @@
 #include "store.h"
 #include "charsel.h"
 #include "movie.h"
+#include "overlay.h"
 #include "battle.h"
 #include "cheats.h"
 #include "tutorial.h"
@@ -516,7 +517,7 @@ static void save_named(const char *name) {
 }
 static void headless_init(void) { gfx_init(NULL, cfg.W, cfg.H); art_init(cfg.H >= 400 ? cfg.H / 240 : 1); fx_init(art_px()); render_init(cfg.W, cfg.H); A.W = cfg.W; A.H = cfg.H; A.lib = &lib; A.libOk = 1; app_refresh_career(0); screens_build_rows(); }
 static void screens_mode(void) { /* the menus, drawn headlessly for a look */
-    headless_init(); A.selDiff = 1; app_refresh_career(0);
+    headless_init(); A.selDiff = 1; app_refresh_career(0); overlay_sync(1);   /* (the results' flames: the frame due, decoded here) */
     A.cursor = 0; while (A.cursor < A.nrows && A.rows[A.cursor].kind == 0) A.cursor++; A.cursor += 2; A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier;
     A.screen = SC_TITLE; A.titleAt = -400; gfx_begin(); screens_draw(0); gfx_end(); save_named("title");
     A.screen = SC_MAIN; A.mainRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("main");
@@ -536,7 +537,9 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
       { int c1 = A.cursor; screens_event(IN_R, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_downloads_quick"); A.mode = MODE_CAREER;
         screens_event(IN_L, 0); A.cursor = c1; } A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;
       store_open(0); store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store"); store_event(IN_OK, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_buy"); store_event(IN_BACK, 0);
-      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos"); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); screens_set_tab(0); A.cursor = c0; A.scroll = 0;
+      store_event(IN_RIGHT, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_videos");
+      store_event(IN_RIGHT, 0); store_event(IN_RIGHT, 0); for (int k = 0; k < 20; k++) store_event(IN_DOWN, 0); gfx_begin(); screens_draw(0); gfx_end(); save_named("store_guitars_setlist");   /* the guitars from the set list, scrolled */
+      store_event(IN_LEFT, 0); store_event(IN_LEFT, 0); store_event(IN_BACK, 0); screens_set_tab(0); A.cursor = c0; A.scroll = 0;
       charsel_screens(save_named); }   /* the character hub, its lists, the store's rockers / guitars / finishes */
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
@@ -570,7 +573,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     for (double rt = 0; rt <= 1.06; rt += 1.0 / 60) { A.resultsAt = perf - rt * 1000; gfx_begin(); screens_draw(perf); gfx_end(); } save_named("results_reveal");   /* the third star landing, its sparks flying */
     A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
     { char was[24]; snprintf(was, sizeof was, "%s", SET.rocker); snprintf(SET.rocker, sizeof SET.rocker, "Midori"); gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rocker"); snprintf(SET.rocker, sizeof SET.rocker, "%s", was); }   /* another rocker on the cover */
-    A.resultsAt = perf - 500; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rock");
+    A.resultsAt = perf - 500; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rock");   /* (over Fret_Flames) */
     A.resultsAt = perf - 1550; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_burst"); A.resultsAt = perf - 3000;   /* and bursting apart */   /* the letters shaking over the landing page */
     { gh3_run *r = &A.S.run; int mode = A.mode, row = A.resRow, rec = A.newRecord;   /* in memory only: some notes missed, then practice, a new record, a failed run */
       for (int i = r->nnotes / 2; i < r->nnotes; i += 5) if (r->notes[i].hit) { r->notes[i].hit = 0; r->hits--; } A.resultPct = r->nnotes ? (int)(100.0 * r->hits / r->nnotes + 0.5) : 0;
@@ -581,6 +584,8 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
       A.mode = MODE_PRACTICE; A.resMoreY = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_more_practice"); A.mode = mode; screens_event(IN_BACK, perf); A.resRow = row;
       A.mode = MODE_PRACTICE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_practice"); A.mode = mode;
       r->failed = 1; r->now = r->endMs * 0.43; A.resRow = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_failed"); r->failed = 0; A.resRow = row;
+      { int pm = SET.perfMode; SET.perfMode = 1; r->autoPlay = 1; A.mode = MODE_QUICK; A.newRecord = 0;   /* (no record for it) */ gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_perf");   /* Performance Mode (the band played it): the page as the game shows it */
+        A.mode = MODE_CAREER; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_perf_career"); A.mode = mode; r->autoPlay = 0; SET.perfMode = pm; A.newRecord = rec; }
       if (lib.battle.nbosses) { int on = BTL.on, won = BTL.won, mf = BTL.me.fired, cf = BTL.cpu.fired; const gh3_boss *bs = BTL.boss; BTL.on = 1; BTL.won = 1; BTL.boss = &lib.battle.bosses[0]; BTL.me.fired = 5; BTL.cpu.fired = 3;   /* a battle won, then lost */
         gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_battle"); BTL.won = 0; r->failed = 1; A.resRow = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_battle_lost");
         r->failed = 0; A.resRow = row; BTL.on = on; BTL.won = won; BTL.me.fired = mf; BTL.cpu.fired = cf; BTL.boss = bs; } }

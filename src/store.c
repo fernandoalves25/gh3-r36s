@@ -2,8 +2,10 @@
  * - a Career result pays by the stars it earned and the stars that song was already paid for on that difficulty (the
  *   game's table, newstars x oldstars: Easy 3/4/5 stars pay $75/$175/$300, Medium $150/$350/$600, Hard $300/$700/$1200,
  *   Expert $450/$1050/$1800; a later 5 over a 3 pays the difference, on Expert $1350). Under 3 stars, or a repeat that
- *   does not beat the stars already paid, pays nothing; Quickplay, Practice, No Fail and the bot pay nothing. The table
- *   has no extra pay for encores or battles: they pay by their stars like any other song.
+ *   does not beat the stars already paid, pays nothing; Quickplay, Practice, No Fail and the bot pay nothing. Encores
+ *   pay by their stars like any other song. A boss battle has no stars, but Progression_SongWon sets 5 for a boss beaten
+ *   (Progression_IsBossSong) before Progression_AwardCash: the first win pays the 5-star row ($300/$600/$1200/$1800),
+ *   later ones nothing (the devil: once his song is finished, after the battle).
  * - the store sells the bonus songs (store_song_data: $500 each; the one with no price, Through the Fire and Flames,
  *   opens when a career is finished on any difficulty, as in the game) and the four bonus videos (bonus_videos, $1500).
  *   A bonus song is locked in every mode until bought; one with a record (played before the store existed) is owned;
@@ -64,6 +66,7 @@ int store_cash_for(const gh3_library *lib, int d, int ns, int os) {
 }
 int store_result(const gh3_song *s, int d, int stars, int pays) {
     lastGain = 0; if (!pays || !s) return 0;
+    if (s->isBoss) stars = 5;   /* Progression_SongWon: a boss beaten counts as 5 stars (Progression_IsBossSong), paid once from the table */
     paid_t *p = paid_of(s->name, d); int g = store_cash_for(A.lib, d, stars, p->stars); if (stars > p->stars) p->stars = stars;
     cash += g; lastGain = g; save(); return g;
 }
@@ -76,7 +79,7 @@ void store_load(const gh3_library *lib) {
         fclose(f); }
     else {   /* the first time: the career already played pays what it would have earned */
         for (int si = 0; si < lib->nsongs; si++) for (int d = 0; d < 4; d++) { int st = 0;
-            for (int part = 0; part < 2; part++) { const record_t *r = records_get(lib->songs[si].name, d, part); if (r && r->career && r->stars > st) st = r->stars; }
+            for (int part = 0; part < 2; part++) { const record_t *r = records_get(lib->songs[si].name, d, part); if (r && r->career && r->stars > st) st = r->stars; if (r && r->career && lib->songs[si].isBoss) st = 5; }   /* (a battle's record: it was won) */
             if (st >= 3) { cash += store_cash_for(lib, d, st, 0); paid_of(lib->songs[si].name, d)->stars = st; } }
         save(); }
     store_refresh(lib);
@@ -138,7 +141,8 @@ void store_draw(double now) {
       for (int k = 0; k < NCAT; k++) { if (k && !count_of(k)) continue; int w = gfx_text_w(CAT[k], big ? 2 : 1) + (big ? 28 : 18); if (k == cat) ui_panel(x, 64, w, big ? 28 : 22, UI_PANEL_AMBER);
           gfx_text_sh(x + (big ? 14 : 9), big ? 71 : 70, big ? 2 : 1, CAT[k], k == cat ? C_INK : C_MUTED, C_SHADOW); x += w + gap; }
       if (big) gfx_text_right(W - 16, 76, 1, "L1 / R1 ou ← →", C_LINE); }
-    int n = count(), rowH = 24, y0 = 102, vis = (H - 150 - y0) / rowH, *s = &sel[cat];
+    int pH = cat >= 2 ? 140 : 94, py = H - 52 - pH;   /* the item's panel over the hints: the guitars' longest text is 7 lines, and a line under it says where they are chosen */
+    int n = count(), rowH = 24, y0 = 102, vis = (py - 16 - y0) / rowH, *s = &sel[cat];
     if (*s >= n) *s = n ? n - 1 : 0; if (*s < top) top = *s; if (*s >= top + vis) top = *s - vis + 1; if (top < 0) top = 0;
     for (int i = top, y = y0; i < n && i < top + vis; i++, y += rowH) { const char *title, *sub; int price, have, on = i == *s; uint32_t sc;
         item(i, &title, &sub, &price, &have);
@@ -149,8 +153,8 @@ void store_draw(double now) {
         int tw = gfx_text_w(title, 2), rw = gfx_text_w(b, cat || have || price <= 0 ? 1 : 2);
         if (*sub && 34 + tw + 14 + gfx_text_w(sub, 1) < W - 40 - rw) gfx_text(34 + tw + 14, y + 6, 1, sub, on ? C_INK : C_MUTED);
         if (price > 0 && !have) gfx_text_sh_right(W - 22, y + 1, 2, b, sc, C_SHADOW); else gfx_text_sh_right(W - 22, y + 6, 1, b, sc, C_SHADOW); }
-    if (top > 0) gfx_text_center(W / 2, y0 - 9, 1, "↑", C_MUTED); if (top + vis < n) gfx_text_center(W / 2, y0 + vis * rowH - 4, 1, "↓", C_MUTED);
-    int py = H - 146; ui_panel(14, py, W - 28, 94, UI_PANEL_FLAT);
+    if (top > 0) gfx_text_center(W / 2, y0 - 13, 1, "↑", C_MUTED); if (top + vis < n) gfx_text_center(W / 2, y0 + vis * rowH, 1, "↓", C_MUTED);   /* clear of the rows' highlight, above the panel */
+    ui_panel(14, py, W - 28, pH, UI_PANEL_FLAT);
     if (n) { const char *title, *sub, *info, *why; int price, have, tx0 = 26; item_x(*s, &title, &sub, &price, &have, &info, &why, NULL, 0);
         if (cat == 0) { const gh3_song *g = &lib->songs[list[*s]]; snprintf(b, sizeof b, "%s • %s%s%s", g->title, g->artist, *g->year ? " • " : "", g->year); }
         else if (cat >= 2 && *sub) snprintf(b, sizeof b, "%s • %s", title, sub); else snprintf(b, sizeof b, "%s", title);
@@ -158,7 +162,7 @@ void store_draw(double now) {
             if (ph) { gfx_blit(ph, 0, 0, gfx_sprite_w(ph), gfx_sprite_h(ph), 20, py + 5, 84, 84, RGB(255, 255, 255), 1); tx0 = 114; } }
         gfx_text_sh(tx0, py + 8, 1, b, C_AMP, C_SHADOW); gfx_text_box(tx0, py + 26, W - 26 - tx0, 1, why ? why : info && *info ? info : cat ? "" : "Uma das músicas bônus do jogo.", why ? C_BAD : C_MUTED); }
     else gfx_text_box(26, py + 10, W - 52, 1, "Os itens da loja não estão no qb.pak desta cópia do jogo.", C_MUTED);
-    if (cat >= 2) gfx_text_center(W / 2, H - 44, 1, back == SC_CHARSEL ? "B volta à escolha do roqueiro e da guitarra." : "Escolha o roqueiro e a guitarra ao entrar na Carreira ou no Jogo rápido.", C_LINE);
+    if (cat >= 2) { gfx_rect(26, py + pH - 22, W - 52, 1, C_LINE); gfx_text_center(W / 2, py + pH - 17, 1, back == SC_CHARSEL ? "B volta à escolha do roqueiro e da guitarra." : "Escolha o roqueiro e a guitarra ao entrar na Carreira ou no Jogo rápido.", C_MUTED); }   /* inside the panel, clear of the hints */
     { const char *title, *sub; int price = 0, have = 0; if (n) item(*s, &title, &sub, &price, &have);
       static const char *bt[3] = { "A", "← →", "B" }; const char *tx[3] = { have && cat == 1 ? "Assistir" : "Comprar", "Categoria", "Voltar" }; ui_hints(H - 22, W, bt, tx, 3); }
     if (confirm && n) { const char *title, *sub; int price, have; item(*s, &title, &sub, &price, &have);
@@ -244,11 +248,14 @@ int store_selftest(const gh3_library *lib) {
     printf("cash table %s qb.pak:\n", lib->shop.hasCash ? "from" : "NOT in (built-in values)");
     for (int d = 0; d < 4; d++) { printf("  %-6s", GH3_DIFF_NAME[d]); for (int ns = 3; ns <= 5; ns++) for (int os = 0; os < ns; os++) if (os == 0 || os >= 3) printf("  %d<-%d $%d", ns, os, store_cash_for(lib, d, ns, os)); printf("\n"); }
     /* a song on Expert: 3 stars, the same again, then 5, then 4: pays 450, 0, 1350, 0 */
-    gh3_song fake; memset(&fake, 0, sizeof fake); snprintf(fake.name, sizeof fake.name, "__moneytest__"); cash = 0;
-    struct { int d, stars, pays; long want; } C[] = { { 3, 3, 1, 450 }, { 3, 3, 1, 0 }, { 3, 5, 1, 1350 }, { 3, 4, 1, 0 }, { 3, 5, 0, 0 }, { 0, 2, 1, 0 }, { 0, 4, 1, 175 }, { 0, 5, 1, 125 }, { 1, 5, 0, 0 }, { 2, 5, 1, 1200 } };
+    gh3_song fake, boss; memset(&fake, 0, sizeof fake); snprintf(fake.name, sizeof fake.name, "__moneytest__"); boss = fake; snprintf(boss.name, sizeof boss.name, "__moneytest_boss__"); boss.isBoss = 1; cash = 0;
+    /* then a boss battle (no stars: it counts as 5): won on Medium, again, on Expert, a battle lost or out of Career: pays 600, 0, 1800, 0, 0 */
+    struct { int d, stars, pays, boss; long want; } C[] = { { 3, 3, 1, 0, 450 }, { 3, 3, 1, 0, 0 }, { 3, 5, 1, 0, 1350 }, { 3, 4, 1, 0, 0 }, { 3, 5, 0, 0, 0 }, { 0, 2, 1, 0, 0 }, { 0, 4, 1, 0, 175 }, { 0, 5, 1, 0, 125 }, { 1, 5, 0, 0, 0 }, { 2, 5, 1, 0, 1200 },
+        { 1, 0, 1, 1, 600 }, { 1, 0, 1, 1, 0 }, { 3, 0, 1, 1, 1800 }, { 2, 0, 0, 1, 0 } };
     long total = 0;
-    for (unsigned i = 0; i < sizeof C / sizeof *C; i++) { int g = store_result(&fake, C[i].d, C[i].stars, C[i].pays); total += C[i].want;
-        printf("  %-6s %d stars%s: +$%d (want $%ld)%s\n", GH3_DIFF_NAME[C[i].d], C[i].stars, C[i].pays ? "" : " (not Career)", g, C[i].want, g == C[i].want ? "" : "  <-- WRONG"); bad += g != C[i].want; }
+    for (unsigned i = 0; i < sizeof C / sizeof *C; i++) { int g = store_result(C[i].boss ? &boss : &fake, C[i].d, C[i].stars, C[i].pays); total += C[i].want;
+        char what[24]; if (C[i].boss) snprintf(what, sizeof what, C[i].pays ? "boss battle won" : "boss battle"); else snprintf(what, sizeof what, "%d stars", C[i].stars);
+        printf("  %-6s %s%s: +$%d (want $%ld)%s\n", GH3_DIFF_NAME[C[i].d], what, C[i].pays ? "" : C[i].boss ? " (lost, or not Career)" : " (not Career)", g, C[i].want, g == C[i].want ? "" : "  <-- WRONG"); bad += g != C[i].want; }
     printf("  total $%ld (want $%ld)%s\n", cash, total, cash == total ? "" : "  <-- WRONG"); bad += cash != total;
     /* the store: bonus songs priced, the one without a price, the videos */
     int priced = 0, free_ = 0; for (int t = 0; t < lib->ntiers; t++) if (lib->tiers[t].tab == 1) for (int k = 0; k < lib->tiers[t].nsongs; k++) { int si = lib->tiers[t].songIdx[k]; if (lib->shop.songPrice[si] > 0) priced++; else { free_++; printf("  bonus song without a price: %s\n", lib->songs[si].name); } }

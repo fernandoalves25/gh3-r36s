@@ -2,7 +2,8 @@
  * drawSummary1, drawFailed, drawDetail) on the 1280 x 720 stage, scaled to the 480 lines of the screen (the sides of
  * the stage, bare table, are cut; the magazine fits):
  *   * Won: "VOCÊ ARRASOU!" shakes letter by letter and bursts apart (split_text_into_array_elements, jiggle_ and
- *     explode_text_array_elements) while the song's magazine lands: the one of the tier the song is in, its logo and
+ *     explode_text_array_elements) over the game's flames movie (win_song: Fret_Flames, see-through, overlay.c) while
+ *     the song's magazine lands: the one of the tier the song is in, its logo and
  *     sidebar, the song and band on the cover, the notes hit in the burst, the score box with the stars (fx_stars, as
  *     the other themes) and the difficulty, the note streak, the two choices with the magazine's highlight and icon,
  *     a third choice, MAIS ESTATÍSTICAS, opening the detailed breakdown on its own sheet (the notes, star power, the
@@ -22,6 +23,7 @@
 #include "cheats.h"
 #include "practice.h"
 #include "charsel.h"
+#include "overlay.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -107,6 +109,7 @@ static void strip(char lines[][160], int n) {
 }
 static int notes_line(char *b, size_t cap) {   /* what the run counts for (as the other themes say it) */
     const gh3_run *r = &A.S.run;
+    if (r->autoPlay) return 0;   /* Performance Mode (the band played it): the game's page as it is, no notice (GH3 has none; here it still counts for nothing) */
     if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, cap, "Treino a %d%% da velocidade: nada é salvo.", (int)lround(PRACTICE_SPEED[k] * 100)); return 1; }
     if (SET.noFail && !r->failed) { snprintf(b, cap, "Modo sem falhar: não vale para recordes nem para a carreira."); return 1; }
     if (!cheats_records_ok(A.mode) && !r->failed) { snprintf(b, cap, "Easy Expert: não vale para recordes."); return 1; }
@@ -121,6 +124,7 @@ static void you_rock(double T) {
     static const char *L[13] = { "V", "O", "C", "Ê", " ", "A", "R", "R", "A", "S", "O", "U", "!" }; const int n = 13; const float space = 46;
     double age = T * 1000; int beat = (int)(age / 92), shake = age < 1300 && fmod(age, 92) < 75; float boom = age >= 1300 ? (float)fmin(1, (age - 1300) / 700) : 0, e = 1 - (1 - boom) * (1 - boom);
     float g = GA; GA = 1; gfx_rect(0, 0, (float)A.W, (float)A.H, RGBA(0, 0, 0, (int)(130 * (1 - e))));   /* the page in the dark while they shake */
+    if (!overlay_draw(A.resultsAt + age, A.W, A.H)) overlay_close();   /* win_song's Fret_Flames (TexturePri 70), under the letters (z 95); gone when played */
     for (int i = 0, li = 0; i < n; i++) { if (L[i][0] == ' ') continue; float x = 640 - (n - 1) * space / 2 + i * space; unsigned r = hsh(i * 977 + 13), h = hsh(beat * 31 + i * 7); int dir = li++ % 4;
         float tx = dir == 0 || dir == 3 ? -2000 + (r & 1023) / 1023.0f * 2000 : 1280 + (r & 1023) / 1023.0f * 2000, ty = dir < 2 ? -2000 + ((r >> 10) & 1023) / 1023.0f * 1800 : 920 + ((r >> 10) & 1023) / 1023.0f * 1800;
         float dx = shake ? (h & 255) / 255.0f * 20 - 10 : 0, dy = shake ? -10.0f : 0, ks = shake ? 0.7f + ((h >> 10) & 255) / 255.0f * 0.6f : 1, u = x + dx + (tx - x) * e, v = 360 + dy + (ty - 360) * e;
@@ -252,6 +256,8 @@ int orig_results_draw(double now) {
     if (!ga_ok() || !A.S.song) return 0; int W = A.W, H = A.H; double T = (now - A.resultsAt) / 1000; const gh3_run *r = &A.S.run; char b[200];
     S = fmaxf(W / 1280.0f, H / 720.0f); OX = (W - 1280 * S) / 2; OY = (H - 720 * S) / 2; GA = 1;
     if (r->failed) { if (!failed_window(T)) return 0; hints(); return 1; }
+    { static double flamesFor = -1e18;   /* win_song: one player's won song plays Fret_Flames as "You Rock!" comes (a battle had its own movie; none in practice) */
+      if (A.resultsAt != flamesFor && !BTL.on && !A.S.song->isBoss && A.mode != MODE_PRACTICE) { flamesFor = A.resultsAt; overlay_play("Fret_Flames", A.resultsAt); } }
     if (A.resMore) return more_stats(now);
     /* the magazine lands: a little large and see-through at first, over the stage */
     float k = T < 0.45 ? (float)(T / 0.45) : 1, e = 1 - (1 - k) * (1 - k), z = 1 + 0.12f * (1 - e);
