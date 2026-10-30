@@ -176,7 +176,7 @@ typedef struct {
 /* the atlas: COLS cells across, a power of two of rows (mipmapped: far cards take the smaller levels); one framebuffer and depth for it */
 #define COLS 4
 static struct { char zone[32]; kind k[KINDS]; int nk; unsigned frame; double lastPerf; int hz, perFrame; r3d_crowdstats st; int forceMood, forceSp; float bpm;
-    GLuint atlas, fbo, depth; int rows, aw, ah, bad; } C;
+    GLuint atlas, fbo, depth; int rows, aw, ah, bad; int spread, mips; uint32_t round; } C;   /* spread: round robin (0: every kind at once, the first scheme); mips: 0 none, 1 once a round, 2 every pass */
 static int want_keys(const qbv *v, uint32_t *keys, int n, int cap, int depth) {
     if (!v || depth > 8) return n; uint32_t k;
     if (v->kind == QB_ARRAY) { for (int i = 0; i < v->narr; i++) n = want_keys(v->arr[i], keys, n, cap, depth + 1); return n; }
@@ -246,13 +246,14 @@ void r3d_crowd_zone(const char *zone) {
     clips_load();
     C.st.kinds = C.nk; C.st.models = S.nm; C.st.clips = S.nclips; C.st.animBytes = S.animBytes; for (int i = 0; i < S.nm; i++) C.st.vram += S.m[i].vram;
     for (int i = 0; i < C.nk; i++) { C.st.verts += C.k[i].m->verts; C.st.standIns += C.k[i].standIn; }
-    { const char *e = getenv("R3D_CROWD_HZ"); C.hz = e && atoi(e) > 0 ? atoi(e) : 15; e = getenv("R3D_CROWD_PERFRAME"); C.perFrame = e && atoi(e) > 0 ? atoi(e) : KINDS; }
+    { const char *e = getenv("R3D_CROWD_HZ"); C.hz = e && atoi(e) > 0 ? atoi(e) : 15; e = getenv("R3D_CROWD_PERFRAME"); C.perFrame = e && atoi(e) > 0 ? atoi(e) : 2;
+      e = getenv("R3D_CROWD_SPREAD"); C.spread = !(e && *e == '0'); if (!C.spread) C.perFrame = KINDS; e = getenv("R3D_CROWD_MIPS"); C.mips = e && *e ? atoi(e) : 0; if (!C.spread && C.mips) C.mips = 2; C.round = 0; }
     if (C.nk) { C.rows = 1; while (C.rows * COLS < C.nk) C.rows *= 2; C.aw = COLS * TW; C.ah = C.rows * TH; uint8_t *zero = calloc((size_t)C.aw * C.ah, 4);
         for (int i = 0; i < C.nk; i++) { C.k[i].cx = i % COLS; C.k[i].cy = i / COLS; }
-        GL(glGenTextures)(1, &C.atlas); GL(glBindTexture)(GL_TEXTURE_2D, C.atlas); GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGBA, C.aw, C.ah, 0, GL_RGBA, GL_UNSIGNED_BYTE, zero); GL(glGenerateMipmap)(GL_TEXTURE_2D);
-        GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        GL(glGenTextures)(1, &C.atlas); GL(glBindTexture)(GL_TEXTURE_2D, C.atlas); GL(glTexImage2D)(GL_TEXTURE_2D, 0, GL_RGBA, C.aw, C.ah, 0, GL_RGBA, GL_UNSIGNED_BYTE, zero); if (C.mips) GL(glGenerateMipmap)(GL_TEXTURE_2D);
+        GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, C.mips ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); GL(glTexParameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); GL(glBindTexture)(GL_TEXTURE_2D, 0); free(zero);
-        C.st.vram += (size_t)C.aw * C.ah * 4 * 4 / 3 + (size_t)C.aw * C.ah * 2; }   /* the atlas with its levels, and its depth */
+        C.st.vram += (size_t)C.aw * C.ah * 4 * (C.mips ? 4 : 3) / 3 + (size_t)C.aw * C.ah * 2; }   /* the atlas with its levels, and its depth */
     C.st.loadMs = SDL_GetTicks() - t0;
     SDL_Log("crowd: %s: %d kinds (%d models, %d stand-ins), %d animations (%.1f MB), %d points a round, %.0f ms", zone, C.nk, S.nm, C.st.standIns, S.nclips, S.animBytes / 1048576.0, C.st.verts, C.st.loadMs);
 }
@@ -329,9 +330,9 @@ static void figure(kind *k) {   /* crowdFigure.draw: orthographic, from the fron
     for (int i = 0; i < k->m->nd; i++) { const cdraw *d = &k->m->d[i]; GL(glBindTexture)(GL_TEXTURE_2D, d->tex); GL(glUniform1f)(G.uAref, d->aref); GL(glDrawElements)(GL_TRIANGLES, d->count, GL_UNSIGNED_SHORT, (void *)(size_t)(d->first * 2)); }
     k->drawn = 1; C.st.renders++; C.st.draws += k->m->nd;
 }
-static void pass_end(void) {
+static void pass_end(int mip) {
     if (discard_) { GLenum att = GL_DEPTH_ATTACHMENT; discard_(GL_FRAMEBUFFER, 1, &att); }
-    GL(glBindTexture)(GL_TEXTURE_2D, C.atlas); GL(glGenerateMipmap)(GL_TEXTURE_2D);   /* far cards take the smaller levels */
+    if (mip) { GL(glBindTexture)(GL_TEXTURE_2D, C.atlas); GL(glGenerateMipmap)(GL_TEXTURE_2D); C.st.mipBuilds++; }   /* far cards take the smaller levels */
 }
 /* the GL state a figure's pass touches, put back afterwards (inside the venue's frame r3d.c sets the rest again itself) */
 typedef struct { GLint fbo, vp[4], prog, tex, abuf, ebuf, act; GLboolean depth, blend, cull, scis, dmask; GLfloat clear[4]; } cstate;
@@ -359,18 +360,22 @@ static void step(double perf, int sp, int redraw) {
     if (C.forceMood >= 0) mood = C.forceMood; if (C.forceSp >= 0) sp = C.forceSp;
     for (int i = 0; i < C.nk; i++) tick(&C.k[i], dt, mood, sp, speed);
     if (!redraw) return;
-    /* a redraw when some kind on screen (seen in the last two frames) is due, or one was never drawn; the others on screen
-     * that are due within half a period come along, so the figures share one pass and one mipmap build (~hz passes a second) */
-    double now = perf / 1000, early = 0.5 / C.hz; int any = 0, n = 0; uint32_t go = 0;
-    for (int i = 0; i < C.nk; i++) { kind *k = &C.k[i]; if (!k->cur) continue; if (!k->drawn || (C.frame - k->seen <= 2 && now >= k->due)) any = 1;
-        if ((!k->drawn || (C.frame - k->seen <= 2 && now >= k->due - early)) && n < C.perFrame) { go |= 1u << i; n++; } }
-    if (!any || !pass_begin(n == C.nk)) return;
-    for (int i = 0; i < C.nk; i++) if (go >> i & 1) { kind *k = &C.k[i]; figure(k); k->due = now + 1.0 / C.hz; }
-    pass_end();
+    double now = perf / 1000, per = 1.0 / C.hz; uint32_t go = 0, vis = 0; int n = 0;
+    for (int i = 0; i < C.nk; i++) { kind *k = &C.k[i]; if (k->cur && (!k->drawn || C.frame - k->seen <= 2)) vis |= 1u << i; }   /* on screen lately, or never drawn */
+    if (C.spread) {   /* round robin: the kinds due, the most overdue first, at most perFrame a frame (2: 120 a second, 6 kinds at 15 Hz need 90) */
+        while (n < C.perFrame) { int best = -1; for (int i = 0; i < C.nk; i++) if ((vis >> i & 1) && !(go >> i & 1) && (!C.k[i].drawn || now >= C.k[i].due) && (best < 0 || C.k[i].due < C.k[best].due)) best = i;
+            if (best < 0) break; go |= 1u << best; n++; } }
+    else {   /* the first scheme: when one is due, every kind on screen due within half a period comes along (one pass for all, the spike every 4th frame) */
+        int any = 0; for (int i = 0; i < C.nk; i++) if ((vis >> i & 1) && (!C.k[i].drawn || now >= C.k[i].due)) any = 1;
+        if (any) for (int i = 0; i < C.nk; i++) if ((vis >> i & 1) && (!C.k[i].drawn || now >= C.k[i].due - 0.5 * per)) { go |= 1u << i; n++; } }
+    if (!go || !pass_begin(n == C.nk)) return;
+    for (int i = 0; i < C.nk; i++) if (go >> i & 1) { kind *k = &C.k[i]; int had = k->drawn; figure(k); k->due = had && now - k->due < per ? k->due + per : now + per; }   /* on a 15 Hz grid while it keeps up */
+    C.round |= go; int mip = C.mips == 2 || (C.mips == 1 && (C.round & vis) == vis);   /* once a round: every kind on screen redrawn since the last build */
+    pass_end(mip); if (mip) C.round = 0;
 }
 static void pass_state(void) { GL(glDisable)(GL_SCISSOR_TEST); GL(glDisable)(GL_BLEND); GL(glDisable)(GL_CULL_FACE); GL(glEnable)(GL_DEPTH_TEST); GL(glDepthFunc)(GL_LEQUAL); GL(glColorMask)(1, 1, 1, 1); for (int i = 0; i < 5; i++) GL(glEnableVertexAttribArray)(i); }
 void r3d_crowd_update(double perf, int sp) {
-    C.st.renders = C.st.draws = 0; if (!C.nk || !G.ready || !SET.stageFx || C.bad) return;
+    C.st.renders = C.st.draws = C.st.mipBuilds = 0; if (!C.nk || !G.ready || !SET.stageFx || C.bad) return;
     Uint64 c0 = SDL_GetPerformanceCounter(); cstate s; cs_save(&s); C.forceMood = C.forceSp = -1; pass_state();
     step(perf, sp, 1);
     for (int i = 0; i < 5; i++) GL(glDisableVertexAttribArray)(i);
@@ -394,7 +399,7 @@ int r3d_crowd_test(const char *zone, const char *outdir) {
     cstate s; cs_save(&s); pass_state(); double perf = 1000; C.lastPerf = 0;
     for (int st = 0; st < 4; st++) { C.forceMood = st < 3 ? st : 2; C.forceSp = st == 3; for (int i = 0; i < C.nk; i++) { C.k[i].cur = C.k[i].prev = NULL; C.k[i].kind = 0; }
         for (int f = 0; f < 23; f++) { perf += 1000.0 / 15; step(perf, 0, 0); }   /* 1.5 s into the mood */
-        if (!pass_begin(1)) break; for (int i = 0; i < C.nk; i++) figure(&C.k[i]); pass_end(); GL(glBindFramebuffer)(GL_FRAMEBUFFER, C.fbo); GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1);
+        if (!pass_begin(1)) break; for (int i = 0; i < C.nk; i++) figure(&C.k[i]); pass_end(C.mips); GL(glBindFramebuffer)(GL_FRAMEBUFFER, C.fbo); GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1);
         for (int i = 0; i < C.nk; i++) { GL(glReadPixels)(C.k[i].cx * TW, C.k[i].cy * TH, TW, TH, GL_RGBA, GL_UNSIGNED_BYTE, px);
             for (int y = 0; y < TH; y++) for (int x = 0; x < TW; x++) { const uint8_t *p = px + (y * TW + x) * 4; uint8_t *o = sheet + ((size_t)y * C.nk * TW + i * TW + x) * 4; int a = p[3];   /* over a grey check, so the cut-out shows */
                 int bg = ((x >> 3) + (y >> 3)) & 1 ? 70 : 100; for (int c = 0; c < 3; c++) o[c] = (uint8_t)(a >= 100 ? p[c] : bg); o[3] = 255; } }
@@ -402,9 +407,21 @@ int r3d_crowd_test(const char *zone, const char *outdir) {
         printf("crowd: %s %-9s ->", zone, STATE[st]); for (int i = 0; i < C.nk; i++) printf(" %s%s:%08x(%.1fs)", C.k[i].pak, C.k[i].standIn ? "*" : "", C.k[i].cur ? C.k[i].cur->key : 0, C.k[i].cur ? C.k[i].cur->dur : 0); printf(" -> %s\n", p); }
     /* the cost of a redraw of every kind: the CPU's part (pose, palette, draws, mipmaps submitted), then with the GPU's (glFinish; llvmpipe here) */
     C.forceMood = 1; C.forceSp = 0; double cpu = 0; int N = 40; Uint64 f0 = SDL_GetPerformanceCounter(), fr = SDL_GetPerformanceFrequency();
-    for (int r = 0; r < N; r++) { perf += 1000.0 / 15; Uint64 c0 = SDL_GetPerformanceCounter(); step(perf, 0, 0); if (pass_begin(1)) { for (int i = 0; i < C.nk; i++) figure(&C.k[i]); pass_end(); } cpu += (SDL_GetPerformanceCounter() - c0) * 1000.0 / fr; GL(glFinish)(); }
+    for (int r = 0; r < N; r++) { perf += 1000.0 / 15; Uint64 c0 = SDL_GetPerformanceCounter(); step(perf, 0, 0); if (pass_begin(1)) { for (int i = 0; i < C.nk; i++) figure(&C.k[i]); pass_end(C.mips); } cpu += (SDL_GetPerformanceCounter() - c0) * 1000.0 / fr; GL(glFinish)(); }
     double all = (SDL_GetPerformanceCounter() - f0) * 1000.0 / fr / N; cpu /= N;
     for (int i = 0; i < 5; i++) GL(glDisableVertexAttribArray)(i); cs_restore(&s); C.forceMood = C.forceSp = -1; for (int i = 0; i < C.nk; i++) C.k[i].due = 0;
+    /* frame by frame at 60 a second, every kind on screen: what r3d_crowd_update costs a frame (CPU submit, the GPU waited for outside the timing),
+     * the first scheme (all at once, mipmaps each pass) against the round robin with mipmaps once a round and with none */
+    { static const struct { int spread, per, mips; const char *name; } M[3] = { { 0, KINDS, 2, "all at once, mipmaps each pass" }, { 1, 2, 1, "round robin 2/frame, mipmaps a round" }, { 1, 2, 0, "round robin 2/frame, no mipmaps" } };
+      int ks = C.spread, kp = C.perFrame, km = C.mips, fx = SET.stageFx; SET.stageFx = 1;
+      for (int m = 0; m < 3; m++) { C.spread = M[m].spread; C.perFrame = M[m].per; C.mips = M[m].mips; C.round = 0; for (int i = 0; i < C.nk; i++) { C.k[i].drawn = 0; C.k[i].due = 0; }
+          double sum = 0, mx = 0; int F = 240, worstR = 0, renders = 0, mipsN = 0; Uint64 fr2 = SDL_GetPerformanceFrequency(); C.lastPerf = 0;
+          for (int f = 0; f < F + 30; f++) { perf += 1000.0 / 60; for (int i = 0; i < C.nk; i++) C.k[i].seen = C.frame + 1;
+              Uint64 c0 = SDL_GetPerformanceCounter(); r3d_crowd_update(perf, 0); double ms = (SDL_GetPerformanceCounter() - c0) * 1000.0 / fr2; GL(glFinish)();
+              if (f < 30) continue; sum += ms; renders += C.st.renders; mipsN += C.st.mipBuilds; if (ms > mx) { mx = ms; worstR = C.st.renders; } }
+          printf("crowd: %s: %-37s: %.3f ms a frame avg, worst %.3f ms (%d figures in it); %.1f figures and %.1f mipmap builds a second, each kind ~%.1f Hz\n",
+              zone, M[m].name, sum / F, mx, worstR, renders * 60.0 / F, mipsN * 60.0 / F, renders * 60.0 / F / C.nk); }
+      C.spread = ks; C.perFrame = kp; C.mips = km; SET.stageFx = fx; for (int i = 0; i < C.nk; i++) { C.k[i].due = 0; C.k[i].drawn = 1; } C.lastPerf = 0; }
     printf("crowd: %s: %d kinds in a %dx%d atlas, %d models (%d points a round), %d animations (%.1f MB), %.1f MB on the GPU, loaded in %.0f ms; a redraw of all: %.3f ms CPU submit, %.3f ms with the GPU (host); %d a second (R3D_CROWD_HZ) -> ~%.2f ms CPU a second of 60 frames\n",
         zone, C.nk, C.aw, C.ah, S.nm, C.st.verts, S.nclips, S.animBytes / 1048576.0, C.st.vram / 1048576.0, C.st.loadMs, cpu, all, C.hz, cpu * C.hz / 60);
     free(sheet); free(px); return 0;

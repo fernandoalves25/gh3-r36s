@@ -3,8 +3,10 @@
  * venue) whose material wears one of the textures listed in <zone>_crowd_models; the game paints a small skinned figure
  * (crowd_ped_*, crowd_pedf_*, crowd_prison_*: 28-bone gh3_ped skeleton, its crowd_profiles anim set from perm_anims)
  * into a 128x256 picture for each kind and every card of that kind shows it. Here the kinds are the 128x256 cells of one
- * atlas (4 across), redrawn together outside the venue's pass at a low rate (R3D_CROWD_HZ, 15 a second by default; only
- * the kinds on screen): one small pass and one mipmap build per redraw, ~6 figures of ~1k points, nothing in between;
+ * atlas (4 across), each redrawn ~15 times a second (R3D_CROWD_HZ) outside the venue's pass, round robin: the most
+ * overdue kinds on screen, at most two ~1k-point figures a frame (R3D_CROWD_PERFRAME), so no frame carries a spike; no
+ * mipmaps (they looked the same at 480x360; R3D_CROWD_MIPS=1 builds them once a round, R3D_CROWD_SPREAD=0 is the first
+ * scheme: every kind in one pass with a mipmap build, every 4th frame);
  * the cards are ordinary venue batches (r3d.c) that wear the atlas with their cell picked through the venue shader's
  * frames (uAnim). The figures play idle / starpower by the rock meter's mood (bad, normal, good) and the song's pace
  * (slow, med, fast), round robin with 0.3 s cross-fades. Opções > Vídeo > Efeitos de palco off: no crowd. */
@@ -30,6 +32,6 @@ void r3d_crowd_select(void);              /* the song about to be played (A.selS
 void r3d_crowd_unload(void);              /* the venue goes: its kinds and pictures (the models and animations stay) */
 void r3d_crowd_shutdown(void);
 int r3d_crowd_test(const char *zone, const char *outdir);   /* --r3dtest: each kind in each mood into <zone>_crowd_<state>.bmp, the costs printed */
-typedef struct { int kinds, models, clips, renders, draws, verts, standIns; double ms, msMax, loadMs; size_t vram, animBytes; } r3d_crowdstats;   /* renders/ms: the last update's */
+typedef struct { int kinds, models, clips, renders, draws, mipBuilds, verts, standIns; double ms, msMax, loadMs; size_t vram, animBytes; } r3d_crowdstats;   /* renders/ms: the last update's */
 const r3d_crowdstats *r3d_crowd_stats(void);
 #endif
