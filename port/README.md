@@ -31,7 +31,11 @@ pasta os menus ficam em silêncio).
 
 - **Jogo rápido**: qualquer música já liberada na carreira, em qualquer dificuldade. O recorde conta, a carreira não muda.
 - **Treino > Treinar música**: escolha a seção onde começar ("Começar em"). A música não falha e nada é salvo.
-  Os tutoriais narrados aparecem, mas ainda não foram portados.
+- **Treino > Tutoriais**: as lições narradas do jogo (básico, Star Power, batalha, hammer-ons e pull-offs), refeitas a
+  partir dos roteiros do próprio jogo: textos, falas do Deus do Rock e de Lou na ordem certa, a pista que congela
+  enquanto eles explicam, a partitura de treino e o objetivo de cada lição. As falas são em inglês (ou francês, alemão,
+  italiano, espanhol, à escolha na lista); as legendas em português resumem o que cada fala ensina. Os ataques do
+  adversário da lição de batalha não são simulados. As lições concluídas ficam marcadas em `gh3-tutoriais.cfg`.
 
 ## Carreira
 
@@ -86,14 +90,17 @@ Organizadas como no jogo:
 - **Controle**: canhoto (lefty flip), palhetada normal ou toque livre (a nota toca ao segurar os trastes), botões.
 - **Vídeo**: tema visual, efeitos de palco, escurecer o fundo, FPS.
 - **Top Rockers**: os seus melhores resultados em cada música, por dificuldade.
-- **Trapaças**: hyperspeed, sem falhar, liberar todas as músicas.
+- **Trapaças**: as do jogo, com os mesmos códigos (em "Tocar um código", segure os trastes de cada acorde e palhete):
+  Hyperspeed, No Fail, Easy Expert (janelas de acerto dobradas; não vale na carreira nem para recordes), Precision Mode
+  (janelas pela metade), liberar todas as músicas e liberar tudo. Cada uma também liga e desliga direto. Air Guitar,
+  Performance Mode e Bret Michaels só mudam a banda 3D e aparecem como indisponíveis.
 
 `port.cfg` só tem as opções do launcher (vsync, clocks, renderização por software).
 
 ## O que ainda não tem
 
-- A arte e os cenários 3D do próprio jogo, os vídeos, a loja, o modo batalha com ataques, co-op e multiplayer, os tutoriais
-  narrados e o treino em velocidade reduzida.
+- A arte e os cenários 3D do próprio jogo, os vídeos, a loja, o modo batalha com ataques, co-op e multiplayer e o treino em
+  velocidade reduzida.
 - Os efeitos sonoros são sintetizados (menus, erros, star power); a guitarra silencia ao errar como no jogo.
 
 ## Compilar do código

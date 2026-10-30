@@ -33,4 +33,8 @@ void audio_set_sfx_gain(double gain);
 void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping);
 void audio_preview_stop(double fadeSec);
 int audio_preview_on(void);
+/* a spoken clip (the tutorial narration) mixed over the song, the previews and the effects, playing on while the song
+ * is paused; one at a time: a new clip (or NULL) replaces the old, whose bytes the caller may free once this returns */
+void audio_voice(const uint8_t *mp3, size_t size, double levelDb);
+int audio_voice_on(void);
 #endif

@@ -6,7 +6,7 @@
 #include "game.h"
 #include "settings.h"
 #include "career.h"
-enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR };
+enum { SC_TITLE, SC_MAIN, SC_TRAINING, SC_SETLIST, SC_SETUP, SC_OPTIONS, SC_CONTROLS, SC_CALIB, SC_TOPROCK, SC_PLAY, SC_PAUSE, SC_RESULTS, SC_ERROR, SC_CHEATS, SC_TUTORIAL };
 /* the main menu's ways to play, as in the game: Career moves the career, Quickplay plays any song the career has
  * opened (scores kept, career untouched), Practice plays a song from a chosen section (nothing saved) */
 enum { MODE_CAREER, MODE_QUICK, MODE_PRACTICE };
@@ -46,6 +46,8 @@ void app_guitar_lick(void);            /* one of the game's guitar licks (the ti
  * music comes back). Over a song, mix the loaded clip in some other way. */
 uint8_t *app_stream_load(const char *name, size_t *size);
 int app_play_stream(const char *name, double levelDb);
+uint8_t *app_read_data(const char *dir, const char *name, size_t *len);   /* a file of DATA/<dir> (any case), malloc'd */
+int app_load_song_named(const char *name, int diff, int autoPlay, int withAudio, char *err, size_t errCap);   /* a song of the list by its name (the tutorials' charts) into A.S; 0 when fine */
 void app_session_free(void);
 void app_quit(void);
 void app_preview(int songIdx);         /* the preview of a song is wanted (-1: none) */

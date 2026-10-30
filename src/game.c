@@ -81,7 +81,7 @@ static int tryHammer(gh3_run *r, double t, double perf) {
     for (int i = r->idx; i < r->nnotes; i++) { gh3_note *n = &r->notes[i];
         if (n->t - r->tn->early > t) break;
         if (n->hit || n->missed || t > n->t + n->lateW) continue;
-        if (n->hopo && n->mask == top && t >= n->t - r->tn->hamEarly && t < n->t + n->hamLateW) { playAt(r, i, t, 1, perf); return 1; } }
+        if (n->hopo && n->mask == top && t >= n->t - r->tn->hamEarly && t < n->t + n->hamLateW) { if (top < r->chain) r->pulls++; else r->hammers++; playAt(r, i, t, 1, perf); return 1; } }
     return 0;
 }
 static int tryTap(gh3_run *r, double t, double perf) {

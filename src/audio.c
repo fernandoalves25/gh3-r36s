@@ -11,9 +11,10 @@ typedef struct {
     short pcm[MINIMP3_MAX_SAMPLES_PER_FRAME]; int pcmLen, pcmPos, channels, hz;
     float level, gain, target; double durationMs;
     int64_t produced; /* frames handed to the mixer since play */
+    int once;         /* never loops (the narration voice) */
 } stream_t;
 
-static SDL_AudioDeviceID dev; static SDL_AudioSpec spec; static stream_t S[BUS_N];
+static SDL_AudioDeviceID dev; static SDL_AudioSpec spec; static stream_t S[BUS_N], V;   /* V: a spoken clip over everything (tutorial narration), heard even while the song is paused */
 static float master = 1.0f, fadeStep = 0, fadeGain = 1, sfxGain = 0.8f, busGain[BUS_N] = { 1, 1, 1 };
 static int running = 0, paused = 0, preview = 0, loop = 0;
 static int64_t mixed = 0;          /* frames mixed since play (negative start = lead-in) */
@@ -85,7 +86,7 @@ static float voice_sample(voice_t *v) {
 }
 static int pull(stream_t *s) { /* refill s->pcm; returns 0 at end */
     while (s->pcmPos >= s->pcmLen) {
-        if (s->ended || s->pos >= s->size) { if (loop && s->size) { mp3dec_init(&s->dec); s->pos = 0; s->ended = 0; continue; } s->ended = 1; return 0; }
+        if (s->ended || s->pos >= s->size) { if (loop && !s->once && s->size) { mp3dec_init(&s->dec); s->pos = 0; s->ended = 0; continue; } s->ended = 1; return 0; }
         mp3dec_frame_info_t info; int n = mp3dec_decode_frame(&s->dec, s->data + s->pos, (int)(s->size - s->pos), s->pcm, &info);
         if (info.frame_bytes <= 0) { s->ended = 1; return 0; }
         s->pos += info.frame_bytes;
@@ -117,6 +118,8 @@ static void callback(void *ud, Uint8 *out, int len) {
             if (metroFrames > 0 && mixed >= 0 && mixed % metroFrames == 0) voice_start((mixed / metroFrames) % 4 == 0 ? SFX_GO : SFX_TICK);
             mixed++;
         }
+        if (V.on) { if (pull(&V)) { float sl, sr; if (V.channels >= 2) { sl = V.pcm[V.pcmPos] * (1.0f / 32768); sr = V.pcm[V.pcmPos + 1] * (1.0f / 32768); V.pcmPos += 2; } else sl = sr = V.pcm[V.pcmPos++] * (1.0f / 32768);
+                float g = V.level * master; l += sl * g; r += sr * g; } else V.on = 0; }
         float fx = 0; for (int v = 0; v < VOICES; v++) if (voices[v].on) fx += voice_sample(&voices[v]);
         fx *= sfxGain * master; l += fx; r += fx;
         o[i * 2] = l > 1 ? 1 : l < -1 ? -1 : l; o[i * 2 + 1] = r > 1 ? 1 : r < -1 ? -1 : r;
@@ -161,6 +164,12 @@ void audio_preview(const uint8_t *mp3, size_t size, double levelDb, int looping)
 }
 void audio_preview_stop(double sec) { if (dev) SDL_LockAudioDevice(dev); if (preview && running) { if (sec <= 0) { running = 0; preview = 0; } else fadeStep = (float)(1.0 / (sec * 44100)); } if (dev) SDL_UnlockAudioDevice(dev); }
 int audio_preview_on(void) { return preview && running; }
+void audio_voice(const uint8_t *mp3, size_t size, double levelDb) {
+    if (dev) SDL_LockAudioDevice(dev);
+    memset(&V, 0, sizeof V); mp3dec_init(&V.dec); V.data = mp3; V.size = size; V.once = 1; V.level = (float)pow(10, levelDb / 20); V.on = dev && mp3 && size > 0;
+    if (dev) SDL_UnlockAudioDevice(dev);
+}
+int audio_voice_on(void) { return V.on; }
 void audio_sfx(int kind) {
     if (kind < 0 || kind >= SFX_N || !dev) return;
     SDL_LockAudioDevice(dev); voice_start(kind); SDL_UnlockAudioDevice(dev);

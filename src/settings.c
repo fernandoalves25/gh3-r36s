@@ -30,6 +30,7 @@ int settings_save(void) {
     fprintf(f, "# Guitar Hero III (R36S) - opcoes salvas pelo jogo; apague o arquivo para voltar ao padrao\nversao=%d\n", SETTINGS_VERSION);
     fprintf(f, "palhetada=%d\ncanhoto=%d\nvelocidade=%d\nsem_falhar=%d\npalco=%d\nfps=%d\nprevia=%d\nvolume_musica=%d\nvolume_guitarra=%d\nvolume_efeitos=%d\nmusica_menu=%d\natraso_ms=%d\nescurecer_fundo=%d\nliberar_tudo=%d\ntema=%d\n",
             SET.tap ? 0 : 1, SET.lefty, SET.hyper, SET.noFail, SET.stageFx, SET.showFps, SET.preview, SET.volMusic, SET.volGuitar, SET.volSfx, SET.menuMusic, SET.offsetMs, SET.bgDim, SET.unlockAll, SET.theme);
+    fprintf(f, "easy_expert=%d\nprecision=%d\ntrapacas_codigos=%d\n", SET.easyExpert, SET.precision, SET.cheatCodes);
     for (int a = 0; a < ACT_N; a++) for (int s = 0; s < BIND_SLOTS; s++) { char b[40]; bind_to_str(&SET.binds[a][s], b, sizeof b); fprintf(f, "controle_%s_%d=%s\n", ACTKEY[a], s + 1, b); }
     fclose(f); return 0;
 }
@@ -45,6 +46,7 @@ int settings_load(void) {
         else if (!strcmp(k, "volume_guitarra")) SET.volGuitar = n < 0 ? 0 : n > 100 ? 100 : n; else if (!strcmp(k, "musica_menu")) SET.menuMusic = !!n;
         else if (!strcmp(k, "atraso_ms")) SET.offsetMs = n < -300 ? -300 : n > 300 ? 300 : n; else if (!strcmp(k, "escurecer_fundo")) SET.bgDim = n < 0 ? 0 : n > 100 ? 100 : n;
         else if (!strcmp(k, "liberar_tudo")) SET.unlockAll = !!n; else if (!strcmp(k, "tema")) SET.theme = n < 0 ? 0 : n >= THEME_N ? THEME_N - 1 : n;
+        else if (!strcmp(k, "easy_expert")) SET.easyExpert = !!n; else if (!strcmp(k, "precision")) SET.precision = !!n; else if (!strcmp(k, "trapacas_codigos")) SET.cheatCodes = n;
         else if (!strncmp(k, "controle_", 9)) { for (int a = 0; a < ACT_N; a++) { size_t L = strlen(ACTKEY[a]); if (!strncmp(k + 9, ACTKEY[a], L) && k[9 + L] == '_') { int s = atoi(k + 10 + L) - 1; if (s >= 0 && s < BIND_SLOTS) str_to_bind(v, &SET.binds[a][s]); } } }
     }
     fclose(f); return 0;
