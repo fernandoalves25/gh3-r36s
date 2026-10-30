@@ -3,6 +3,7 @@
 #define MINIMP3_NO_SIMD
 #include "minimp3.h"
 #include "stretch.h"
+#include "sfx.h"
 #include <SDL.h>
 #include <string.h>
 #include <math.h>
@@ -145,13 +146,14 @@ static void callback(void *ud, Uint8 *out, int len) {
                 float g = s->level * s->gain * busGain[preview ? BUS_BAND : b]; l += sl * g; r += sr * g; s->produced++; }
             if (fadeStep) { fadeGain -= fadeStep; if (fadeGain <= 0) { fadeGain = 0; if (preview) { running = 0; preview = 0; fadeStep = 0; } } }
             float g = master * fadeGain; l *= g; r *= g;
-            if (metroFrames > 0 && mixed >= 0 && mixed % metroFrames == 0) voice_start((mixed / metroFrames) % 4 == 0 ? SFX_GO : SFX_TICK);
+            if (metroFrames > 0 && mixed >= 0 && mixed % metroFrames == 0) { int k = (mixed / metroFrames) % 4 == 0 ? SFX_GO : SFX_TICK; if (!sfx_play(k)) voice_start(k); }   /* (prepared by audio_metronome: no decoding here) */
             mixed++;
         }
         if (V.on) { if (pull(&V)) { float sl, sr; if (V.channels >= 2) { sl = V.pcm[V.pcmPos] * (1.0f / 32768); sr = V.pcm[V.pcmPos + 1] * (1.0f / 32768); V.pcmPos += 2; } else sl = sr = V.pcm[V.pcmPos++] * (1.0f / 32768);
                 float g = V.level * master; l += sl * g; r += sr * g; } else V.on = 0; }
         float fx = 0; for (int v = 0; v < VOICES; v++) if (voices[v].on) fx += voice_sample(&voices[v]);
         fx *= sfxGain * master; l += fx; r += fx;
+        sfx_mix(&l, &r, sfxGain * master, running && !paused);   /* the game's own effects and the crowd (sfx.c) */
         if (mvOn && mvR < mvW) { const float *m = &mvBuf[(mvR & (MV_N - 1)) * 2]; l += m[0] * mvG; r += m[1] * mvG; mvR++; }
         o[i * 2] = l > 1 ? 1 : l < -1 ? -1 : l; o[i * 2 + 1] = r > 1 ? 1 : r < -1 ? -1 : r;
     }
@@ -177,7 +179,7 @@ void audio_set_stream(int bus, const uint8_t *mp3, size_t size, double levelDb) 
     s->level = (float)pow(10, levelDb / 20); s->gain = s->target = 1;
     if (dev) SDL_UnlockAudioDevice(dev);
 }
-void audio_clear(void) { if (dev) SDL_LockAudioDevice(dev); running = 0; stretching = 0; rate = 1; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0; for (int b = 0; b < BUS_N; b++) S[b].on = 0; if (dev) SDL_UnlockAudioDevice(dev); }
+void audio_clear(void) { sfx_song_stop(); if (dev) SDL_LockAudioDevice(dev); running = 0; stretching = 0; rate = 1; preview = 0; loop = 0; metroFrames = 0; bendTarget = bendCur = bendMix = 0; for (int b = 0; b < BUS_N; b++) S[b].on = 0; if (dev) SDL_UnlockAudioDevice(dev); }
 void audio_play(double from, double lead) {
     if (dev) SDL_LockAudioDevice(dev);
     rate = rateNext; rateNext = 1; stretching = rate < 0.999; if (stretching) stretch_init(&ST, rate); else rate = 1;
@@ -219,11 +221,21 @@ void audio_voice(const uint8_t *mp3, size_t size, double levelDb) {
     if (dev) SDL_UnlockAudioDevice(dev);
 }
 int audio_voice_on(void) { return V.on; }
+static int synth_kind(int kind) {   /* the newer kinds on the synthesized set, when the game's bank is missing */
+    switch (kind) { case SFX_LOSE3: case SFX_LOSE4: case SFX_WIN_P2: return SFX_LOSE; case SFX_STREAK100: return SFX_STREAK; case SFX_AWARDED: return SFX_DING; case SFX_ROCK: case SFX_CASH: case SFX_WIN_P1: return SFX_FANFARE;
+        case SFX_WHOOSH: return SFX_MOVE; case SFX_INTRO: return SFX_GO; case SFX_BATTLE_AWARD: return SFX_READY; case SFX_ATK_OVER: return SFX_GO; case SFX_ATK_DEATH: case SFX_SUDDEN_DEATH: case SFX_DEVIL_DIE: return SFX_LOSE;
+        case SFX_HIGHWAY: case SFX_HEARTBEAT: return -1; default: return kind >= SFX_ATK_LIGHTNING && kind <= SFX_ATK_WHAMMY ? SFX_STAR_ON : kind; }
+}
 void audio_sfx(int kind) {
     if (kind < 0 || kind >= SFX_N || !dev) return;
+    if (sfx_play(kind)) return; kind = synth_kind(kind); if (kind < 0) return;
     SDL_LockAudioDevice(dev); voice_start(kind); SDL_UnlockAudioDevice(dev);
 }
+void audio_sfx_loop(int kind, int on) { if (dev) sfx_loop(kind, on); }
+void audio_lock(void) { if (dev) SDL_LockAudioDevice(dev); }
+void audio_unlock(void) { if (dev) SDL_UnlockAudioDevice(dev); }
 void audio_metronome(double periodMs, double lead) {
+    sfx_prepare(SFX_TICK); sfx_prepare(SFX_GO);
     if (dev) SDL_LockAudioDevice(dev);
     for (int b = 0; b < BUS_N; b++) S[b].on = 0;
     rate = 1; stretching = 0; fromMs = 0; leadMs = lead; mixed = -(int64_t)(lead / 1000.0 * 44100); fadeStep = 0; fadeGain = 1; paused = 0; preview = 0; loop = 0;

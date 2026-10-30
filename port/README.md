@@ -17,7 +17,8 @@ jogo, como foram levantadas no port para navegador.
   - `MOVIES/R36S/` (os vídeos do jogo em MPEG-1, `*.mpg`) - 200 MB, opcional. São feitos no PC a partir dos MP4 de
     `MOVIES/WEB/` com `tools/convert_movies.sh DATA` (precisa do ffmpeg). Só essa subpasta é lida; sem ela os vídeos são pulados.
     Os quatro vídeos bônus (`brettmichaels`, `sexpistols`, `slash`, `tommorello`) são 115 MB desse total.
-  - `ZONES/` e o resto de `MOVIES/` não são usados e podem ficar de fora para poupar cartão.
+  - `ZONES/global_sfx.pak.xen` (os efeitos sonoros do jogo: menus, notas erradas, star power, ataques, plateia) - 6 MB, opcional.
+    Sem ele os efeitos são sintetizados. O resto de `ZONES/` e de `MOVIES/` não é usado e pode ficar de fora para poupar cartão.
 
 ## Instalação
 
@@ -126,7 +127,10 @@ Organizadas como no jogo:
 
 - A arte e os cenários 3D do próprio jogo, co-op e multiplayer. No treino lento o jogo troca a banda pelos seus
   samples de bateria; aqui a banda toca, esticada.
-- Os efeitos sonoros são sintetizados (menus, erros, star power); a guitarra silencia ao errar como no jogo.
+- Os efeitos sonoros são os do próprio jogo (`ZONES/global_sfx.pak.xen`, pela tabela de eventos de som do jogo: menus,
+  notas erradas, multiplicador perdido, sequências, star power, ataques das batalhas, loja, resultado), com a plateia do
+  palco de cada set (o murmúrio que acompanha o medidor de rock, vaias e aplausos, as palmas no star power, o grito no
+  fim). Sem esse arquivo os efeitos são sintetizados. A guitarra silencia ao errar como no jogo.
 
 ## Compilar do código
 

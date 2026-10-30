@@ -152,7 +152,7 @@ void store_draw(double now) {
 static void buy(double now) {
     const char *title, *sub; int price, have; item(sel[cat], &title, &sub, &price, &have); confirm = 0; if (have || price <= 0 || cash < price) return;
     char k[72]; if (cat == 0) snprintf(k, sizeof k, "%s", A.lib->songs[list[sel[cat]]].name); else snprintf(k, sizeof k, "video:%s", A.lib->shop.videos[sel[cat]].id);
-    cash -= price; add_buy(k); save(); store_refresh(A.lib); audio_sfx(SFX_FANFARE);
+    cash -= price; add_buy(k); save(); store_refresh(A.lib); audio_sfx(SFX_CASH);   /* the store's Cash_Sound */
     note(now, cat == 0 ? "Comprada! Já está na lista de músicas." : "Comprado! Aperte A para assistir.");
 }
 void store_event(int in, double now) {
@@ -190,7 +190,7 @@ void encore_begin(double now) {
     if (A.mode != MODE_CAREER || A.selSong != tr->encoreIdx) { app_begin_song(); return; }
     free(chant); chant = chant_load(&chantN); app_preview(-1); if (audio_preview_on()) audio_preview_stop(0);
     if (chant && audio_has_device()) audio_preview(chant, chantN, -1, 0);   /* through the menu music's stream: the band volume */
-    chantOn = 1; chantFading = 0; chantAt = now; audio_sfx(SFX_FANFARE);
+    chantOn = 1; chantFading = 0; chantAt = now; audio_sfx(SFX_WHOOSH);   /* the ENCORE! banner flies in */
 }
 int encore_event(int in, double now) {
     if (!chantOn) return 0;

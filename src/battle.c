@@ -24,7 +24,7 @@ static void alert(const char *text, int side, int small, double perf, uint32_t c
     if (BTL.nalerts == 8) { memmove(BTL.alerts, BTL.alerts + 1, 7 * sizeof BTL.alerts[0]); BTL.nalerts = 7; }
     snprintf(BTL.alerts[BTL.nalerts].text, sizeof BTL.alerts[0].text, "%s", text); BTL.alerts[BTL.nalerts].side = side; BTL.alerts[BTL.nalerts].small = small; BTL.alerts[BTL.nalerts].at = perf; BTL.alerts[BTL.nalerts].col = col; BTL.nalerts++;
 }
-static void fx_over(bside_t *s) { (void)s; sfx(SFX_GO); }   /* an attack is over (GH_SFX_BattleMode_Attack_Over) */
+static void fx_over(bside_t *s) { (void)s; sfx(SFX_ATK_OVER); }   /* an attack is over (GH_SFX_BattleMode_Attack_Over) */
 
 /* ---- cards (bossbattle_select) */
 static int pick(bside_t *s) {
@@ -40,7 +40,7 @@ static int pick(bside_t *s) {
 void battle_award(gh3_run *r, gh3_note *n, double perf) {   /* a phrase of battle gems completed: a card, up to three (a fourth takes the newest one's place) */
     bside_t *s = r->battle; if (!s || BTL.over) return;
     int i = pick(s); if (i < 0) return; s->last = i;
-    if (s->ncards >= BTL.max) s->ncards--; s->cards[s->ncards++] = i; sfx(SFX_READY);
+    if (s->ncards >= BTL.max) s->ncards--; s->cards[s->ncards++] = i; sfx(SFX_BATTLE_AWARD);
     int f = 0; while (f < 4 && !(n->mask & (1 << f))) f++;
     if (BTL.nflies == 4) { memmove(BTL.flies, BTL.flies + 1, 3 * sizeof BTL.flies[0]); BTL.nflies = 3; }
     BTL.flies[BTL.nflies].side = s->side; BTL.flies[BTL.nflies].card = i; BTL.flies[BTL.nflies].at = perf; BTL.flies[BTL.nflies].x = (float)f; BTL.flies[BTL.nflies].y = 0; BTL.nflies++;
@@ -92,7 +92,7 @@ static void hit(bside_t *v, int pi, double t, double perf, bside_t *a, double dr
     else if (id == PU_WHAMMY) { int rep = p->repair[d] > 0 ? (int)p->repair[d] : 4; if (rep > v->whammy) v->whammy = rep; if (v->cpu) v->wNext = t + (BTL.boss->whammySpeed[d] > 0 ? BTL.boss->whammySpeed[d] : 500); }
     else if (id == PU_STEAL) { if (v->ncards && a) { a->cards[a->ncards++] = v->cards[--v->ncards]; if (a->ncards > BTL.max) { memmove(a->cards, a->cards + 1, (a->ncards - 1) * sizeof a->cards[0]); a->ncards--; } } }
     else if (id == PU_DEATH) { v->death = 1; v->deathFrom = t; v->deathUntil = t + drain; }
-    sfx(id == PU_DEATH ? SFX_LOSE : v->cpu ? SFX_STAR_ON : SFX_STAR_OFF);
+    sfx(id >= 0 && id < PU_KINDS ? SFX_ATK_LIGHTNING + id : SFX_STAR_ON);   /* GH_SFX_BattleMode_<attack> */
     if (id == PU_LIGHTNING || id == PU_DIFFUP || id == PU_DOUBLE || id == PU_LEFTY) addfx(v, 0, t + drain); else if (id == PU_STRING) addfx(v, 1, 1e18);   /* GH_Guitar_Battle_DSP_Effects: what is heard on the victim's guitar while it lasts */
     alert(label, v->side, 0, perf, id == PU_DEATH ? RGB(255, 90, 60) : RGB(255, 255, 255)); nAttacks++;
     if (verbose) printf("  %6.0f ms  %-20s on %s (meters %.2f / %.2f)\n", t, label, v->cpu ? BTL.boss->name : "the player", BTL.me.r->health, BTL.cpu.r->health);
@@ -186,6 +186,7 @@ void battle_tick(double perf) {
         if (aut && t >= s->bNext) { int f = -1; for (int g = 0; g < 5; g++) if (s->broken[g] && (f < 0 || s->bseq[g] < s->bseq[f])) f = g; if (f >= 0) { mend(s, f); s->bNext = t + (s->cpu ? (b->stringSpeed[d] > 0 ? b->stringSpeed[d] : 800) : 220); } }
         if (aut && s->whammy > 0 && t >= s->wNext) { s->whammy--; s->wNext = t + (s->cpu ? (b->whammySpeed[d] > 0 ? b->whammySpeed[d] : 500) : 300); if (!s->whammy) fx_over(s); }
         if (s->death && t >= s->deathFrom) { if (t < s->deathUntil) s->r->health = fmax(0, s->r->health - 2 * dts / fmax(1, s->deathUntil - s->deathFrom)); else if (s->r->health > 0) s->death = 0; }
+        if (!s->cpu && !s->r->silent) audio_sfx_loop(SFX_HEARTBEAT, s->death && t >= s->deathFrom && t < s->deathUntil && !BTL.over);   /* GH3_Battlemode_Heartbeat while the player is drained */
         if (aut && s->ncards && s->fireAt > 0 && t >= s->fireAt) { fire(s, perf); s->fireAt = s->ncards ? t + 1500 + frand() * 2500 : 0; }
         { int n = 0; for (int i = 0; i < s->nwins; i++) if (s->wins[i].b > t) s->wins[n++] = s->wins[i]; s->nwins = n; }
         { int anyBroken = 0; for (int f = 0; f < 5; f++) if (s->broken[f]) anyBroken = 1; for (int i = 0; i < s->nfx; i++) if (s->fx[i].a == 1 && !anyBroken) s->fx[i].b = t;   /* a mended string ends its sound */
@@ -221,14 +222,14 @@ static void intro_done(void) { audio_clear(); BTL.phase = BPH_NONE; introSkip = 
 int battle_end(double now) {
     gh3_run *r = &A.S.run;
     if (!BTL.on) {   /* the devil's last part played through: the golden guitar */
-        if (BTL.finishing > 0 && !r->failed && !legendShown) { legendShown = 1; snprintf(BTL.banner, sizeof BTL.banner, "Você é uma lenda do rock!"); BTL.endKind = 3; BTL.phaseMs = 4400; /* TODO movie: Golden_Guitar */ audio_fade_out(0.5); audio_sfx(SFX_FANFARE); A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1; }
+        if (BTL.finishing > 0 && !r->failed && !legendShown) { legendShown = 1; snprintf(BTL.banner, sizeof BTL.banner, "Você é uma lenda do rock!"); BTL.endKind = 3; BTL.phaseMs = 4400; /* TODO movie: Golden_Guitar */ audio_fade_out(0.5); audio_sfx(SFX_DEVIL_DIE); A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1; }
         return 0; }
     if (BTL.shown) return 0;
     if (!BTL.won) r->failed = 1;   /* a battle is won only by making the boss fail */
     BTL.over = 1; audio_fade_out(0.3);
     if (BTL.won && BTL.finishAt > 0) { snprintf(BTL.banner, sizeof BTL.banner, "Agora acabe com ele!"); BTL.endKind = 2; BTL.phaseMs = 2800; /* TODO movie: Satan-Battle_WIN */ }
-    else if (BTL.won) { snprintf(BTL.banner, sizeof BTL.banner, "Você arrasou!"); BTL.endKind = 1; BTL.phaseMs = 4300; /* TODO movie: Player1_wins */ audio_sfx(SFX_FANFARE); }
-    else { snprintf(BTL.banner, sizeof BTL.banner, "%s arrasou!", BTL.boss->name); BTL.endKind = 0; BTL.phaseMs = 4300; /* TODO movie: Satan-Battle_LOSS (Lou), Player2_wins */ audio_sfx(SFX_LOSE); }
+    else if (BTL.won) { snprintf(BTL.banner, sizeof BTL.banner, "Você arrasou!"); BTL.endKind = 1; BTL.phaseMs = 4300; /* TODO movie: Player1_wins */ audio_sfx(SFX_WIN_P1); }
+    else { snprintf(BTL.banner, sizeof BTL.banner, "%s arrasou!", BTL.boss->name); BTL.endKind = 0; BTL.phaseMs = 4300; /* TODO movie: Satan-Battle_LOSS (Lou), Player2_wins */ audio_sfx(SFX_WIN_P2); }
     A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1;
 }
 static void results_count(void) { gh3_run *r = &A.S.run; int n = r->nnotes; while (n > 0 && !r->notes[n - 1].hit && !r->notes[n - 1].missed) n--; r->nnotes = n; }   /* the results count the notes the battle got to */
