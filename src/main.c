@@ -469,6 +469,16 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.S.run.autoPlay = 0; app_finish_song(perf);
     for (double rt = 0; rt <= 1.06; rt += 1.0 / 60) { A.resultsAt = perf - rt * 1000; gfx_begin(); screens_draw(perf); gfx_end(); } save_named("results_reveal");   /* the third star landing, its sparks flying */
     A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
+    A.resultsAt = perf - 500; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_rock");
+    A.resultsAt = perf - 1550; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_burst"); A.resultsAt = perf - 3000;   /* and bursting apart */   /* the letters shaking over the landing page */
+    { gh3_run *r = &A.S.run; int mode = A.mode, row = A.resRow, rec = A.newRecord;   /* in memory only: some notes missed, then practice, a new record, a failed run */
+      for (int i = r->nnotes / 2; i < r->nnotes; i += 5) if (r->notes[i].hit) { r->notes[i].hit = 0; r->hits--; } A.resultPct = r->nnotes ? (int)(100.0 * r->hits / r->nnotes + 0.5) : 0;
+      A.newRecord = 1; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_record"); A.newRecord = rec;
+      A.mode = MODE_PRACTICE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_practice"); A.mode = mode;
+      r->failed = 1; r->now = r->endMs * 0.43; A.resRow = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_failed"); r->failed = 0; A.resRow = row;
+      if (lib.battle.nbosses) { int on = BTL.on, won = BTL.won, mf = BTL.me.fired, cf = BTL.cpu.fired; const gh3_boss *bs = BTL.boss; BTL.on = 1; BTL.won = 1; BTL.boss = &lib.battle.bosses[0]; BTL.me.fired = 5; BTL.cpu.fired = 3;   /* a battle won, then lost */
+        gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_battle"); BTL.won = 0; r->failed = 1; A.resRow = 0; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_battle_lost");
+        r->failed = 0; A.resRow = row; BTL.on = on; BTL.won = won; BTL.me.fired = mf; BTL.cpu.fired = cf; BTL.boss = bs; } }
     { tierstate_t *ts = &A.tiers[A.selTier]; ts->regDone = ts->required; ts->encoreOpen = 1;   /* in memory only: as if the set's songs were done, the encore is offered */
       A.resRow = 1; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results_encore");
       screens_event(IN_OK, perf); if (A.screen == SC_SETUP) { gfx_begin(); screens_draw(perf + 1500); gfx_end(); save_named("encore"); encore_event(IN_BACK, perf); } }

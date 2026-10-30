@@ -180,3 +180,9 @@ void ga_release(void) {
     free(bank); bank = NULL; bankLen = 0; free(texes); texes = NULL; ntexes = 0; for (int i = 0; i < nscns; i++) free(scns[i]); free(scns); free(scnLens); scns = NULL; scnLens = NULL; nscns = 0; bankTried = 0;
     memUsed = 0;
 }
+void ga_text_dir(const ga_font *f, float x, float y, float size, float sx, float ca, float sa, const char *s, uint32_t color) {
+    if (!f || !s) return; float k = size / f->size, d = 0, al = (color >> 24) / 255.0f; uint32_t tint = color & 0xFFFFFF;
+    while (*s) { int c = utf8_next(&s); const glyph_t *g = c == ' ' ? NULL : glyph_of(f, c);
+        if (g && g->sw > 0 && g->sh > 0) gfx_blit(f->sheet, g->sx, g->sy, g->sw, g->sh, x + d * ca, y + d * sa + (f->asc + g->yo - g->h) * k, g->w * k * sx, g->h * k, tint, al);
+        d += (g ? g->w + f->gap : f->space) * k * sx; }
+}

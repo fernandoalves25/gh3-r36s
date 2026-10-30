@@ -31,4 +31,7 @@ int ga_glyph(const ga_font *f, int code, int *sx, int *sy, int *sw, int *sh, flo
 gfx_sprite *ga_font_sheet(const ga_font *f);
 /* DDS -> ARGB (fb_init'ed into out); 0 when fine */
 int ga_decode_dds(const uint8_t *b, size_t n, fb_t *out);
+/* text stretched across by sx and laid along the direction (ca, sa) (cos, sin of a turn, clockwise on screen) from x, y,
+ * each letter upright (the results' magazine sets its lines tilted) */
+void ga_text_dir(const ga_font *f, float x, float y, float size, float sx, float ca, float sa, const char *s, uint32_t color);
 #endif
