@@ -22,6 +22,8 @@ typedef struct {
     int offsetMs;       /* audio lag compensation: the song clock used for notes and judging is the heard clock minus this */
     int bgDim;          /* 0..100: how dark the stage behind the highway is */
     int unlockAll;      /* every song open whatever the career says */
+    int easyExpert, precision;   /* cheats of the game: hit windows doubled / halved (cheats.c) */
+    int cheatCodes;     /* bit per cheat (the game's order) whose code was played on the cheats screen */
     int theme;          /* 0 pixel art, 1 HD (smooth) */
     int introMovies;    /* the logos and the game's intro at start-up */
     int careerIntro;    /* the career's opening movie was shown (kept by Restaurar padrões) */

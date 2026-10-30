@@ -10,6 +10,8 @@
 #include "practice.h"
 #include "store.h"
 #include "battle.h"
+#include "cheats.h"
+#include "tutorial.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,9 +101,9 @@ static void draw_main(double now) {
 }
 enum { TR_TUTORIAL, TR_PRACTICE, TR_N };
 static const char *TR_LABEL[TR_N] = { "TUTORIAIS", "TREINAR MÚSICA" };
-static const int TR_OFF[TR_N] = { 1, 0 };
+static const int TR_OFF[TR_N] = { 0, 0 };
 static const char *TR_HELP[TR_N] = {
-    "As lições narradas do jogo (Lou e o Deus do Rock). Os roteiros delas ainda não foram portados.",
+    "As lições narradas do jogo, com o Deus do Rock e Lou: o básico, Star Power, batalhas, hammer-ons e pull-offs.",
     "Escolha uma música já liberada e a seção onde começar. A música não falha e nada é salvo: é só para treinar." };
 static void draw_training(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; ui_header(W, "TREINO", NULL);
@@ -204,7 +206,7 @@ static const char *CAT_HELP[CAT_N] = {
     "Volumes da banda, da guitarra e dos efeitos, a música do menu, as prévias e o atraso do áudio.",
     "Toca um clique e você palheta no ritmo: o jogo mede o atraso do som e ajusta as notas e o julgamento. Faça antes de jogar.",
     "Canhoto, modo de palhetada e os botões de cada ação.", "Tema visual, efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
-    "Os seus melhores resultados em cada música.", "Hyperspeed, sem falhar e liberar todas as músicas.", "Volta todas as opções e controles ao padrão (recordes e carreira ficam)." };
+    "Os seus melhores resultados em cada música.", "As trapaças do jogo: toque os códigos nos trastes ou ligue cada uma direto.", "Volta todas as opções e controles ao padrão (recordes e carreira ficam)." };
 static const int CAT_ITEMS[CAT_N][7] = { { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, -1 }, { -1 }, { OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, -1 },
     { OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }, { -1 }, { OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, -1 }, { -1 } };
 static int cat_count(int c) { int n = 0; while (n < 7 && CAT_ITEMS[c][n] >= 0) n++; return n; }
@@ -313,6 +315,7 @@ static void draw_results(double now) {
     if (A.newRecord && !r->failed && T > 1.9) { float k = (float)fmin(1, (T - 1.9) / 0.3); int w = 230; ui_panel(W / 2 - w / 2, 356 - (int)(10 * (1 - k)), w, 32, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_CROWN), W / 2 - w / 2 + 10, 362, 1, RGB(255, 255, 255), 1); gfx_text_sh(W / 2 - w / 2 + 40, 362, 2, "NOVO RECORDE!", C_INK, C_SHADOW); }
     if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, sizeof b, "Treino a %d%% da velocidade: nada é salvo.", (int)lround(PRACTICE_SPEED[k] * 100)); gfx_text_center(W / 2, 362, 1, b, C_SP); }
     else if (SET.noFail && !r->failed) gfx_text_center(W / 2, 362, 1, "Modo sem falhar: não vale para recordes nem para a carreira.", C_MUTED);
+    else if (!cheats_records_ok(A.mode) && !r->failed) gfx_text_center(W / 2, 362, 1, "Easy Expert: não vale para recordes.", C_MUTED);
     else if (A.mode == MODE_QUICK && !r->failed && !A.newRecord) gfx_text_center(W / 2, 362, 1, "Jogo rápido: o recorde conta, a carreira não muda.", C_MUTED);
     store_draw_result(W, 200, T);
     const char *it[2] = { "Tocar de novo", A.mode == MODE_PRACTICE ? "Mudar o treino" : store_encore_offer() >= 0 ? "Encore!" : "Lista de músicas" }; int by = 404;
@@ -336,7 +339,7 @@ static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = 
 void screens_draw(double now) {
     switch (A.screen) { case SC_TITLE: draw_title(now); break; case SC_MAIN: draw_main(now); break; case SC_TRAINING: draw_training(now); break; case SC_TOPROCK: draw_toprock(now); break;
         case SC_SETLIST: draw_setlist(now); break; case SC_SETUP: draw_setup(now); break; case SC_OPTIONS: draw_options(now); break; case SC_CONTROLS: draw_controls(now); break;
-        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; case SC_BATTLE: battle_screen_draw(now); break; default: draw_error(now); }
+        case SC_PAUSE: draw_pause(now); break; case SC_STORE: store_draw(now); break; case SC_CHEATS: cheats_draw(now); break; case SC_TUTORIAL: tutorial_frame(now); break; case SC_CALIB: draw_calib(now); break; case SC_RESULTS: draw_results(now); break; case SC_BATTLE: battle_screen_draw(now); break; default: draw_error(now); }
     draw_note(now);
 }
 
@@ -372,7 +375,7 @@ void screens_event(int in, double now) {
     } else if (A.screen == SC_TRAINING) {
         if (menu_move(in, &A.trainRow, TR_N)) return;
         if (in == IN_BACK) { A.screen = SC_MAIN; audio_sfx(SFX_BACK); }
-        else if (in == IN_OK) { if (A.trainRow == TR_TUTORIAL) { audio_sfx(SFX_BACK); note(now, "Os tutoriais narrados ainda não foram portados."); } else { A.practiceSec = A.practiceEnd = 0; open_mode(MODE_PRACTICE, now); } }
+        else if (in == IN_OK) { if (A.trainRow == TR_TUTORIAL) { audio_sfx(SFX_OK); app_preview(-1); tutorial_open(now); } else { A.practiceSec = A.practiceEnd = 0; open_mode(MODE_PRACTICE, now); } }
     } else if (A.screen == SC_SETLIST) {
         if (in == IN_UP || in == IN_DOWN) { int was = A.cursor; move_cursor(in == IN_UP ? -1 : 1); if (A.cursor != was) { audio_sfx(SFX_MOVE); app_preview(A.rows[A.cursor].idx); } }
         else if (in == IN_LEFT || in == IN_RIGHT || in == IN_L || in == IN_R) { A.selDiff = (A.selDiff + 4 + ((in == IN_RIGHT || in == IN_R) ? 1 : -1)) % 4; app_refresh_career(0); audio_sfx(SFX_MOVE); }
@@ -395,6 +398,7 @@ void screens_event(int in, double now) {
             if (cat_off(A.optRow)) { audio_sfx(SFX_BACK); return; }
             if (A.optRow == CAT_CALIB) { audio_sfx(SFX_OK); app_calib_start(SC_OPTIONS); }
             else if (A.optRow == CAT_TOP) { A.screen = SC_TOPROCK; A.topDiff = A.selDiff; A.topScroll = 0; while (A.topScroll < A.nrows - 1 && A.rows[A.topScroll].kind == 0) A.topScroll++; audio_sfx(SFX_OK); }
+            else if (A.optRow == CAT_CHEATS) { cheats_open(); audio_sfx(SFX_OK); }
             else if (A.optRow == CAT_RESET) { int seen = SET.careerIntro; settings_defaults(); SET.careerIntro = seen; A.preset = 0; app_apply_volumes(); app_refresh_career(0); audio_sfx(SFX_OK); note(now, "Opções e controles voltaram ao padrão."); }
             else { A.optCat = A.optRow; A.optRow = 0; audio_sfx(SFX_OK); }
             return; }
@@ -430,7 +434,9 @@ void screens_event(int in, double now) {
     } else if (A.screen == SC_CALIB) {
         if (in == IN_OK) { if (A.calN >= 6) { SET.offsetMs = app_calib_result(); settings_save(); audio_sfx(SFX_FANFARE); } else audio_sfx(SFX_BACK); app_calib_stop(); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_CALIB; }
         else if (in == IN_BACK) { app_calib_stop(); A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = CAT_CALIB; audio_sfx(SFX_BACK); }
-    } else if (A.screen == SC_ERROR) { if (in == IN_OK || in == IN_BACK) { app_session_free(); if (A.libOk) to_main(); else app_quit(); } }
+    } else if (A.screen == SC_CHEATS) cheats_event(in, now);
+    else if (A.screen == SC_TUTORIAL) tutorial_event(in, now);
+    else if (A.screen == SC_ERROR) { if (in == IN_OK || in == IN_BACK) { app_session_free(); if (A.libOk) to_main(); else app_quit(); } }
 }
 int screens_raw_event(const SDL_Event *ev, double now) {
     if (A.screen == SC_CALIB) { inev_t evs[4]; int n = input_translate(ev, evs, 4);
@@ -438,6 +444,8 @@ int screens_raw_event(const SDL_Event *ev, double now) {
             double te = audio_song_ms() - (SDL_GetTicks() - ev->common.timestamp); long k = lround(te / 500); if (k < 0) continue; double d = te - k * 500.0; if (fabs(d) > 240) continue;
             if (A.calN == 24) { memmove(A.calDiff, A.calDiff + 1, 23 * sizeof(double)); A.calN = 23; } A.calDiff[A.calN++] = d; A.calLastDiff = d; A.calLastTapAt = now; }
         return n > 0 && (evs[0].action == ACT_STRUM_UP || evs[0].action == ACT_STRUM_DOWN); }
+    if (A.screen == SC_CHEATS) return cheats_raw_event(ev, now);
+    if (A.screen == SC_TUTORIAL) return tutorial_raw_event(ev, now);
     if (A.screen != SC_CONTROLS) return 0;
     if (A.capturing) { bind_t b; if (now - A.capAt < 250) return 1; /* the A press that opened the capture is not the answer */ if (input_capture(ev, A.ctlRow - 1, &b)) { int a = A.ctlRow - 1; if (a >= 0 && a < ACT_N) {
             for (int x = 0; x < ACT_N; x++) for (int s = 0; s < BIND_SLOTS; s++) if (SET.binds[x][s].type == b.type && SET.binds[x][s].id == b.id && SET.binds[x][s].dir == b.dir) memset(&SET.binds[x][s], 0, sizeof b); /* one button, one job */

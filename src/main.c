@@ -27,6 +27,8 @@
 #include "store.h"
 #include "movie.h"
 #include "battle.h"
+#include "cheats.h"
+#include "tutorial.h"
 
 /* ------------------------------------------------------------------ files */
 typedef struct { char lower[300]; char path[600]; size_t size; } fentry;
@@ -59,7 +61,7 @@ static uint8_t *read_data(const char *dir, const char *name, size_t *len) { cons
 /* ------------------------------------------------------------------ config */
 typedef struct {
     char data[520]; int W, H, fullscreen, vsync, soft;
-    int frames, every; char song[64]; int diff, part, autoPlay, dump, audiotest, menutest, screens, stretchtest; char outdir[520]; char movietest[64]; int movieplay; int miss;
+    int frames, every; char song[64], tutorial[16]; int diff, part, autoPlay, dump, audiotest, menutest, screens, stretchtest; char outdir[520]; char movietest[64]; int movieplay; int miss;
 } cfg_t;
 static cfg_t cfg;
 static int moneyTest;   /* --moneytest: the career's pay rules, the store data and the encore chants */
@@ -84,6 +86,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--movietest")) { snprintf(cfg.movietest, sizeof cfg.movietest, "%s", v); i++; }
         else if (!strcmp(a, "--movieplay")) cfg.movieplay = 1;
         else if (!strcmp(a, "--screens")) { cfg.screens = 1; snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
+        else if (!strcmp(a, "--tutorial")) { snprintf(cfg.tutorial, sizeof cfg.tutorial, "%s", v); i++; }
         else if (!strcmp(a, "--song")) { snprintf(cfg.song, sizeof cfg.song, "%s", v); i++; }
         else if (!strcmp(a, "--diff")) { cfg.diff = diff_index(v); i++; }
         else if (!strcmp(a, "--part")) { cfg.part = !strcmp(v, "rhythm") || !strcmp(v, "bass") ? 1 : atoi(v); i++; }
@@ -98,7 +101,7 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--windowed")) cfg.fullscreen = 0;
         else if (!strcmp(a, "--fullscreen")) cfg.fullscreen = 1;
         else if (!strcmp(a, "--size")) { sscanf(v, "%dx%d", &cfg.W, &cfg.H); i++; }
-        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
+        else if (!strcmp(a, "--help")) { printf("gh3 [--data DIR] [--dump [--song NAME]] [--frames N --song NAME [--diff easy|medium|hard|expert] [--part guitar|rhythm] --out DIR] [--screens DIR] [--movietest NAME|all [--movieplay] --out DIR] [--stretchtest [--song NAME]] [--tutorial 1a..4e|1..4 [--frames N --every K --out DIR]] [--auto] [--tap] [--soft] [--windowed] [--size WxH]\n"); exit(0); }
     }
 }
 
@@ -147,12 +150,17 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
         if (!k) { snprintf(err, errCap, "Esse trecho não tem notas nesta parte"); return -1; }
         c->nnotes = k; if (to + 120 < endMs) endMs = to + 120; }
     o.endMs = endMs; o.speed = 100;
-    game_new(&S->run, &S->chart, &lib.tuning, diff, &o);
+    game_new(&S->run, &S->chart, cheats_tuning(&lib.tuning, A.mode), diff, &o);
     S->loaded = 1; return 0;
 }
 const char *app_section_at(double t) {
     session_t *S = &A.S; const gh3_marker *m = NULL; for (int i = 0; i < S->sd.nmarkers; i++) if (S->sd.markers[i].t <= t) m = &S->sd.markers[i]; else break;
     if (!m) return ""; return m->text[0] ? m->text : gh3_library_text(&lib, m->key);
+}
+uint8_t *app_read_data(const char *dir, const char *name, size_t *len) { return read_data(dir, name, len); }
+int app_load_song_named(const char *name, int diff, int autoPlay, int withAudio, char *err, size_t errCap) {
+    for (int i = 0; i < lib.nsongs; i++) if (!strcasecmp(lib.songs[i].name, name)) return load_song(&lib.songs[i], 0, diff, autoPlay, withAudio, err, errCap);
+    snprintf(err, errCap, "%s não está na lista de músicas", name); return -1;
 }
 int app_prepare_song(int songIdx) { char e[300]; if (load_song(&lib.songs[songIdx], A.selPart, A.selDiff, 1, 0, e, sizeof e)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", e); A.screen = SC_ERROR; return -1; } return 0; }
 void app_apply_volumes(void) { audio_set_master(1); audio_set_bus_gain(BUS_PLAYER, SET.volGuitar / 100.0); audio_set_bus_gain(BUS_BAND, SET.volMusic / 100.0); audio_set_bus_gain(BUS_OTHER, SET.volMusic / 100.0); audio_set_sfx_gain(SET.volSfx / 100.0 * 0.9); }
@@ -223,7 +231,7 @@ static int menu_music_wanted(void) {
     if (!SET.menuMusic || !bankFound || !nMenu || !audio_has_device()) return 0;
     if (A.screen == SC_SETLIST && prevWant >= 0) return 0;
     switch (A.screen) { case SC_TITLE: case SC_MAIN: case SC_TRAINING: case SC_SETLIST: case SC_SETUP: case SC_TOPROCK: case SC_ERROR: case SC_STORE: return 1;
-        case SC_OPTIONS: case SC_CONTROLS: return A.optionsFrom != SC_PAUSE; default: return 0; }
+        case SC_OPTIONS: case SC_CONTROLS: case SC_CHEATS: return A.optionsFrom != SC_PAUSE; case SC_TUTORIAL: return !tutorial_busy(); default: return 0; }
 }
 static void preview_tick(void) {
     double now = SDL_GetTicks();
@@ -357,7 +365,7 @@ void app_finish_song(double now) {
     A.resultStars = r->failed || BTL.on ? 0 : game_stars(r->score, A.S.chart.base);   /* (a battle is won or lost, without stars) */ A.resultsAt = now; A.starsSounded = 0; A.resRow = r->failed ? 0 : 1; A.newRecord = 0;
     if (r->failed) { audio_fade_out(1.5); audio_sfx(SFX_FAIL); }
     else if (A.mode == MODE_PRACTICE) audio_fade_out(0.8);   /* the run may end mid-song, at its last section */
-    else if (!r->autoPlay && !SET.noFail && A.mode != MODE_PRACTICE) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars, A.mode == MODE_CAREER); app_refresh_career(A.mode == MODE_CAREER); }
+    else if (!r->autoPlay && !SET.noFail && cheats_records_ok(A.mode) && A.mode != MODE_PRACTICE) { A.newRecord = records_put(A.S.song->name, A.S.diff, A.S.part, A.resultScore, A.resultPct, r->best, A.resultStars, A.mode == MODE_CAREER); app_refresh_career(A.mode == MODE_CAREER); }
     store_result(A.S.song, A.S.diff, A.resultStars, !r->failed && !r->autoPlay && !SET.noFail && A.mode == MODE_CAREER);   /* the career's pay (none elsewhere) */
     A.screen = SC_RESULTS;
 }
@@ -413,6 +421,14 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
     A.optCat = 3; A.optRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on Vídeos de abertura */
     A.screen = SC_CONTROLS; A.ctlRow = 3; A.testHeld = 0x0A; A.testWhammy = 0.6f; gfx_begin(); screens_draw(0); gfx_end(); save_named("controls");
+    A.optionsFrom = SC_MAIN; A.optRow = 5; cheats_open(); gfx_begin(); screens_draw(0); gfx_end(); save_named("cheats");
+    { /* the Hyperspeed code of the game (O B O Y O B O Y) typed on the keyboard frets, to see the matcher unlock it */
+      static const SDL_Keycode code[8] = { SDLK_5, SDLK_4, SDLK_5, SDLK_3, SDLK_5, SDLK_4, SDLK_5, SDLK_3 }; int hyper = SET.hyper; SET.hyper = 0; screens_event(IN_OK, 1000);
+      for (int k = 0; k < 8; k++) { SDL_Event e; memset(&e, 0, sizeof e); double at = 2000 + k * 300;
+          e.type = SDL_KEYDOWN; e.key.keysym.sym = code[k]; screens_raw_event(&e, at); e.key.keysym.sym = SDLK_DOWN; screens_raw_event(&e, at + 50);
+          e.type = SDL_KEYUP; screens_raw_event(&e, at + 80); e.key.keysym.sym = code[k]; screens_raw_event(&e, at + 100); }
+      gfx_begin(); screens_draw(4500); gfx_end(); save_named("cheats_code"); printf("cheat code test: hyperspeed %d, codes 0x%x\n", SET.hyper, SET.cheatCodes); SET.hyper = hyper; }
+    tutorial_open(0); gfx_begin(); screens_draw(0); gfx_end(); save_named("tutorials");
     A.screen = SC_CALIB; A.calN = 9; for (int i = 0; i < 9; i++) A.calDiff[i] = 40 + (i % 3) * 6; A.calLastDiff = 46; A.calLastTapAt = -100; gfx_begin(); screens_draw(0); gfx_end(); save_named("calib");
     double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
     snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(t)); A.screen = SC_PAUSE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("pause");
@@ -454,6 +470,7 @@ int main(int argc, char **argv) {
     A.lib = &lib; A.autoPlay = cfg.autoPlay; A.selDiff = 1;
     if (A.libOk) store_load(&lib);
     if (cfg.dump) { if (!A.libOk) { puts(libErr); return 1; } dump(); return 0; }
+    if (*cfg.tutorial) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); headless_init(); bank_index(); return tutorial_headless(cfg.tutorial, cfg.frames > 0 ? cfg.frames : 3600, cfg.every, save_named); }   /* --tutorial 1b [--frames N --every K --out DIR]: a lesson played by the bot */
     if (cfg.frames > 0) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); frames_mode(); return 0; }
     if (cfg.screens) { if (!A.libOk) { puts(libErr); return 1; } SDL_Init(0); screens_mode(); return 0; }
     if (cfg.menutest) { SDL_Init(0); menu_selftest(); return 0; }

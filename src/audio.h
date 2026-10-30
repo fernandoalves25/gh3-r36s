@@ -45,4 +45,8 @@ int audio_movie_push(const float *lr, int frames);     /* frames taken (as many 
 int audio_movie_queued(void);                          /* frames waiting in the ring */
 void audio_movie_run(int on);                          /* 0: silent and the ring stays put */
 double audio_movie_ms(void);                           /* ms of the pushed sound heard so far (-1: no device) */
+/* a spoken clip (the tutorial narration) mixed over the song, the previews and the effects, playing on while the song
+ * is paused; one at a time: a new clip (or NULL) replaces the old, whose bytes the caller may free once this returns */
+void audio_voice(const uint8_t *mp3, size_t size, double levelDb);
+int audio_voice_on(void);
 #endif
