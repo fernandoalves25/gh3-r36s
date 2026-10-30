@@ -100,7 +100,9 @@ u32 @0x24 = matSize ; matEnd = 0x20 + matSize ; materials start 0x20 + u32@0x28
  UV block at vAt: stride = floor(vSize/nVert) (8 = 2xf32 uv, or 12 = 4-byte colour + uv); layout from type bytes at vAt-0x20+2.. (0x0A colour, 0x05 uv pair); uv = 2 x f32 BE; V as stored (JS flips nothing, textures uploaded un-flipped).
  SKIN block at sAt: 4 x u32 @sAt+0x10..0x1c = number of groups of kind w=0,1,2,3. Data from sAt+0x20, groups in order w=0..3:
    group header 16 B: u32 num ; u8 b0,b1,b2 (bone INDEX into the skeleton) ; 12 pad.   then num x 56-byte vertices:
-   f32 @0 posX, @12 nrmX, @16 posY, @28 nrmY, @32 posZ, @44 nrmZ   (rows of 4 floats: [pos_r, tangent?, bitangent?, nrm_r]; tangents unused)
+   f32 @0 posX, @4 nrmX, @16 posY, @20 nrmY, @32 posZ, @36 nrmZ   (rows of 4 floats: [pos_r, nrm_r, two surface axes]; the axes unused)
+   (until 2026-10-30 the port read @12/@28/@44 as the normal: that is a surface axis, about the picture's up; a light from above lit the faces. Checked
+    by lighting the crowd figures from one side at a time: with @4 a light from the front lights the faces, from above the shoulders)
    f32 @48 w0, @52 w1 (only for w>=2);  w<=1: single bone b0 weight 1;  w==2: bones b0,b1 weights w0,w1;  w==3: b0,b1,b2 weights w0,w1,1-w0-w1
  vertex order of the skin block == vertex index order used by the index strip and the uv block.
 ```
@@ -297,13 +299,27 @@ Camera shots can be locked to a role (`lockto`), orbiting its holder; not part o
   The game renders each ped (skeleton gh3_ped 0xbb6e508c, 28 bones; skins 473-1231 verts, 11-18 bones) into a 128x256 RGBA render target with an orthographic camera (w ~1.15 x h 2.58 m, camera at z=6) and maps that texture on the panel (alpha-test 0.5, DoubleSide). Redrawn every 2nd frame, alternating (`(i+frameN)%2==0`).
 - animation: `kind = starpower if sp>0.5 else idle`, mood bad/normal/good from level, speed slow/med/fast from bpm; pick list[n++ % len] from the crowd anim_set (idle: 2-3 variations, 2-3 s each; clip changes when time >= dur-0.32 or when kind/mood changes after 0.6 s; fade 0.3). Clips are in perm_anims (28-bone ones, 3-27 KB).
 - lighting of the figures: ambient = sum of the venue's crowd-group ambient lights, key = other crowd-group lights (fallback 0.45 / 0.55).
-- lighters: `crowd_startlighters` event shows a lighter mesh group swaying 0.1*sin. Not needed.
+  The crowd script (qb.pak entry 258, the one building `<zone>_crowd_models`) makes each figure a gameobject at (-500, -200 - 100 i, 0), quat (0,1,0),
+  `lightgroup = crowd`, renders it into its viewport with a camera named by the model's `Camera` (the same key per slot in every venue) given `hfov 20`
+  and placed by an engine function (0xf4034b94, not a script; an optional per-model angle 0x3e8cb183 = +-90 in z_video). So no per-model framing data.
+  The crowd lights stand at x = -500 too: dive ambient (1,.83,.58) i.4 + dir straight down i.6; budokan ambient (.40,.61,1) i.4 + dir quat
+  [0,.875,-.484,0] i.8; prison ambient (.52,.58,1) i.4 + the same dir i.125 (.99,1,.78) + dir identity quat i.5 (.27,.61,1). The light show's
+  snapshots list them (dive's dir runs .6-1.2). Port: the two strongest directional ones + the ambients, x2.4, light dirs as the venue gives them
+  (budokan's key from the front and above, prison's blue from behind); the figure's quat (0,1,0) left out (it would put budokan's key behind them).
+- lighters: `crowd_startlighters` = KillSpawnedScript + spawn a loop (0xc1b3dc6b, once a frame): while the crowd's mood is not BAD every crowd profile
+  plays its anim set's 0xb394c01c lists (one arm up: 0x16394e35 / 0xb814637e), the right hand model becomes Crowd_HandR_Lighter (not on the PC
+  copy) and the lighter objects `%s_LIGHTER_Geo%02d` (index 0..14) are shown; mood BAD: idle, hand back to Clap, lighters hidden.
+  `crowd_stoplighters` kills the loop and does the same. The sway is each lighter object's own TriggerScript (in the zone's .nqb):
+  `begin obj_movetorelpos {(0.3,0,0) speed=0.2} obj_waitmove obj_movetorelpos {(-0.3,0,0) speed=0.2} obj_waitmove repeat` (0.2 or 0.3 m at 0.2 m/s,
+  +x or -x first: a 2-3 s round trip; budokan geo03, the one up in the stands, has none).
 - Port tip: ~6 FBO textures of 128x256 re-skinned at 15-30 Hz is cheap (a ped is <=1.2k verts); or pre-bake a few frames per ped.
 - C port (src/r3d/r3d_crowd.c): the cards are template a17d40ed (unlit + camera-facing board, alpha ref 100), 1.15x2.58 (dive),
   1.0x2.58 (budokan), 1.0x1.87 (prison) quads, hundreds per kind, vertex colours 57-165 (drawn x1.6). Every kind is a 128x256 cell
   of one 512x512 atlas (no mipmaps), each kind redrawn at 15 Hz round robin, <=2 figures a frame (only kinds on screen); the venue batch picks its cell
-  with uAnim (fps 0). Lighter groups `<zone>_lighter_geo01..24` exist in budokan, prison, wikker (hidden by the venue's
-  scripts); 34 songs cue crowd_startlighters (paintitblack, citiesonflame, thrufireandflames, ...).
+  with uAnim (fps 0). Lighter groups `<zone>_lighter_geo01..24` exist in budokan (01-04), prison and wikker (01, 10, 11) (hidden by the venue's
+  scripts); 34 songs cue crowd_startlighters (paintitblack, citiesonflame, thrufireandflames, ...). Each group is its own batch, drawn with the
+  view matrix moved by its script's sway (r3d_crowd_sway); the figures take the lighter lists while they are up. The frame each figure is drawn
+  in holds the highest its set's clips reach (2.03-2.20 m, measured at load by posing the points): prison's 1.87 m cards get a 1.23x2.29 frame.
 
 ## 8. Shadows / lights (js bandShadows 6828)
 Planar projected shadow: the band's skinned meshes are drawn a second time through a matrix that flattens every vertex along the venue's shadow direction (`venueShadow` 1195: shadow-casting band light dir, else straight down) onto y = holder.y + 0.012 with black, opacity `shadowDark` (0.35 from script `tod_manager_create_perm_lights` setdynamicshadowintensity), stencil NotEqual-1 so overlapping triangles do not double-darken. Cost = a second skinned draw of the whole band (can reuse the skinned vertex buffer on CPU skinning, or run the skin shader with the projection matrix on the GPU).

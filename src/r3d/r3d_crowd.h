@@ -9,13 +9,21 @@
  * scheme: every kind in one pass with a mipmap build, every 4th frame);
  * the cards are ordinary venue batches (r3d.c) that wear the atlas with their cell picked through the venue shader's
  * frames (uAnim). The figures play idle / starpower by the rock meter's mood (bad, normal, good) and the song's pace
- * (slow, med, fast), round robin with 0.3 s cross-fades. Opções > Vídeo > Efeitos de palco off: no crowd. */
+ * (slow, med, fast), round robin with 0.3 s cross-fades; while the song has the lighters up (and the meter is not in the red) the
+ * sets' lighter lists, as the game's crowd_startlighters loop does. They are lit as the game lights them: by the venue's
+ * crowd-group lights alone (lightgroup $crowd: an ambient and one or two directional ones), as the light show has them now.
+ * Each figure's frame holds the highest its set's animations take it (raised arms, 2.0-2.2 m): a card shorter than that
+ * (z_prison's 1.87 m) shows the figure a little smaller, not cut off (the game's crowd camera is placed by the engine, hfov 20,
+ * no framing in the data). Opções > Vídeo > Efeitos de palco off: no crowd. */
 #ifndef R3D_CROWD_H
 #define R3D_CROWD_H
 #include <stdint.h>
 #include <stddef.h>
+#include "r3d_zone.h"
 int r3d_crowd_init(void);                 /* after the GL entry points are loaded: the figures' shader; 0 when fine */
-void r3d_crowd_zone(const char *zone);    /* a venue is being loaded (before its meshes): its crowd list, the figures' models and animations (kept for the next venue) */
+/* a venue is being loaded (before its meshes): its crowd list, the figures' models and animations (kept for the next venue), the crowd's
+ * lights and the lighters' sway (their objects' TriggerScripts, in the zone pak's scripts) */
+void r3d_crowd_zone(const char *zone, const gh3_pakent *ents, int n, const r3d_venueqb *vq);
 /* a crowd card mesh of the venue wearing this picture (pos/ctr: its points and their card centres as the .scn stores them,
  * the centre in the normals): the kind it shows, -1 when there is none (the card is then left out) */
 int r3d_crowd_card(uint32_t texKey, const float *pos, const float *ctr, int nvert);
@@ -27,7 +35,8 @@ void r3d_crowd_update(double perf, int sp);   /* before the venue's pass (outsid
 /* the lighters: <zone>_lighter_geo01..24, parts the venue keeps hidden until the song's _performance says
  * crowd_startlighters (crowd_stoplighters takes them down); the slow songs have them */
 int r3d_crowd_lighter(uint32_t sector);   /* a part of the venue that is one of its lighter groups: 1 + which, else 0 */
-int r3d_crowd_lighters(void);             /* are they up now (the song's clock; R3D_CROWD_LIGHTERS=1 forces them) */
+int r3d_crowd_lighters(void);             /* are they up now (the song's clock, the meter out of the red; R3D_CROWD_LIGHTERS=1 forces them) */
+int r3d_crowd_sway(int lighter, float off[3]);   /* where that group (1 + which) has swayed to now, as its script moves it; 0 when it stays put */
 void r3d_crowd_select(void);              /* the song about to be played (A.selSong): its lighter cues, read now, under the loading screen */
 void r3d_crowd_unload(void);              /* the venue goes: its kinds and pictures (the models and animations stay) */
 void r3d_crowd_shutdown(void);

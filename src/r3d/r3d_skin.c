@@ -92,7 +92,7 @@ int r3d_skin_read(const uint8_t *b, size_t n, r3d_skin *o) {
             if (p + 16 > n) { bad = 1; break; } uint32_t num = u32(b + p); int b0 = b[p + 4], b1 = b[p + 5], b2 = b[p + 6]; p += 16;
             if (v + num > (uint32_t)nVert || p + (size_t)num * 56 > n) { bad = 1; break; }
             for (uint32_t k = 0; k < num; k++, v++, p += 56) {
-                me.pos[v * 3] = f32(b + p); me.pos[v * 3 + 1] = f32(b + p + 16); me.pos[v * 3 + 2] = f32(b + p + 32); me.nrm[v * 3] = f32(b + p + 12); me.nrm[v * 3 + 1] = f32(b + p + 28); me.nrm[v * 3 + 2] = f32(b + p + 44);
+                me.pos[v * 3] = f32(b + p); me.pos[v * 3 + 1] = f32(b + p + 16); me.pos[v * 3 + 2] = f32(b + p + 32); me.nrm[v * 3] = f32(b + p + 4); me.nrm[v * 3 + 1] = f32(b + p + 20); me.nrm[v * 3 + 2] = f32(b + p + 36);   /* a point: x, y, z rows of position, normal and two surface axes (the normal is the 2nd: lit from the front, faces light up), 2 weights */
                 float w0 = w <= 1 ? 1 : f32(b + p + 48), w1 = w <= 1 ? 0 : f32(b + p + 52), w2 = w >= 3 ? fmaxf(0, 1 - w0 - w1) : 0;
                 me.bone[v * 3] = (uint8_t)b0; me.bone[v * 3 + 1] = (uint8_t)(w >= 2 ? b1 : b0); me.bone[v * 3 + 2] = (uint8_t)(w >= 3 ? b2 : b0); me.w[v * 3] = w0; me.w[v * 3 + 1] = w1; me.w[v * 3 + 2] = w2; } }
         if (!bad && v == nVert) me.ntri = strip(b, iAt, nIdx, nVert, &me.idx);

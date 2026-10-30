@@ -4,6 +4,7 @@
 #include "r3d_gl.h"
 #include "r3d_skin.h"
 #include "r3d_zone.h"
+#include "r3d_lights.h"
 #include "app.h"
 #include "settings.h"
 #include <stdio.h>
@@ -18,6 +19,8 @@
 #define TH 256
 #define FADE 0.3f
 #define PED_SKE 0xbb6e508cu  /* gh3_ped */
+#define K_LIGHTER 0xb394c01cu   /* the anim sets' third list (name unknown): what crowd_startlighters' loop gives every crowd profile while the lighters are up */
+#define REACH_K 1.04f        /* the frame's room above the figures' highest reach */
 #define GL_MAX_VERTEX_UNIFORM_VECTORS 0x8DFB
 #define GL_BYTE 0x1400
 static void (*glUniform4fv_)(GLint, GLsizei, const GLfloat *); static void (*discard_)(GLenum, GLsizei, const GLenum *);
@@ -55,7 +58,7 @@ static int lib_load(void) {
 
 /* ------------------------------------------------------------------ shared: the skeleton, the animations, the models (kept across venues) */
 typedef struct { int first, count; GLuint tex; float aref; } cdraw;
-typedef struct { char pak[32]; GLuint vbo, ibo; cdraw d[12]; int nd; float inv[CB][12]; int verts, tris, ok; GLuint tex[12]; uint32_t texKey[12]; int ntex; size_t vram; } model;
+typedef struct { char pak[32]; GLuint vbo, ibo; cdraw d[12]; int nd; float inv[CB][12], *pts; uint8_t *pb; int verts, tris, ok; GLuint tex[12]; uint32_t texKey[12]; int ntex; size_t vram; } model;
 static struct { int tried, hasSke; r3d_ske ske; r3d_clip *clips; int nclips; size_t animBytes; model m[KINDS]; int nm; } S;   /* models by pak, fixed so the kinds may point at them */
 static int clip_cmp(const void *a, const void *b) { uint32_t x = ((const r3d_clip *)a)->key, y = ((const r3d_clip *)b)->key; return x < y ? -1 : x > y; }
 static const r3d_clip *clip_of(uint32_t key) { int lo = 0, hi = S.nclips - 1; while (lo <= hi) { int mid = (lo + hi) >> 1; if (S.clips[mid].key == key) return &S.clips[mid]; if (S.clips[mid].key < key) lo = mid + 1; else hi = mid - 1; } return NULL; }
@@ -73,9 +76,9 @@ static void rows_inv(const float a[12], float o[12]) { for (int r = 0; r < 3; r+
 static void rows_mul(const float a[12], const float b[12], float o[12]) { float t[12]; for (int r = 0; r < 3; r++) { for (int c = 0; c < 3; c++) t[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c]; t[r * 4 + 3] = a[r * 4] * b[3] + a[r * 4 + 1] * b[7] + a[r * 4 + 2] * b[11] + a[r * 4 + 3]; } memcpy(o, t, 48); }
 
 /* ------------------------------------------------------------------ GPU: the figures' skinning shader (the band's, with the whole 28-bone palette in one draw) */
-static struct { int ready, s3tc; GLuint prog; GLint aPos, aNrm, aUv, aIdx, aW, uVP, uB, uLdir, uLcol, uAmb, uMap, uAref; } G;
+static struct { int ready, s3tc; GLuint prog; GLint aPos, aNrm, aUv, aIdx, aW, uVP, uB, uLdir, uLcol, uL2dir, uL2col, uAmb, uMap, uAref; } G;
 static const char *VS =
-    "uniform mat4 uVP; uniform vec4 uB[96]; uniform vec3 uLdir; uniform vec3 uLcol; uniform vec3 uAmb;\n"
+    "uniform mat4 uVP; uniform vec4 uB[96]; uniform vec3 uLdir; uniform vec3 uLcol; uniform vec3 uL2dir; uniform vec3 uL2col; uniform vec3 uAmb;\n"
     "attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUv; attribute vec3 aIdx; attribute vec3 aW;\n"
     "varying vec2 vUv; varying vec3 vL;\n"
     "void main() {\n"
@@ -85,7 +88,7 @@ static const char *VS =
     "  vec4 r2 = uB[i0 + 2] * aW.x + uB[i1 + 2] * aW.y + uB[i2 + 2] * aW.z;\n"
     "  vec4 p = vec4(aPos, 1.0);\n"
     "  vec3 n = vec3(dot(r0.xyz, aNrm), dot(r1.xyz, aNrm), dot(r2.xyz, aNrm)); float ln = length(n); n = ln > 1e-5 ? n / ln : vec3(0.0, 0.0, 1.0);\n"
-    "  float d = dot(n, uLdir); vL = uAmb + uLcol * (max(d, 0.0) * 0.8 + 0.2 * (0.5 + 0.5 * d));\n"
+    "  float d = dot(n, uLdir), d2 = dot(n, uL2dir); vL = uAmb + uLcol * (max(d, 0.0) * 0.8 + 0.2 * (0.5 + 0.5 * d)) + uL2col * (max(d2, 0.0) * 0.8 + 0.2 * (0.5 + 0.5 * d2));\n"   /* the two strongest of the crowd's lights, softened round the side */
     "  vUv = aUv; gl_Position = uVP * vec4(dot(r0, p), dot(r1, p), dot(r2, p), 1.0);\n"
     "}\n";
 static const char *FS =
@@ -110,7 +113,7 @@ int r3d_crowd_init(void) {
     GLint ok = 0; GL(glGetProgramiv)(G.prog, GL_LINK_STATUS, &ok); if (!ok) { char log[1024]; GL(glGetProgramInfoLog)(G.prog, sizeof log, NULL, log); SDL_Log("crowd: link: %s", log); GL(glDeleteProgram)(G.prog); G.prog = 0; return -1; }
     G.aPos = 0; G.aNrm = 1; G.aUv = 2; G.aIdx = 3; G.aW = 4;
 #define U(n) G.n = GL(glGetUniformLocation)(G.prog, #n)
-    U(uVP); U(uLdir); U(uLcol); U(uAmb); U(uMap); U(uAref); G.uB = GL(glGetUniformLocation)(G.prog, "uB[0]"); if (G.uB < 0) G.uB = GL(glGetUniformLocation)(G.prog, "uB");
+    U(uVP); U(uLdir); U(uLcol); U(uL2dir); U(uL2col); U(uAmb); U(uMap); U(uAref); G.uB = GL(glGetUniformLocation)(G.prog, "uB[0]"); if (G.uB < 0) G.uB = GL(glGetUniformLocation)(G.prog, "uB");
 #undef U
     const char *ext = (const char *)GL(glGetString)(GL_EXTENSIONS); G.s3tc = ext && (strstr(ext, "GL_EXT_texture_compression_s3tc") || (strstr(ext, "GL_EXT_texture_compression_dxt1") && strstr(ext, "GL_ANGLE_texture_compression_dxt"))); if (getenv("R3D_NODXT")) G.s3tc = 0;
     G.ready = 1; return 0;
@@ -162,20 +165,22 @@ static model *model_get(const char *pak) {
     if (nv) { GL(glGenBuffers)(1, &g->vbo); GL(glBindBuffer)(GL_ARRAY_BUFFER, g->vbo); GL(glBufferData)(GL_ARRAY_BUFFER, (GLsizeiptr)nv * sizeof *V, V, GL_STATIC_DRAW);
         GL(glGenBuffers)(1, &g->ibo); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, g->ibo); GL(glBufferData)(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)ni * 2, I, GL_STATIC_DRAW);
         GL(glBindBuffer)(GL_ARRAY_BUFFER, 0); GL(glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0); g->vram += (size_t)nv * sizeof *V + (size_t)ni * 2; g->ok = g->nd > 0; }
-    g->verts = nv; g->tris = ni / 3; free(V); free(I); r3d_skin_free(&sk); free(sb); free(tb); free(te);
+    g->verts = nv; g->tris = ni / 3; g->pts = malloc((size_t)(nv ? nv : 1) * 12); g->pb = malloc(nv ? nv : 1);   /* each point and the bone that carries it most: what reach() poses */
+    for (int v = 0; v < nv; v++) { memcpy(g->pts + v * 3, V[v].pos, 12); const uint8_t *w = V[v].w; int mb = w[1] > w[0] ? (w[2] > w[1] ? 2 : 1) : w[2] > w[0] ? 2 : 0; g->pb[v] = V[v].idx[mb] / 3; }
+    free(V); free(I); r3d_skin_free(&sk); free(sb); free(tb); free(te);
     return g->ok ? g : NULL;
 }
-static void model_free(model *g) { if (g->vbo) GL(glDeleteBuffers)(1, &g->vbo); if (g->ibo) GL(glDeleteBuffers)(1, &g->ibo); for (int i = 0; i < g->ntex; i++) GL(glDeleteTextures)(1, &g->tex[i]); memset(g, 0, sizeof *g); }
+static void model_free(model *g) { free(g->pts); free(g->pb); if (g->vbo) GL(glDeleteBuffers)(1, &g->vbo); if (g->ibo) GL(glDeleteBuffers)(1, &g->ibo); for (int i = 0; i < g->ntex; i++) GL(glDeleteTextures)(1, &g->tex[i]); memset(g, 0, sizeof *g); }
 
 /* ------------------------------------------------------------------ the venue's kinds: one picture each (a cell of one atlas), every card of the kind wears it */
 typedef struct {
-    uint32_t panel; char pak[32]; int standIn; const qbv *set; model *m; float w, h; int carded;
+    uint32_t panel; char pak[32]; int standIn; const qbv *set; model *m; float w, h, cw, ch, top, side; int carded;   /* w h: the frame the figure is drawn in; cw ch: its cards; top side: how high and how far out its set's animations take it */
     int drawn, cx, cy; double due; unsigned seen;
     const r3d_clip *cur, *prev; float t, tp, fade; uint32_t kind; int mood, n;
 } kind;
 /* the atlas: COLS cells across, a power of two of rows (mipmapped: far cards take the smaller levels); one framebuffer and depth for it */
 #define COLS 4
-static struct { char zone[32]; kind k[KINDS]; int nk; unsigned frame; double lastPerf; int hz, perFrame; r3d_crowdstats st; int forceMood, forceSp; float bpm;
+static struct { char zone[32]; kind k[KINDS]; int nk; unsigned frame; double lastPerf; int hz, perFrame; r3d_crowdstats st; int forceMood, forceSp, forceLit; float bpm;
     GLuint atlas, fbo, depth; int rows, aw, ah, bad; int spread, mips; uint32_t round; } C;   /* spread: round robin (0: every kind at once, the first scheme); mips: 0 none, 1 once a round, 2 every pass */
 static int want_keys(const qbv *v, uint32_t *keys, int n, int cap, int depth) {
     if (!v || depth > 8) return n; uint32_t k;
@@ -204,6 +209,18 @@ static void clips_load(void) {
         r3d_clip c; if (r3d_ska_read(b, n, keys[i], &c) == 0) { if (c.nb > S.ske.n + 4) r3d_clip_free(&c); else { S.clips[S.nclips++] = c; S.animBytes += r3d_clip_bytes(&c); } } free(b); }
     r3d_pak_close(&pk); qsort(S.clips, S.nclips, sizeof *S.clips, clip_cmp);
 }
+/* how high and how far to the side the figure gets in any clip of its set (8 times each, every point posed by its main bone): the frame must hold it. The game's crowd camera is
+ * placed by the engine (the crowd script hands it the figure's spot, hfov 20); its cards fit the figure in most venues, not z_prison's raised arms */
+static void reach(kind *k) {
+    uint32_t keys[64]; int nk = want_keys(k->set, keys, 0, 64, 0), nb = S.ske.n; const model *m = k->m; k->top = k->side = 0;
+    for (int i = 0; i < nk; i++) { const r3d_clip *c = clip_of(keys[i]); if (!c) continue;
+        for (int f = 0; f < 8; f++) { float wq[CB][4], wp[CB][3], sk[CB][12], t = c->dur * f / 7;
+            for (int b = 0; b < nb; b++) { float q[4], p[3], W[12]; r3d_clip_bone(c, &S.ske, b, t, q, p); int par = S.ske.parent[b];
+                if (par < 0 || par >= b) { memcpy(wq[b], q, 16); memcpy(wp[b], p, 12); } else { r3q_mul(wq[par], q, wq[b]); float v[3]; r3q_rot(wq[par], p, v); for (int x = 0; x < 3; x++) wp[b][x] = wp[par][x] + v[x]; }
+                rows_of(wq[b], wp[b], W); rows_mul(W, m->inv[b], sk[b]); }
+            for (int v = 0; v < m->verts; v++) { const float *a = sk[m->pb[v]], *p = m->pts + v * 3; float x = a[0] * p[0] + a[1] * p[1] + a[2] * p[2] + a[3], y = a[4] * p[0] + a[5] * p[1] + a[6] * p[2] + a[7];
+                if (y > k->top) k->top = y; if (fabsf(x) > k->side) k->side = fabsf(x); } } }
+}
 /* ------------------------------------------------------------------ the lighters: which parts, and when the song has them up */
 static uint32_t LK[24];
 static struct { char name[64]; int (*ev)[2]; int nev; } SL;   /* [time ms, up] */
@@ -222,15 +239,79 @@ void r3d_crowd_select(void) {
         gh3_qb_free_sections(s, ns); }
     free(ents); free(pak); if (SL.nev) SDL_Log("crowd: %s: lighters up %d times", name, (SL.nev + 1) / 2);
 }
-int r3d_crowd_lighters(void) {
+int r3d_crowd_lighters(void) {   /* crowd_startlighters spawns a loop: lighters up (and the lighter anims) while the crowd's mood is not BAD, down when it is */
     const char *e = getenv("R3D_CROWD_LIGHTERS"); if (e && *e) return atoi(e) > 0; if (!SET.stageFx || !SL.nev) return 0;
-    if (!(A.screen == SC_PLAY && A.S.loaded && A.S.song && !strcmp(A.S.song->name, SL.name))) return 0;
+    if (!(A.screen == SC_PLAY && A.S.loaded && A.S.song && !strcmp(A.S.song->name, SL.name)) || A.S.run.health < 0.66) return 0;
     double ms = A.S.run.now; int up = 0; for (int i = 0; i < SL.nev && SL.ev[i][0] <= ms; i++) up = SL.ev[i][1]; return up;
 }
-void r3d_crowd_zone(const char *zone) {
+/* their sway: each group's TriggerScript (in the zone pak's scripts) goes "begin obj_movetorelpos {(0.3,0,0) speed=0.2} obj_waitmove
+ * obj_movetorelpos {(-0.3,0,0) speed=0.2} obj_waitmove repeat", 0.2-0.3 m to the side and back at 0.2 m a second, from the venue's start.
+ * The moves are read from the bytecode (the .nqb's scripts); the group's batch is drawn that far over (r3d.c, through the view matrix) */
+static struct { int n; float v[4][3], dur[4], T; } SW[24]; static double swayT;
+static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
+static uint32_t be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
+static int lzss(const uint8_t *in, int inN, uint8_t *out, int outN) {   /* GH3 script bodies (as tools/qbgrep.c) */
+    uint8_t win[4096]; memset(win, 0, sizeof win); int wp = 4078, i = 0, o = 0; unsigned flags = 0;
+    while (i < inN && o < outN) { flags >>= 1; if (!(flags & 0x100)) { flags = in[i++] | 0xFF00; if (i >= inN) break; }
+        if (flags & 1) { uint8_t c = in[i++]; out[o++] = c; win[wp] = c; wp = (wp + 1) & 4095; }
+        else { if (i + 1 >= inN) break; int a = in[i] | ((in[i + 1] & 0xF0) << 4), len = (in[i + 1] & 0x0F) + 3; i += 2; for (int k = 0; k < len && o < outN; k++) { uint8_t c = win[(a + k) & 4095]; out[o++] = c; win[wp] = c; wp = (wp + 1) & 4095; } } }
+    return o;
+}
+static void sway_scan(int g, const uint8_t *b, int n) {   /* obj_movetorelpos: its vector, its speed (1 when none is given) */
+    uint32_t KM = gh3_qbkey("obj_movetorelpos"), KS = gh3_qbkey("speed"); int i = 0, m = -1, hasV = 0; float sp[4] = { 1, 1, 1, 1 };
+    while (i < n) { int t = b[i++];
+        switch (t) {
+        case 0x16: { if (i + 4 > n) { i = n; break; } uint32_t k = le32(b + i); i += 4;
+            if (k == KM) { if (SW[g].n >= 4) { i = n; break; } m = SW[g].n++; hasV = 0; memset(SW[g].v[m], 0, 12); }
+            else if (k == KS && m >= 0 && i + 6 <= n && b[i] == 0x07 && (b[i + 1] == 0x1A || b[i + 1] == 0x17)) { uint32_t u = le32(b + i + 2); float f; memcpy(&f, &u, 4); sp[m] = b[i + 1] == 0x1A ? f : (float)(int32_t)u; i += 6; } break; }
+        case 0x1E: if (i + 12 > n) { i = n; break; } if (m >= 0 && !hasV) { memcpy(SW[g].v[m], b + i, 12); hasV = 1; } i += 12; break;
+        case 0x17: case 0x18: case 0x1A: case 0x2E: i += 4; break; case 0x1F: i += 8; break; case 0x47: case 0x48: case 0x49: i += 2; break;
+        case 0x1B: case 0x1C: case 0x4C: if (i + 4 > n) { i = n; break; } i += 4 + (int)le32(b + i); break;
+        case 0x2F: case 0x37: case 0x40: case 0x41: if (i + 4 > n) { i = n; break; } i += 4 + (int)le32(b + i) * 6; break;
+        case 0x4A: if (i + 2 > n) { i = n; break; } { int l = b[i] | b[i + 1] << 8; i += 2; i = (i + 3) & ~3; if (i + l > n) { i = n; break; } const uint8_t *s = b + i; i += l;   /* the call's {...}: a packed struct (big-endian items: type, name, value, next) */
+            for (uint32_t p = l >= 8 ? be32(s + 4) : 0, guard = 0; m >= 0 && p && p + 16 <= (uint32_t)l && guard < 16; guard++) { uint32_t t = be32(s + p), id = be32(s + p + 4), raw = be32(s + p + 8); int kind = (t >> 16) & 0x7F; if (!kind) kind = (t >> 8) & 0xFF;
+                if (kind == 6 && !hasV && raw + 16 <= (uint32_t)l) { for (int c = 0; c < 3; c++) { uint32_t u = be32(s + raw + 4 + c * 4); memcpy(&SW[g].v[m][c], &u, 4); } hasV = 1; }
+                else if (id == KS && kind == 2) memcpy(&sp[m], &raw, 4); else if (id == KS && kind == 1) sp[m] = (float)(int32_t)raw;
+                p = be32(s + p + 12); } } break;
+        case 0x2B: i += 4; while (i < n && b[i]) i++; i++; break;
+        default: break; } }
+    float back[3] = { 0, 0, 0 }; SW[g].T = 0;
+    for (int k = 0; k < SW[g].n; k++) { float L = sqrtf(SW[g].v[k][0] * SW[g].v[k][0] + SW[g].v[k][1] * SW[g].v[k][1] + SW[g].v[k][2] * SW[g].v[k][2]); SW[g].dur[k] = sp[k] > 1e-4f ? L / fabsf(sp[k]) : 0; SW[g].T += SW[g].dur[k]; for (int c = 0; c < 3; c++) back[c] += SW[g].v[k][c]; }
+    if (SW[g].T < 0.05f || fabsf(back[0]) + fabsf(back[1]) + fabsf(back[2]) > 0.01f) SW[g].n = 0;   /* only a loop that comes back where it began */
+}
+static void sway_load(const gh3_pakent *ents, int n, const r3d_venueqb *vq) {
+    memset(SW, 0, sizeof SW); uint32_t want[24] = { 0 }, kq = gh3_qbkey(".qb"), kn = gh3_qbkey(".nqb"); int any = 0;
+    for (int g = 0; g < 24; g++) { const r3d_object *o = LK[g] ? r3d_venueqb_object(vq, LK[g]) : NULL; if (o && o->script) { want[g] = o->script; any = 1; } }
+    if (!any) return; int got = 0;
+    for (int e = 0; e < n; e++) { if ((ents[e].type != kq && ents[e].type != kn) || !ents[e].data) continue; const uint8_t *b = ents[e].data; size_t L = ents[e].len;
+        for (size_t p = 28; p + 20 <= L; p += 4) { if ((be32(b + p) & 0xFFFFFF00u) != 0x00200700) continue; uint32_t id = be32(b + p + 4), raw = be32(b + p + 12); int hit = 0;
+            for (int g = 0; g < 24; g++) if (want[g] == id) hit = 1; if (!hit || raw < p || raw + 12 > L) continue;
+            uint32_t usz = be32(b + raw + 4), csz = be32(b + raw + 8); if (usz > 65536 || raw + 12 + csz > L) continue; uint8_t *out = malloc(usz + 1); int len = usz == csz ? (memcpy(out, b + raw + 12, usz), (int)usz) : lzss(b + raw + 12, (int)csz, out, (int)usz);
+            for (int g = 0; g < 24; g++) if (want[g] == id) { sway_scan(g, out, len); got += SW[g].n > 0; } free(out); } }
+    SDL_Log("crowd: %d lighter groups sway", got);
+}
+int r3d_crowd_sway(int lighter, float o[3]) {
+    int g = lighter - 1; if (g < 0 || g >= 24 || !SW[g].n) return 0; float t = (float)fmod(swayT, SW[g].T); o[0] = o[1] = o[2] = 0;
+    for (int k = 0; k < SW[g].n && t > 0; k++) { float f = SW[g].dur[k] > 0 ? fminf(t / SW[g].dur[k], 1) : 1; for (int c = 0; c < 3; c++) o[c] += SW[g].v[k][c] * f; t -= SW[g].dur[k]; }
+    return 1;
+}
+/* ------------------------------------------------------------------ the crowd's lights: the game draws each figure off in its own corner of the world
+ * ((-500, -200 - 100 i, 0), lightgroup = crowd), lit by the venue's crowd-group lights alone: an ambient (i 0.4: dive warm, budokan and prison
+ * blue) and one or two directional ones (budokan's key i 0.8 from the front and above, the same quat as prison's dim warm one, i 0.125; dive's
+ * from straight above; prison's blue one, i 0.5, from behind). The light show's presets move them too. (The figure's own quat (0,1,0) is left
+ * out: with it budokan's key would light the backs and prison's rim the faces) */
+static struct { uint32_t key; int kind; float col[3], in, to[3]; } CL[8]; static int ncl;
+static void lights_load(const r3d_venueqb *vq) {
+    ncl = 0; for (int i = 0; i < vq->nlights && ncl < 8; i++) { const r3d_light *l = &vq->lights[i]; if (!l->crowd) continue; CL[ncl].key = l->key; CL[ncl].kind = l->kind; memcpy(CL[ncl].col, l->colour, 12); CL[ncl].in = l->intensity;
+        float d[3]; if (l->kind == L_POINT) { d[0] = -500 - l->pos[0]; d[1] = -200 - l->pos[1]; d[2] = -l->pos[2]; } else memcpy(d, l->dir, 12);   /* the way its light goes (a point light: from where it hangs to the figures) */
+        float L = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]); if (L < 1e-5f) { d[2] = 1; L = 1; }
+        for (int c = 0; c < 3; c++) CL[ncl].to[c] = -d[c] / L; ncl++; }   /* toward the light: the figure faces +z here as its camera sees it */
+}
+void r3d_crowd_zone(const char *zone, const gh3_pakent *ents, int n, const r3d_venueqb *vq) {
     r3d_crowd_unload(); snprintf(C.zone, sizeof C.zone, "%s", zone); memset(&C.st, 0, sizeof C.st);
     for (int i = 0; i < 24; i++) { char nm[64]; snprintf(nm, sizeof nm, "%s_lighter_geo%02d", zone, i + 1); LK[i] = gh3_qbkey(nm); }
-    { const char *e = getenv("R3D_CROWD"); if (e && *e == '0') { memset(LK, 0, sizeof LK); return; } }   /* R3D_CROWD=0: no crowd, no lighters (to compare costs) */
+    { const char *e = getenv("R3D_CROWD"); if (e && *e == '0') { memset(LK, 0, sizeof LK); memset(SW, 0, sizeof SW); ncl = 0; return; } }   /* R3D_CROWD=0: no crowd, no lighters (to compare costs) */
+    sway_load(ents, n, vq); lights_load(vq);
     if (!G.ready || !lib_load()) return; shared_load(); if (!S.hasSke) return; Uint32 t0 = SDL_GetTicks();
     char nm[64]; snprintf(nm, sizeof nm, "%s_crowd_models", zone); const qbv *list = sec(gh3_qbkey(nm)); if (!list || list->kind != QB_ARRAY) { SDL_Log("crowd: %s lists no crowd", zone); return; }
     static const char *SPARE[] = { "crowd_ped_01", "crowd_ped_02", "crowd_ped_03", "crowd_ped_04", "crowd_pedf_1", "crowd_pedf_2" }; const char *spare[6]; int ns = 0;
@@ -242,8 +323,8 @@ void r3d_crowd_zone(const char *zone) {
         if (!pak_exists(k->pak)) { if (!ns) continue; snprintf(k->pak, sizeof k->pak, "%s", spare[i % ns]); k->standIn = 1; }   /* z_hell's bikers are not on this install: the ordinary crowd stands in */
         if (qb_keyof(qb_get(it, "name"), &nk) && qb_keyof(qb_get(qb_getk(L.prof, nk), "anim_set"), &sk)) k->set = sec(sk);
         if (!k->set) continue; k->m = model_get(k->pak); if (!k->m) continue;
-        k->w = 1.15f; k->h = 2.58f; k->mood = -1; k->n = C.nk; C.nk++; }
-    clips_load();
+        k->w = k->cw = 1.15f; k->h = k->ch = 2.58f; k->mood = -1; k->n = C.nk; C.nk++; }
+    clips_load(); for (int i = 0; i < C.nk; i++) reach(&C.k[i]);
     C.st.kinds = C.nk; C.st.models = S.nm; C.st.clips = S.nclips; C.st.animBytes = S.animBytes; for (int i = 0; i < S.nm; i++) C.st.vram += S.m[i].vram;
     for (int i = 0; i < C.nk; i++) { C.st.verts += C.k[i].m->verts; C.st.standIns += C.k[i].standIn; }
     { const char *e = getenv("R3D_CROWD_HZ"); C.hz = e && atoi(e) > 0 ? atoi(e) : 15; e = getenv("R3D_CROWD_PERFRAME"); C.perFrame = e && atoi(e) > 0 ? atoi(e) : 2;
@@ -262,7 +343,8 @@ int r3d_crowd_card(uint32_t texKey, const float *pos, const float *ctr, int nver
         if (!k->carded && nvert >= 4) {   /* the card's size from its first quad (offsets from the centre): the figure is drawn at that scale, feet on its bottom edge */
             float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f; for (int v = 0; v < 4; v++) { float dx = pos[v * 3] - ctr[v * 3], dy = pos[v * 3 + 1] - ctr[v * 3 + 1], dz = pos[v * 3 + 2] - ctr[v * 3 + 2], hx = sqrtf(dx * dx + dz * dz) * (dx + dz < 0 ? -1 : 1);
                 if (hx < x0) x0 = hx; if (hx > x1) x1 = hx; if (dy < y0) y0 = dy; if (dy > y1) y1 = dy; }
-            if (x1 - x0 > 0.2f && y1 - y0 > 0.5f) { k->w = x1 - x0; k->h = y1 - y0; } k->carded = 1; }
+            if (x1 - x0 > 0.2f && y1 - y0 > 0.5f) { k->w = x1 - x0; k->h = y1 - y0; } k->cw = k->w; k->ch = k->h; k->carded = 1;
+            float top = 0; for (int j = 0; j < C.nk; j++) top = fmaxf(top, C.k[j].top); float s = fmaxf(1, top * REACH_K / k->h); k->w *= s; k->h *= s; }   /* cards too short for the raised arms (z_prison's 1.87 m; they reach 2.2): the frame grows to hold the venue's highest, the card's shape kept, the figures a little smaller on it */
         return C.atlas ? i : -1; }
     return -1;
 }
@@ -285,8 +367,8 @@ static void next(kind *k, int speed) {
     const r3d_clip *c = clip_of(keys[(k->n++) % n]); if (!c) return;
     if (k->cur) { k->prev = k->cur; k->tp = k->t; k->fade = 0; } else k->fade = 1; k->cur = c; k->t = 0;
 }
-static void tick(kind *k, float dt, int mood, int sp, int speed) {
-    uint32_t kd = sp ? K_STARPOWER : K_IDLE; int change = kd != k->kind || mood != k->mood; k->kind = kd; k->mood = mood;
+static void tick(kind *k, float dt, int mood, int sp, int lit, int speed) {
+    uint32_t kd = sp ? K_STARPOWER : lit && mood > 0 ? K_LIGHTER : K_IDLE; int change = kd != k->kind || mood != k->mood; k->kind = kd; k->mood = mood;   /* lighters up: the sets' lighter lists (a set without one: idle) */
     if (!k->cur || k->t >= k->cur->dur - 0.32f || (change && k->t > 0.6f)) next(k, speed);
     if (!k->cur) return; k->t += dt; if (k->t > k->cur->dur) k->t = k->cur->dur;
     if (k->prev) { k->tp += dt; if (k->tp > k->prev->dur) k->tp = k->prev->dur; } k->fade += dt / FADE; if (k->fade >= 1) { k->fade = 1; k->prev = NULL; }
@@ -302,6 +384,7 @@ static void pose(const kind *k, float skin[CB][12]) {
 
 /* one pass into the atlas for every figure due: the depth cleared whole, each cell cleared see-through, then drawn (a 2-texel gutter so
  * neighbours never bleed in), then the atlas's levels made once */
+static float lightNow[15];   /* the last pass's lights, for --r3dtest: ambient, then toward / colour of the two keys */
 static int cleared;   /* the pass cleared the whole atlas (every figure redrawn): no cell clears, nothing loaded back on a tiler */
 static int pass_begin(int all) {
     if (C.bad || !C.atlas) return 0;
@@ -311,10 +394,18 @@ static int pass_begin(int all) {
     else GL(glBindFramebuffer)(GL_FRAMEBUFFER, C.fbo);
     GL(glViewport)(0, 0, C.aw, C.ah); GL(glDisable)(GL_SCISSOR_TEST); GL(glDepthMask)(GL_TRUE); GL(glClearColor)(0, 0, 0, 0); GL(glClear)(all ? GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT : GL_DEPTH_BUFFER_BIT); cleared = all;
     GL(glUseProgram)(G.prog); GL(glUniform1i)(G.uMap, 0); GL(glActiveTexture)(GL_TEXTURE0);
-    /* the browser port's fallback light (0.45 all round, 0.55 from the front), times the gain that undoes the cards' vertex colours
-     * (0.2-0.65 in the venues: the game's 128-is-white convention; the browser port leaves them out) */
-    static float gain = -1; if (gain < 0) { const char *e = getenv("R3D_CROWD_GAIN"); gain = e && atof(e) > 0 ? (float)atof(e) : 1.6f; }
-    static const float LD[3] = { 0.2104f, 0.6312f, 0.7890f }; GL(glUniform3f)(G.uLdir, LD[0], LD[1], LD[2]); GL(glUniform3f)(G.uLcol, 0.55f * gain, 0.55f * gain, 0.55f * gain); GL(glUniform3f)(G.uAmb, 0.45f * gain, 0.45f * gain, 0.45f * gain);
+    /* the crowd's lights as the show has them now (r3d_lights_get: the presets, the strobe), times the gain that undoes the cards' vertex
+     * colours (0.2-0.65 in the venues: the game's 128-is-white convention); no crowd lights: the browser port's fallback (0.45 all round, 0.55 from
+     * the front). 2.4 keeps dive and budokan as bright as the fallback had them; prison's dimmer lights on its brighter cards (157-165) come out a little above them */
+    static float gain = -1; if (gain < 0) { const char *e = getenv("R3D_CROWD_GAIN"); gain = e && atof(e) > 0 ? (float)atof(e) : 2.4f; }
+    float amb[3] = { 0, 0, 0 }, key[2][7] = { { 0.2104f, 0.6312f, 0.7890f, 0, 0, 0, 0 }, { 0, 1, 0, 0, 0, 0, 0 } };   /* toward it xyz, colour x strength rgb, the strongest channel */
+    if (!ncl) { for (int c = 0; c < 3; c++) { amb[c] = 0.45f * 1.6f; key[0][3 + c] = 0.55f * 1.6f; } }
+    for (int i = 0; i < ncl; i++) { float v[6], col[3], in = CL[i].in; memcpy(col, CL[i].col, 12); if (r3d_lights_get(CL[i].key, v)) { memcpy(col, v, 12); in = v[3]; }
+        if (CL[i].kind == L_AMBIENT) { for (int c = 0; c < 3; c++) amb[c] += col[c] * in * gain; continue; }
+        float k[7]; memcpy(k, CL[i].to, 12); for (int c = 0; c < 3; c++) k[3 + c] = col[c] * in * gain; k[6] = fmaxf(k[3], fmaxf(k[4], k[5]));
+        if (k[6] > key[0][6]) { memcpy(key[1], key[0], sizeof key[0]); memcpy(key[0], k, sizeof k); } else if (k[6] > key[1][6]) memcpy(key[1], k, sizeof k); }
+    GL(glUniform3f)(G.uAmb, amb[0], amb[1], amb[2]); GL(glUniform3f)(G.uLdir, key[0][0], key[0][1], key[0][2]); GL(glUniform3f)(G.uLcol, key[0][3], key[0][4], key[0][5]);
+    GL(glUniform3f)(G.uL2dir, key[1][0], key[1][1], key[1][2]); GL(glUniform3f)(G.uL2col, key[1][3], key[1][4], key[1][5]); memcpy(lightNow, amb, 12); memcpy(lightNow + 3, key[0], 24); memcpy(lightNow + 9, key[1], 24);
     return 1;
 }
 static void figure(kind *k) {   /* crowdFigure.draw: orthographic, from the front */
@@ -357,8 +448,8 @@ static void step(double perf, int sp, int redraw) {
     int live = A.screen == SC_PLAY && A.S.loaded && A.S.song, mood = 1, speed = pace(live ? A.S.run.now : 0, live);
     if (live) { double h = A.S.run.health; mood = h < 0.66 ? 0 : h < 1.33 ? 1 : 2; sp = sp || A.S.run.spOn; }
     { const char *e = getenv("R3D_CROWD_MOOD"); if (e && *e) mood = atoi(e) < 0 ? 0 : atoi(e) > 2 ? 2 : atoi(e); e = getenv("R3D_CROWD_SP"); if (e && *e) sp = atoi(e) > 0; }
-    if (C.forceMood >= 0) mood = C.forceMood; if (C.forceSp >= 0) sp = C.forceSp;
-    for (int i = 0; i < C.nk; i++) tick(&C.k[i], dt, mood, sp, speed);
+    int lit = C.forceLit >= 0 ? C.forceLit : r3d_crowd_lighters(); if (C.forceMood >= 0) mood = C.forceMood; if (C.forceSp >= 0) sp = C.forceSp;
+    for (int i = 0; i < C.nk; i++) tick(&C.k[i], dt, mood, sp, lit, speed);
     if (!redraw) return;
     double now = perf / 1000, per = 1.0 / C.hz; uint32_t go = 0, vis = 0; int n = 0;
     for (int i = 0; i < C.nk; i++) { kind *k = &C.k[i]; if (k->cur && (!k->drawn || C.frame - k->seen <= 2)) vis |= 1u << i; }   /* on screen lately, or never drawn */
@@ -375,8 +466,8 @@ static void step(double perf, int sp, int redraw) {
 }
 static void pass_state(void) { GL(glDisable)(GL_SCISSOR_TEST); GL(glDisable)(GL_BLEND); GL(glDisable)(GL_CULL_FACE); GL(glEnable)(GL_DEPTH_TEST); GL(glDepthFunc)(GL_LEQUAL); GL(glColorMask)(1, 1, 1, 1); for (int i = 0; i < 5; i++) GL(glEnableVertexAttribArray)(i); }
 void r3d_crowd_update(double perf, int sp) {
-    C.st.renders = C.st.draws = C.st.mipBuilds = 0; if (!C.nk || !G.ready || !SET.stageFx || C.bad) return;
-    Uint64 c0 = SDL_GetPerformanceCounter(); cstate s; cs_save(&s); C.forceMood = C.forceSp = -1; pass_state();
+    swayT = perf / 1000; C.st.renders = C.st.draws = C.st.mipBuilds = 0; if (!C.nk || !G.ready || !SET.stageFx || C.bad) return;
+    Uint64 c0 = SDL_GetPerformanceCounter(); cstate s; cs_save(&s); C.forceMood = C.forceSp = C.forceLit = -1; pass_state();
     step(perf, sp, 1);
     for (int i = 0; i < 5; i++) GL(glDisableVertexAttribArray)(i);
     cs_restore(&s); C.st.ms = (SDL_GetPerformanceCounter() - c0) * 1000.0 / SDL_GetPerformanceFrequency(); if (C.st.ms > C.st.msMax) C.st.msMax = C.st.ms;
@@ -395,21 +486,26 @@ void r3d_crowd_shutdown(void) {
 int r3d_crowd_test(const char *zone, const char *outdir) {
     r3d_crowd_select(); printf("crowd: %s: %s: lighters up %d times (R3D_CROWD_LIGHTERS=1 shows them)\n", zone, SL.name[0] ? SL.name : "no song", (SL.nev + 1) / 2);
     if (!C.nk) { printf("crowd: %s: no crowd (%s)\n", zone, G.ready ? "no kinds" : "no shader"); return 0; }
-    static const char *STATE[4] = { "poor", "normal", "good", "starpower" }; uint8_t *sheet = malloc((size_t)C.nk * TW * TH * 4), *px = malloc(TW * TH * 4);
+    static const char *STATE[5] = { "poor", "normal", "good", "starpower", "lighters" }; uint8_t *sheet = malloc((size_t)C.nk * TW * TH * 4), *px = malloc(TW * TH * 4);
     cstate s; cs_save(&s); pass_state(); double perf = 1000; C.lastPerf = 0;
-    for (int st = 0; st < 4; st++) { C.forceMood = st < 3 ? st : 2; C.forceSp = st == 3; for (int i = 0; i < C.nk; i++) { C.k[i].cur = C.k[i].prev = NULL; C.k[i].kind = 0; }
+    { int nsw = 0; for (int g = 0; g < 24; g++) nsw += SW[g].n > 0; printf("crowd: %s: cards", zone); for (int i = 0; i < C.nk; i++) printf(" %.2fx%.2f (needs %.2f up, %.2f out)", C.k[i].cw, C.k[i].ch, C.k[i].top, C.k[i].side);
+      printf(" m, figures framed %.2fx%.2f m; %d crowd lights, %d lighter groups sway", C.nk ? C.k[0].w : 0, C.nk ? C.k[0].h : 0, ncl, nsw);
+      for (int g = 0; g < 24; g++) if (SW[g].n) { float o[3]; double keep = swayT; printf(" | geo%02d over %.1f s:", g + 1, SW[g].T); for (int f = 0; f < 4; f++) { swayT = SW[g].T * f / 4; r3d_crowd_sway(g + 1, o); printf(" %+.2f", o[0]); } swayT = keep; }
+      printf("\n"); }
+    for (int st = 0; st < 5; st++) { C.forceMood = st < 3 ? st : 2; C.forceSp = st == 3; C.forceLit = st == 4; for (int i = 0; i < C.nk; i++) { C.k[i].cur = C.k[i].prev = NULL; C.k[i].kind = 0; }
         for (int f = 0; f < 23; f++) { perf += 1000.0 / 15; step(perf, 0, 0); }   /* 1.5 s into the mood */
-        if (!pass_begin(1)) break; for (int i = 0; i < C.nk; i++) figure(&C.k[i]); pass_end(C.mips); GL(glBindFramebuffer)(GL_FRAMEBUFFER, C.fbo); GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1);
+        if (!pass_begin(1)) break; for (int i = 0; i < C.nk; i++) figure(&C.k[i]);
+        if (!st) { const float *q = lightNow; printf("crowd: %s: lit by ambient %.2f %.2f %.2f, key toward (%.2f %.2f %.2f) %.2f %.2f %.2f, key 2 toward (%.2f %.2f %.2f) %.2f %.2f %.2f\n", zone, q[0], q[1], q[2], q[3], q[4], q[5], q[6], q[7], q[8], q[9], q[10], q[11], q[12], q[13], q[14]); } pass_end(C.mips); GL(glBindFramebuffer)(GL_FRAMEBUFFER, C.fbo); GL(glPixelStorei)(GL_PACK_ALIGNMENT, 1);
         for (int i = 0; i < C.nk; i++) { GL(glReadPixels)(C.k[i].cx * TW, C.k[i].cy * TH, TW, TH, GL_RGBA, GL_UNSIGNED_BYTE, px);
             for (int y = 0; y < TH; y++) for (int x = 0; x < TW; x++) { const uint8_t *p = px + (y * TW + x) * 4; uint8_t *o = sheet + ((size_t)y * C.nk * TW + i * TW + x) * 4; int a = p[3];   /* over a grey check, so the cut-out shows */
                 int bg = ((x >> 3) + (y >> 3)) & 1 ? 70 : 100; for (int c = 0; c < 3; c++) o[c] = (uint8_t)(a >= 100 ? p[c] : bg); o[3] = 255; } }
         SDL_Surface *sf = SDL_CreateRGBSurfaceFrom(sheet, C.nk * TW, TH, 32, C.nk * TW * 4, 0x000000FF, 0x0000FF00, 0x00FF0000, 0); char p[700]; snprintf(p, sizeof p, "%s/%s_crowd_%s.bmp", outdir && *outdir ? outdir : ".", zone, STATE[st]); SDL_SaveBMP(sf, p); SDL_FreeSurface(sf);
         printf("crowd: %s %-9s ->", zone, STATE[st]); for (int i = 0; i < C.nk; i++) printf(" %s%s:%08x(%.1fs)", C.k[i].pak, C.k[i].standIn ? "*" : "", C.k[i].cur ? C.k[i].cur->key : 0, C.k[i].cur ? C.k[i].cur->dur : 0); printf(" -> %s\n", p); }
     /* the cost of a redraw of every kind: the CPU's part (pose, palette, draws, mipmaps submitted), then with the GPU's (glFinish; llvmpipe here) */
-    C.forceMood = 1; C.forceSp = 0; double cpu = 0; int N = 40; Uint64 f0 = SDL_GetPerformanceCounter(), fr = SDL_GetPerformanceFrequency();
+    C.forceMood = 1; C.forceSp = C.forceLit = 0; double cpu = 0; int N = 40; Uint64 f0 = SDL_GetPerformanceCounter(), fr = SDL_GetPerformanceFrequency();
     for (int r = 0; r < N; r++) { perf += 1000.0 / 15; Uint64 c0 = SDL_GetPerformanceCounter(); step(perf, 0, 0); if (pass_begin(1)) { for (int i = 0; i < C.nk; i++) figure(&C.k[i]); pass_end(C.mips); } cpu += (SDL_GetPerformanceCounter() - c0) * 1000.0 / fr; GL(glFinish)(); }
     double all = (SDL_GetPerformanceCounter() - f0) * 1000.0 / fr / N; cpu /= N;
-    for (int i = 0; i < 5; i++) GL(glDisableVertexAttribArray)(i); cs_restore(&s); C.forceMood = C.forceSp = -1; for (int i = 0; i < C.nk; i++) C.k[i].due = 0;
+    for (int i = 0; i < 5; i++) GL(glDisableVertexAttribArray)(i); cs_restore(&s); C.forceMood = C.forceSp = C.forceLit = -1; for (int i = 0; i < C.nk; i++) C.k[i].due = 0;
     /* frame by frame at 60 a second, every kind on screen: what r3d_crowd_update costs a frame (CPU submit, the GPU waited for outside the timing),
      * the first scheme (all at once, mipmaps each pass) against the round robin with mipmaps once a round and with none */
     { static const struct { int spread, per, mips; const char *name; } M[3] = { { 0, KINDS, 2, "all at once, mipmaps each pass" }, { 1, 2, 1, "round robin 2/frame, mipmaps a round" }, { 1, 2, 0, "round robin 2/frame, no mipmaps" } };

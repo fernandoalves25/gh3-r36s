@@ -138,14 +138,14 @@ static int qb_vec(const qbv *v, float *out, int n) {   /* a vec3 or a list of nu
     if (!v) return 0; if (v->kind == QB_VEC3 && n <= 3) { for (int i = 0; i < n; i++) out[i] = v->f[i]; return 1; } if (v->kind == QB_VEC2 && n <= 2) { for (int i = 0; i < n; i++) out[i] = v->f[i]; return 1; }
     if (v->kind == QB_ARRAY && v->narr >= n) { for (int i = 0; i < n; i++) out[i] = (float)qb_num(v->arr[i], 0); return 1; } return 0;
 }
-static uint32_t K_CLASS, K_CAS, K_POS, K_QUAT, K_FOV, K_LOCKTO, K_WORLD, K_CAM1, K_CAM2, K_ORBIT, K_NAME, K_ANGLES, K_LEVELOBJECT, K_LEVELLIGHT, K_LIGHTCOLOR, K_TYPE, K_LIGHTGROUP, K_INTENSITY, K_ATTENSTART, K_ATTENEND, K_AMBIENT, K_POINT, K_DIR, K_BAND, K_ALTBAND, K_CROWD, K_QB, K_NQB;
+static uint32_t K_CLASS, K_CAS, K_POS, K_QUAT, K_FOV, K_LOCKTO, K_WORLD, K_CAM1, K_CAM2, K_ORBIT, K_NAME, K_ANGLES, K_LEVELOBJECT, K_LEVELLIGHT, K_LIGHTCOLOR, K_TYPE, K_LIGHTGROUP, K_INTENSITY, K_ATTENSTART, K_ATTENEND, K_AMBIENT, K_POINT, K_DIR, K_BAND, K_ALTBAND, K_CROWD, K_QB, K_NQB, K_TRIGGER;
 #define K_LQUAT 0x786e947eu
 static void keys_init(void) {
     if (K_CLASS) return;
     K_CLASS = gh3_qbkey("class"); K_CAS = gh3_qbkey("createdatstart"); K_POS = gh3_qbkey("pos"); K_QUAT = gh3_qbkey("quat"); K_FOV = gh3_qbkey("fov"); K_LOCKTO = gh3_qbkey("lockto"); K_WORLD = gh3_qbkey("world");
     K_CAM1 = gh3_qbkey("cam1"); K_CAM2 = gh3_qbkey("cam2"); K_ORBIT = gh3_qbkey("orbitangle"); K_NAME = gh3_qbkey("name"); K_ANGLES = gh3_qbkey("angles"); K_LEVELOBJECT = gh3_qbkey("levelobject"); K_LEVELLIGHT = gh3_qbkey("levellight");
     K_LIGHTCOLOR = gh3_qbkey("lightcolor"); K_TYPE = gh3_qbkey("type"); K_LIGHTGROUP = gh3_qbkey("lightgroup"); K_INTENSITY = gh3_qbkey("intensity"); K_ATTENSTART = gh3_qbkey("attenstart"); K_ATTENEND = gh3_qbkey("attenend");
-    K_AMBIENT = gh3_qbkey("ambient"); K_POINT = gh3_qbkey("point"); K_DIR = gh3_qbkey("dir"); K_BAND = gh3_qbkey("band"); K_ALTBAND = gh3_qbkey("alt_band"); K_CROWD = gh3_qbkey("crowd"); K_QB = gh3_qbkey(".qb"); K_NQB = gh3_qbkey(".nqb");
+    K_AMBIENT = gh3_qbkey("ambient"); K_POINT = gh3_qbkey("point"); K_DIR = gh3_qbkey("dir"); K_BAND = gh3_qbkey("band"); K_ALTBAND = gh3_qbkey("alt_band"); K_CROWD = gh3_qbkey("crowd"); K_QB = gh3_qbkey(".qb"); K_NQB = gh3_qbkey(".nqb"); K_TRIGGER = gh3_qbkey("triggerscript");
 }
 static int made_at_start(const qbv *st) { uint32_t k; for (int i = 0; i < st->nitems; i++) if (st->items[i].id == 0 && qb_keyof(st->items[i].v, &k) && k == K_CAS) return 1; return 0; }
 static int cam_end(const qbv *st, r3d_camend *o) {
@@ -175,11 +175,11 @@ static void read_struct(ctx *c, const qbv *st) {
     int hasName = qb_keyof(qb_getk(st, K_NAME), &name), made = made_at_start(st);
     if (hasName && hasCls && !made) PUSH(c->v->hidden, c->v->nhidden, c->capH, name);
     if (cls == K_LEVELOBJECT && hasName) { r3d_object o; memset(&o, 0, sizeof o); o.key = name; o.shown = made;
-        if (qb_vec(qb_getk(st, K_POS), o.pos, 3)) { qb_vec(qb_getk(st, K_ANGLES), o.angles, 3); PUSH(c->v->objects, c->v->nobjects, c->capO, o); } }
+        if (qb_vec(qb_getk(st, K_POS), o.pos, 3)) { qb_vec(qb_getk(st, K_ANGLES), o.angles, 3); qb_keyof(qb_getk(st, K_TRIGGER), &o.script); PUSH(c->v->objects, c->v->nobjects, c->capO, o); } }
     if (cls == K_LEVELLIGHT && hasName && made) { r3d_light l; memset(&l, 0, sizeof l); l.key = name; uint32_t ty = 0, grp = 0; float q[4] = { 0, 0, 0, 1 };
         if (!qb_vec(qb_getk(st, K_POS), l.pos, 3) || !qb_vec(qb_getk(st, K_LIGHTCOLOR), l.colour, 3)) return;
         qb_keyof(qb_getk(st, K_TYPE), &ty); qb_keyof(qb_getk(st, K_LIGHTGROUP), &grp); qb_vec(qb_getk(st, K_LQUAT), q, 4); turn_vec(q, l.dir);
-        l.kind = ty == K_AMBIENT ? L_AMBIENT : ty == K_POINT ? L_POINT : ty == K_DIR ? L_DIR : L_SPOT; l.band = grp == K_BAND || grp == K_ALTBAND || grp == K_CROWD;
+        l.kind = ty == K_AMBIENT ? L_AMBIENT : ty == K_POINT ? L_POINT : ty == K_DIR ? L_DIR : L_SPOT; l.band = grp == K_BAND || grp == K_ALTBAND || grp == K_CROWD; l.crowd = grp == K_CROWD;
         l.intensity = (float)qb_num(qb_getk(st, K_INTENSITY), 0.5); l.near = (float)qb_num(qb_getk(st, K_ATTENSTART), 0); l.far = (float)qb_num(qb_getk(st, K_ATTENEND), 10);
         PUSH(c->v->lights, c->v->nlights, c->capL, l); }
 }
