@@ -92,6 +92,7 @@ static int lib_load(void) {
         if (p.role < 0 || !p.name[0]) continue;
         L.pf = realloc(L.pf, (L.npf + 1) * sizeof *L.pf); L.pf[L.npf++] = p; KEEP(p.set); KEEP(p.fingers); KEEP(p.frets); }
     KEEP(gh3_qbkey("drummer_anims")); KEEP(gh3_qbkey("cymbal_anims")); KEEP(K_BTL1); KEEP(K_BTL2);   /* who plays what when a battle's attack lands */
+    KEEP(gh3_qbkey("permanent_songlist_props")); KEEP(gh3_qbkey("download_songlist_props"));   /* each song's singer */
     if (A.lib) for (int s = 0; s < A.lib->nsongs; s++) if (A.lib->songs[s].isBoss) KEEP(A.lib->songs[s].bossKey);
 #undef KEEP
 #undef FINDSEC
@@ -424,15 +425,32 @@ static const profile *guitarist(void) {   /* the player's rocker, outfit and gui
     for (int i = 0; i < nmade; i++) if (!memcmp(made[i], &q, sizeof q)) return made[i];   /* one copy per combination: the same pointer while nothing changes */
     made = realloc(made, (nmade + 1) * sizeof *made); made[nmade] = malloc(sizeof q); *made[nmade] = q; return made[nmade++];
 }
+/* the singer, as create_band picks it: the song's singer field (permanent_songlist_props: none, female, bret; no field, the usual one), the _alt
+ * profile (the same singer with another microphone) in z_wikker, z_budokan and z_hell, and Cheat_BretMichaels' singer_bret for any man (its
+ * non-alt one even there). A profile whose paks this copy lacks (Singer_Female, Singer_Brett, microphone002...): the usual singer, said once */
+static int paks_here(const profile *pf, char *miss, size_t n) { const char *p[3] = { pf->body, pf->anims, pf->inst }; char fn[96];
+    for (int i = 0; i < 3; i++) { if (!p[i][0]) continue; snprintf(fn, sizeof fn, "%s.pak.xen", p[i]); if (!app_data_path("pak", fn)) { snprintf(miss, n, "%s", fn); return 0; } } return 1; }
+static const profile *vocalist_for(const char *song) {
+    const qbv *ps = NULL; uint32_t sk = 0, ks = gh3_qbkey(song);
+    if (*song) { ps = qsub(sec(gh3_qbkey("permanent_songlist_props")), ks); if (!ps) ps = qsub(sec(gh3_qbkey("download_songlist_props")), ks); }
+    int has = qb_keyof(qsub(ps, gh3_qbkey("singer")), &sk), fem = has && sk == gh3_qbkey("female"), bret = has && sk == gh3_qbkey("bret");
+    if (has && sk == K_NONE) { SDL_Log("band: %s has no singer", song); return NULL; }
+    int alt = has && (!strcmp(Z.zone, "z_wikker") || !strcmp(Z.zone, "z_budokan") || !strcmp(Z.zone, "z_hell"));
+    char nm[32]; snprintf(nm, sizeof nm, "%s%s", fem ? "Singer_Female" : bret ? "Singer_Bret" : "Singer", alt ? "_Alt" : ""); if (SET.bretMichaels && !fem) snprintf(nm, sizeof nm, "Singer_Bret");
+    const profile *pf = profile_named(nm, BAND_VOCALIST), *usual = profile_named("Singer", BAND_VOCALIST); char miss[96] = "(no profile)";
+    if (pf && pf != usual && !paks_here(pf, miss, sizeof miss)) pf = NULL;
+    if (!pf) { static uint32_t said[8]; uint32_t k = gh3_qbkey(nm); int ns = 0, was = 0; for (; ns < 8 && said[ns]; ns++) if (said[ns] == k) was = 1;
+        if (!was) { if (ns < 8) said[ns] = k; SDL_Log("band: the singer for %s in %s is %s: no PAK/%s in this copy of the game, the usual singer sings", *song ? song : "(no song)", Z.zone, nm, miss); } return usual; }
+    if (pf != usual) SDL_Log("band: the singer for %s in %s: %s", song, Z.zone, pf->name); return pf;
+}
 void r3d_band_select(void) {
     if (!G.ready || !SET.band3d) return; Uint32 t0 = SDL_GetTicks(); keys_init();
     if (!lib_load()) return; files_open(); if (!F.hasGlobal) { SDL_Log("band: no ZONES/global.pak + global.pab: no skeletons"); return; }
     const profile *want[BAND_ROLES] = { NULL }; want[BAND_GUITARIST] = guitarist();
     for (int r = 1; r < BAND_ROLES; r++) for (int i = 0; i < L.npf && !want[r]; i++) if (L.pf[i].role == r) want[r] = &L.pf[i];
-    if (SET.bretMichaels) { static int said; const profile *b = profile_named("Singer_Bret", BAND_VOCALIST); char fn[96] = "";   /* the cheat (Cheat_BretMichaels: "singer_bret" for the singer) */
-        if (b) snprintf(fn, sizeof fn, "%s.pak.xen", b->body); if (b && app_data_path("pak", fn)) want[BAND_VOCALIST] = b; else if (!said++) SDL_Log("band: Bret Michaels: no PAK/%s in this copy of the game, the usual singer sings", b ? fn : "(Singer_Bret profile)"); }
-    int si = A.selSong; const char *song = "";
-    if (A.lib && si >= 0 && si < A.lib->nsongs) { song = A.lib->songs[si].name;
+    int si = A.selSong; const char *song = A.lib && si >= 0 && si < A.lib->nsongs ? A.lib->songs[si].name : "";
+    want[BAND_VOCALIST] = vocalist_for(song);
+    if (A.lib && si >= 0 && si < A.lib->nsongs) {
         if (battle_song(si)) { const qbv *bp = sec(A.lib->songs[si].bossKey); uint32_t ck; const profile *b = qb_keyof(qb_get(bp, "character_profile"), &ck) ? profile_key(ck) : NULL; if (b) want[BAND_BASSIST] = b; } }   /* the boss in the bassist's place */
     for (int r = 0; r < BAND_ROLES; r++) { member *m = &M[r]; if (m->on && m->pf == want[r]) continue; member_free(m); if (want[r] && member_load(m, r, want[r])) member_free(m);
         if (!m->on && r == BAND_VOCALIST && want[r] && strcasecmp(want[r]->name, "Singer")) { const profile *s = profile_named("Singer", BAND_VOCALIST); if (s && !member_load(m, r, s)) continue; member_free(m); } }   /* (a singer that would not load: the usual one) */
@@ -604,9 +622,12 @@ static void finale(int how) {
     for (int r = 0; r < BAND_ROLES; r++) if (M[r].on) member_finale(&M[r], r == BAND_BASSIST && FIN.battle ? how != 1 : how == 1, T.mood, T.speed);
 }
 void r3d_band_test_finale(int how) { T.testFin = how; if (how) finale(how); }
+static int live_song(void) { return (A.screen == SC_PLAY || A.screen == SC_PAUSE) && A.S.loaded && A.S.song; }
+static int fin_keep(void) { return T.test ? T.testFin != 0 : live_song() ? A.S.run.finished || A.S.run.failed : A.screen == SC_RESULTS || A.screen == SC_BATTLE; }   /* the end lasts until a new song or the menus */
+int r3d_band_finale(void) { return FIN.how && fin_keep() ? FIN.how : 0; }
 static void update(double perf) {
-    int live = (A.screen == SC_PLAY || A.screen == SC_PAUSE) && A.S.loaded && A.S.song; double ms; float dt;   /* (paused: the song's clock stands, so does the band) */
-    if (FIN.how) { int keep = T.test ? T.testFin != 0 : live ? A.S.run.finished || A.S.run.failed : A.screen == SC_RESULTS || A.screen == SC_BATTLE;
+    int live = live_song(); double ms; float dt;   /* (paused: the song's clock stands, so does the band) */
+    if (FIN.how) { int keep = fin_keep();
         if (!keep) { FIN.how = 0; T.song = &FIN; }   /* a new song or the menus: the reset below */
         else { float d = (float)((perf - T.lastPerf) / 1000); T.lastPerf = perf; if (d < 0 || d > 0.25f) d = d < 0 ? 0 : 0.25f;
             bandstate S; memset(&S, 0, sizeof S); S.mood = T.mood; S.speed = T.speed; S.note = -1; for (int r = 0; r < BAND_ROLES; r++) if (M[r].on) member_tick(&M[r], d, &S); return; } }
