@@ -20,5 +20,10 @@ void sfx_song_begin(const char *zone, double leadMs);
 void sfx_song_tick(const gh3_run *r, double songMs);
 void sfx_song_end(int failed);
 void sfx_song_stop(void);                             /* everything of the song off at once (audio_clear) */
+/* sound events by their container key (practice.c: the drum kit of practice_notemapping) */
+int sfx_event_find(uint32_t containerKey);            /* its index in the table, -1 when it has none (or no bank) */
+int sfx_event_prepare(int idx);                       /* decodes its files now; 0 when none decodes */
+void sfx_event_fire(int idx, float level);            /* one of its files, now: from the audio callback (or under audio_lock) */
+void sfx_event_show(int idx);                         /* tests: its files (name, rate, length, peak, rms, vol, pitch) */
 int sfx_selftest(void);                               /* --sfxtest: lists and decodes every mapped sound; failures */
 #endif

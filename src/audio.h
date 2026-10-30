@@ -33,6 +33,11 @@ void audio_metronome(double periodMs, double leadMs); /* calibration: clicks at 
  * stays in song ms, running at audio_speed() of real time; audio_play's lead is in song ms too. */
 void audio_set_speed(double speed);
 double audio_speed(void);
+/* practice below full speed, as the game: the next audio_play (when it is slowed) leaves out the band and the other track and
+ * sets off these drum hits instead: { song ms, sfx_event_find index }, by time; n < 0: none (the band is heard, stretched) */
+void audio_practice_drums(const int (*hits)[2], int n);
+int audio_drums_on(void);
+extern void (*audio_drum_hook)(int i, double songMs, int64_t frame);   /* tests: each hit as the mixer sets it off */
 void audio_render(float *out, int frames);        /* tests: mixes stereo frames without a device */
 /* effects */
 void audio_sfx(int kind);
