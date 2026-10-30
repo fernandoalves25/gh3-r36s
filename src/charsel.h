@@ -17,6 +17,12 @@ typedef struct { char name[40]; int first, n; } cs_model;   /* a guitar: its fin
 enum { CS_ROCKERS, CS_GUITARS, CS_FINISHES, CS_CATS };     /* what the store sells from here */
 typedef struct { cs_rocker r[24]; int nr; cs_outfit o[200]; int no; cs_guitar g[128]; int ng; cs_model m[64]; int nm; int ok; } cs_data;
 const cs_data *charsel_data(void);                   /* read once from A.lib; ok = 0 when qb.pak lacks the lists */
+/* the words in Portuguese (charsel_pt.c): a rocker's story by profile name, a guitar's by desc_id (NULL: none, the data's
+ * English is shown); an outfit's, a style's, a guitar's finish, line or maker name (en itself when it has none) */
+enum { CS_PT_OUTFIT, CS_PT_STYLE, CS_PT_FINISH, CS_PT_LINE, CS_PT_MAKER };
+const char *charsel_pt_rocker(const char *name);
+const char *charsel_pt_guitar(uint32_t id);
+const char *charsel_pt_name(int kind, const char *en);
 /* ---- the choice (SET.rocker / SET.outfit / SET.guitar), checked against what is owned and on disk */
 const char *charsel_rocker(void);                    /* the chosen rocker's profile NAME ("Axel" by default) */
 void charsel_paks(const char *rocker, char *body, char *anims, char *guitar, size_t n);   /* the pak basenames (DATA/PAK) of that rocker's chosen outfit and guitar; "" = the profile's own */
