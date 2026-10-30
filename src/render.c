@@ -3,6 +3,7 @@
  * textures; gems, fret targets, flames, crowd and beams are pixel-art sprites drawn scaled; meters, text and
  * overlays are rectangles and glyphs. A frame is a few hundred RenderCopy/FillRect calls and no per-pixel work. */
 #include "render.h"
+#include "fx.h"
 #include "ui.h"
 #include "settings.h"
 #include <math.h>
@@ -71,9 +72,13 @@ static gfx_sprite *hd_target(int down) {
     gfx_sprite *s = gfx_bake(&im, 1); fb_free(&im); return s;
 }
 static gfx_sprite *hd_burst(int frame) { /* a soft flash growing and fading over three frames */
-    fb_t im; fb_init(&im, 96, 96); float k0 = 0.45f + frame * 0.27f;
-    for (int i = 12; i >= 1; i--) { float k = i / 12.0f * k0; fb_ellipse(&im, 48, 60, 46 * k, 30 * k, RGBA(255, 240, 200, (int)(255 * (0.08f + 0.07f * (1 - k / k0)) * (1 - frame * 0.3f)))); }
-    for (int i = 0; i < 6; i++) { float a = (float)i / 6 * (float)M_PI * 2 + frame * 0.4f, L = 20 + frame * 14; fb_line(&im, 48, 60, 48 + cosf(a) * L, 60 - fabsf(sinf(a)) * L * 1.3f, 2.5f - frame * 0.5f, RGBA(255, 230, 160, 170 - frame * 40)); }
+    /* worked out per pixel (light colour, alpha from the shape): stacking translucent layers on a clear image would
+     * drag the colour toward black and leave a dark ring */
+    fb_t im; fb_init(&im, 96, 96); float k0 = 0.45f + frame * 0.27f, fade = 1 - frame * 0.3f;
+    for (int y = 0; y < 96; y++) for (int x = 0; x < 96; x++) { float dx = (x + 0.5f - 48) / (46 * k0), dy = (y + 0.5f - 60) / (30 * k0), d = sqrtf(dx * dx + dy * dy);
+        float glow = d < 1 ? (1 - d) * (1 - d) * 0.75f : 0, ang = atan2f(-(y + 0.5f - 60), x + 0.5f - 48) + frame * 0.4f, rl = d * k0 / (0.45f + frame * 0.3f);
+        float ray = y < 62 && rl < 1.25f ? powf(fmaxf(0, cosf(ang * 3)), 24) * (1 - rl / 1.25f) * 0.8f : 0, a = fminf(1, (glow + ray) * fade); if (a < 0.01f) continue;
+        im.px[(size_t)y * 96 + x] = RGBA(255, 238, 196, (int)(255 * a)); }
     gfx_sprite *s = gfx_bake(&im, 1); fb_free(&im); return s;
 }
 static void bake_theme_hd(theme_t *t) {
@@ -191,12 +196,7 @@ void render_backdrop(double perf, int stageFx) {
     stage(perf, pulse * 0.6f, 0, level, stageFx, 0.5f);
     gfx_rect(0, 0, V.W, V.H, RGBA(10, 8, 16, 190));
 }
-void render_stars(int cx, int y, int n, int scale, double revealT) {
-    gfx_sprite *full = art_get(ART_STAR), *empty = art_get(ART_STAR_EMPTY); int sw = gfx_sprite_w(full); float step = sw * scale / (float)PXS + 4 * scale; float x0 = cx - (5 * step - 4 * scale) / 2;
-    for (int i = 0; i < 5; i++) { float k = scale / (float)PXS; int lit = i < n; float pop = 1;
-        if (revealT >= 0) { double at = revealT - i * 0.35; if (at < 0) lit = 0; else if (at < 0.25) pop = 1 + (float)(0.5 * sin(at / 0.25 * M_PI)); }
-        float w = sw * k * pop; gfx_blit(lit ? full : empty, 0, 0, sw, sw, x0 + i * step + (sw * k - w) / 2, y + (sw * k - w) / 2, w, w, RGB(255, 255, 255), 1); }
-}
+void render_stars(int cx, int y, int n, int scale, double revealT) { fx_stars(cx, y, n, 13 * scale + 1, revealT, theme() == 1); }
 
 static int lastMult = 1; static double multAt = -1e9;
 void render_game(gh3_run *r, double perf, const hud_info *hi) {
@@ -247,6 +247,12 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             if (nt->n > 1) { float ax, bx, yy, ps; int lo = -1, hi2 = -1; for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { if (lo < 0) lo = f; hi2 = f; }
                 proj(laneX(lefty ? hi2 : lo, lefty), z, &ax, &yy, &ps); proj(laneX(lefty ? lo : hi2, lefty), z, &bx, &yy, &ps); gfx_rect(ax, yy - 2 * ps, bx - ax, 4 * ps + 1, fb_alpha(RGB(0xd0, 0xc8, 0xe0), alpha * 0.8f)); }
             for (int f = 0; f < 5; f++) if (nt->mask & (1 << f)) { float px, py, ps; proj(laneX(f, lefty), z, &px, &py, &ps); gem(px, py, ps, nt->missed ? RGB(0x6d, 0x66, 0x7c) : (sp ? C_SP : FRET_COLORS[f]), kind, alpha); } }
+        /* sparks fly off a fret the moment its note is hit */
+        { static double seen[5], susAt[5]; for (int f = 0; f < 5; f++) { float px, py; proj(laneX(f, lefty), 0, &px, &py, &s); uint32_t col = sp ? C_SP : FRET_COLORS[f];
+            if (r->flash[f] != seen[f]) { seen[f] = r->flash[f]; if (perf - r->flash[f] < 80 && perf >= r->flash[f]) fx_burst(px, py - tgtW * 0.15f, theme() == 1 ? 12 : 8, col, tgtW * 7, 420, 0.55f); }
+            /* a held sustain: a glow on the fret and a thin stream of sparks, as long as it is held */
+            if (r->sus && (r->sus->mask & (1 << f))) { gfx_sprite *gl = art_get(ART_GLOW); float gw = tgtW * 1.7f, gh = gw * gfx_sprite_h(gl) / gfx_sprite_w(gl); gfx_blit(gl, 0, 0, gfx_sprite_w(gl), gfx_sprite_h(gl), px - gw / 2, py - gh / 2, gw, gh, col, 0.55f + 0.2f * (float)sin(perf / 70.0));
+                if (perf - susAt[f] > 45 || perf < susAt[f]) { susAt[f] = perf; fx_burst(px, py - tgtW * 0.1f, 2, col, tgtW * 4.5f, 320, 0.8f); } } } }
         /* flames on hit; a held sustain keeps its frets burning */
         for (int f = 0; f < 5; f++) { float age = (float)((perf - r->flash[f]) / 260);
             if (r->sus && (r->sus->mask & (1 << f)) && (age < 0 || age >= 1)) age = 0.15f + 0.25f * (float)fmod(perf / 260.0, 1.0);
@@ -255,6 +261,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             gfx_sprite *fl = sp ? th->spflame[fr] : th->flame[fr]; float fw = tgtW * (theme() == 1 ? 1.3f : 0.75f), fh = fw * gfx_sprite_h(fl) / gfx_sprite_w(fl);
             uint32_t tint = theme() == 1 ? (sp ? C_SP : RGB(255, 214, 140)) : RGB(255, 255, 255);
             gfx_blit(fl, 0, 0, gfx_sprite_w(fl), gfx_sprite_h(fl), px - fw / 2, py - fh * (theme() == 1 ? 0.62f : 0.85f) - age * tgtW * 0.3f, fw, fh, tint, 1 - age * 0.6f); }
+        fx_draw(perf);
         float sa = (float)((perf - r->spFlash) / 500); if (sa >= 0 && sa < 1) gfx_rect(0, 0, V.W, V.H, fb_alpha(C_SP, 0.22f * (1 - sa)));
         float so = (float)((perf - r->spAt) / 320); if (so >= 0 && so < 1) gfx_rect(0, 0, V.W, V.H, fb_alpha(RGB(150, 238, 255), 0.4f * (1 - so) * (1 - so)));
         float ma = (float)((perf - r->missFlash) / 220); if (ma >= 0 && ma < 1 && !r->autoPlay) gfx_rect(0, 0, V.W, V.H, fb_alpha(C_BAD, 0.1f * (1 - ma)));

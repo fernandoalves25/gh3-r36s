@@ -6,6 +6,7 @@
 #include "ui.h"
 #include "input.h"
 #include "audio.h"
+#include "fx.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -88,7 +89,7 @@ static void draw_main(double now) {
         snprintf(b, sizeof b, "%s", diff_name_pt(d)); gfx_text(px + 14, py + 36 + d * 22, 1, b, C_MUTED);
         snprintf(b, sizeof b, "%d/%d sets", done, ntier); gfx_text_sh_right(px + 194, py + 36 + d * 22, 1, b, done == ntier ? C_GOOD : C_INK, C_SHADOW);
         ui_bar(px + 70, py + 38 + d * 22, 60, 5, ntier ? (float)done / ntier : 0, done == ntier ? C_GOOD : C_AMP); }
-    gfx_sprite_at(art_get(ART_STAR), px + 14, py + 124, 0.8f, RGB(255, 255, 255), 1); snprintf(b, sizeof b, "%d estrelas", records_count_stars()); gfx_text_sh(px + 38, py + 126, 1, b, C_INK, C_SHADOW);
+    { gfx_sprite *st = fx_star(1, SET.theme == 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), px + 12, py + 120, 20, 20, RGB(255, 255, 255), 1); } snprintf(b, sizeof b, "%d estrelas", records_count_stars()); gfx_text_sh(px + 38, py + 126, 1, b, C_INK, C_SHADOW);
     ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, MM_HELP[A.mainRow], C_MUTED);
     static const char *bt[2] = { "A", "B" }, *tx[2] = { "Escolher", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2);
     if (A.confirmQuit) { ui_dim(W, H, 150); ui_panel(W / 2 - 150, H / 2 - 50, 300, 100, UI_PANEL_DARK); gfx_text_sh_center(W / 2, H / 2 - 34, 2, "Sair do jogo?", C_INK, C_SHADOW); static const char *qb[2] = { "A", "B" }, *qt[2] = { "Sim, sair", "Ficar" }; ui_hints(H / 2 + 14, W, qb, qt, 2); }

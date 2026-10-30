@@ -16,6 +16,7 @@
 #include "gfx.h"
 #include "art.h"
 #include "render.h"
+#include "fx.h"
 #include "ui.h"
 #include "settings.h"
 #include "input.h"
@@ -256,7 +257,7 @@ void app_begin_song(void) {
     double from = 0; if (A.mode == MODE_PRACTICE && A.practiceSec > 0 && A.practiceSec <= A.S.sd.nmarkers) from = A.S.sd.markers[A.practiceSec - 1].t;
     if (from > 0) { gh3_run *r = &A.S.run; int i = 0; while (i < r->nnotes && r->notes[i].t < from) i++; r->idx = r->botIdx = i; }   /* the notes before the section are not played */
     app_apply_volumes(); audio_play(from, 2600); input_reset_axes(); input_action_buttons(ACT_STAR, A.starKeys, sizeof A.starKeys);
-    A.screen = SC_PLAY; A.S.section[0] = 0; A.resumeAt = 0; A.S.run.held = 0;
+    A.screen = SC_PLAY; A.S.section[0] = 0; A.resumeAt = 0; A.S.run.held = 0; fx_clear();
 }
 void app_resume_play(void) { A.screen = SC_PLAY; A.resumeAt = SDL_GetTicks() + 1600; audio_sfx(SFX_TICK); }
 /* the clock notes are drawn and judged on: what is heard, less the lag the player measured (Calibrar atraso) */
@@ -322,7 +323,7 @@ static void save_named(const char *name) {
     SDL_Surface *s = SDL_CreateRGBSurfaceFrom(fb->px, fb->w, fb->h, 32, fb->w * 4, 0x00FF0000, 0x0000FF00, 0x000000FF, 0);
     char p[700]; snprintf(p, sizeof p, "%s/%s.bmp", *cfg.outdir ? cfg.outdir : ".", name); SDL_SaveBMP(s, p); SDL_FreeSurface(s);
 }
-static void headless_init(void) { gfx_init(NULL, cfg.W, cfg.H); art_init(cfg.H >= 400 ? cfg.H / 240 : 1); render_init(cfg.W, cfg.H); A.W = cfg.W; A.H = cfg.H; A.lib = &lib; A.libOk = 1; app_refresh_career(0); screens_build_rows(); }
+static void headless_init(void) { gfx_init(NULL, cfg.W, cfg.H); art_init(cfg.H >= 400 ? cfg.H / 240 : 1); fx_init(art_px()); render_init(cfg.W, cfg.H); A.W = cfg.W; A.H = cfg.H; A.lib = &lib; A.libOk = 1; app_refresh_career(0); screens_build_rows(); }
 static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     headless_init(); A.selDiff = 1; app_refresh_career(0);
     A.cursor = 0; while (A.cursor < A.nrows && A.rows[A.cursor].kind == 0) A.cursor++; A.cursor += 2; A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier;
@@ -342,7 +343,9 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     double t = -2000, perf = 0; for (; t < 14000; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
     snprintf(A.S.section, sizeof A.S.section, "%s", app_section_at(t)); A.screen = SC_PAUSE; gfx_begin(); screens_draw(perf); gfx_end(); save_named("pause");
     for (; !A.S.run.finished; t += 1000.0 / 60, perf += 1000.0 / 60) game_step(&A.S.run, t, perf);
-    A.S.run.autoPlay = 0; finish_song(perf); A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
+    A.S.run.autoPlay = 0; finish_song(perf);
+    for (double rt = 0; rt <= 1.06; rt += 1.0 / 60) { A.resultsAt = perf - rt * 1000; gfx_begin(); screens_draw(perf); gfx_end(); } save_named("results_reveal");   /* the third star landing, its sparks flying */
+    A.resultsAt = perf - 3000; gfx_begin(); screens_draw(perf); gfx_end(); save_named("results");
     printf("screens written to %s\n", cfg.outdir);
 }
 static void frames_mode(void) {
@@ -394,7 +397,7 @@ int main(int argc, char **argv) {
         gfx_init(NULL, cfg.W, cfg.H); ren = soft; SDL_Log("renderer: software");
     } else gfx_init(ren, cfg.W, cfg.H);
     SDL_ShowCursor(SDL_DISABLE);
-    art_init(cfg.H >= 400 ? cfg.H / 240 : 1); render_init(cfg.W, cfg.H); A.W = cfg.W; A.H = cfg.H;
+    art_init(cfg.H >= 400 ? cfg.H / 240 : 1); fx_init(art_px()); render_init(cfg.W, cfg.H); A.W = cfg.W; A.H = cfg.H;
     if (audio_open()) SDL_Log("no audio device"); app_apply_volumes();
     open_pads();
     gh3_sfx_hook = sfx_hook; gh3_mute_hook = mute_hook;

@@ -13,7 +13,7 @@ mkdir -p build
 INC="-nostdinc -isystem $($CC -print-file-name=include) -isystem $SYSROOT/usr/include/$MA -isystem $SYSROOT/usr/include -I$SYSROOT/usr/include/SDL2 -D_REENTRANT"
 LIB="--sysroot=$SYSROOT -B$SYSROOT/usr/lib/$MA -L$SYSROOT/lib/$MA -L$SYSROOT/usr/lib/$MA -Wl,-rpath-link=$SYSROOT/lib/$MA:$SYSROOT/usr/lib/$MA"
 FLAGS="-O2 -mcpu=cortex-a35 -std=gnu11 -D_GNU_SOURCE -Wall -Wno-unused-parameter -Wno-unused-function -Wno-misleading-indentation -ffast-math"
-SRC="src/main.c src/gh3fmt.c src/audio.c src/game.c src/fb.c src/font.c src/gfx.c src/art.c src/ui.c src/render.c src/settings.c src/input.c src/career.c src/screens.c"
+SRC="src/main.c src/gh3fmt.c src/audio.c src/game.c src/fb.c src/font.c src/gfx.c src/art.c src/ui.c src/render.c src/settings.c src/input.c src/career.c src/screens.c src/fx.c"
 $CC $FLAGS $INC -Ithird_party -o build/gh3.aarch64 $SRC $LIB -Wl,--allow-shlib-undefined -lSDL2 -lm -lpthread -ldl
 aarch64-linux-gnu-strip build/gh3.aarch64 2>/dev/null || true
 echo "built build/gh3.aarch64"
