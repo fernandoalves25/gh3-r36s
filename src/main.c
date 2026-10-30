@@ -427,6 +427,10 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.screen = SC_OPTIONS; A.optCat = -1; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_menu");
     A.screen = SC_SETLIST; A.mode = MODE_CAREER; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist");
     A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_quick"); A.mode = MODE_CAREER;
+    { int c0 = A.cursor, boss = -1; for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind == 1 && lib.songs[A.rows[i].idx].isBoss) { boss = i; break; }   /* the list's top, a battle further down, a message just in */
+      A.cursor = 0; while (A.cursor < A.nrows && A.rows[A.cursor].kind == 0) A.cursor++; gfx_begin(); screens_draw(10000); gfx_end(); save_named("setlist_top");
+      if (boss >= 0) { A.cursor = boss; gfx_begin(); screens_draw(20000); gfx_end(); save_named("setlist_boss"); }
+      A.cursor = c0; snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", lib.tiers[1].title); A.unlockAt = 29000; gfx_begin(); screens_draw(30000); gfx_end(); save_named("setlist_unlock"); A.unlockAt = 0; }
     { int c0 = A.cursor; store_demo(2350);   /* the bonus songs with their prices, the store (a pretend balance: nothing saved) */
       for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind == 0 && lib.tiers[A.rows[i].tier].tab == 1) { A.cursor = i + 3; A.scroll = i; break; }
       gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus"); A.mode = MODE_QUICK; gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus_quick"); A.mode = MODE_CAREER;

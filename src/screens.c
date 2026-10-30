@@ -13,6 +13,7 @@
 #include "cheats.h"
 #include "tutorial.h"
 #include "orig_setup.h"
+#include "orig_setlist.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -115,6 +116,7 @@ static void draw_training(double now) {
 
 /* ------------------------------------------------------------------ set list */
 static void draw_setlist(double now) {
+    if (SET.theme == 2 && orig_ready() && orig_setlist_draw(now)) return;
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; gh3_library *lib = A.lib; char b[200], b2[64];
     int done = career_tiers_done(lib, A.tiers), ntier = 0, career = A.mode == MODE_CAREER; for (int t = 0; t < lib->ntiers; t++) ntier += lib->tiers[t].career;
     if (career) snprintf(b, sizeof b, "%s • %d/%d sets • ★ %d • %s", diff_name_pt(A.selDiff), done, ntier, records_count_stars(), store_cash_str()); else snprintf(b, sizeof b, "★ %d", records_count_stars());
