@@ -127,7 +127,7 @@ gfx_sprite *ga_mat(const char *material) {
 }
 
 /* ---- .fnt: a character table (0x14), glyph records (0x200a4, 36 bytes each: u0 v0 u1 v1 w h yo ...), then the sheet ---- */
-typedef struct { int sx, sy, sw, sh; float w, h, yo, it; } glyph_t;   /* it: how far below the box's top the ink starts */
+typedef struct { int sx, sy, sw, sh; float w, h, yo, it, ab, bt; } glyph_t;   /* it: how far below the box's top the ink starts; ab, bt: where its first run of ink (an accent) ends and the next (the letter) starts, 0 when one run */
 struct ga_font { uint32_t key; int down; gfx_sprite *sheet; int sheetW, sheetH; int16_t table[0x250]; glyph_t *g; int n; float size, asc, space, gap, stem, acute[2][3]; gfx_sprite *inv[2]; float invDx[2], invDy[2]; int16_t comp[64]; };   /* acute: lower/upper case, where an acute's ink sits (gap above the letter, height, x shift); inv: ¡ and ¿ for a font without them, its ! and ? turned (their ink moved by invDx, invDy back where the upright one's sits); comp: per ACCS row, an accented letter of the font that is put together instead (its glyph lends only its accent), -1 when drawn as it is */
 static ga_font **fonts; static int nfonts;
 /* the sheet shrunk `d` times by averaging d x d blocks (alpha-weighted): small text from a big font stays smooth */
@@ -250,6 +250,18 @@ static float ink_w(const glyph_t *g, const fb_t *sh, float y0, float y1) {   /* 
         for (int x = 0; x < g->sw; x++) if ((sh->px[(size_t)(g->sy + y) * sh->w + g->sx + x] >> 24) >= 96) { if (x < l) l = x; if (x + 1 > r) r = x + 1; } }
     return r > l ? (r - l) * g->w / g->sw : 0;
 }
+static void body_grid(const glyph_t *g, const fb_t *sh, float ph, uint8_t *cells) {   /* the body (baseline to 3/4 of the plain letter's height, its ink's width) on a 12 x 12 grid */
+    memset(cells, 0, 144); int l = g->sw, r = 0, y0 = g->sh, y1 = 0;
+    for (int y = 0; y < g->sh; y++) { float up = g->h - g->yo - (y + 0.5f) * g->h / g->sh; if (up < 0 || up > ph * 0.75f) continue; if (y < y0) y0 = y; if (y + 1 > y1) y1 = y + 1;
+        for (int x = 0; x < g->sw; x++) if ((sh->px[(size_t)(g->sy + y) * sh->w + g->sx + x] >> 24) >= 96) { if (x < l) l = x; if (x + 1 > r) r = x + 1; } }
+    if (r <= l || y1 <= y0) return;
+    for (int j = 0; j < 12; j++) for (int i = 0; i < 12; i++) { int x = l + (int)((i + 0.5f) * (r - l) / 12), y = y0 + (int)((j + 0.5f) * (y1 - y0) / 12);
+        cells[j * 12 + i] = (sh->px[(size_t)(g->sy + y) * sh->w + g->sx + x] >> 24) >= 96; }
+}
+static float body_diff(const glyph_t *a, const glyph_t *b, const fb_t *sh, float ph) {   /* the share of the grid where two letters' bodies differ */
+    if (a->sw <= 0 || a->sh <= 0 || b->sw <= 0 || b->sh <= 0 || a->sx + a->sw > sh->w || a->sy + a->sh > sh->h || b->sx + b->sw > sh->w || b->sy + b->sh > sh->h) return 0;
+    uint8_t A[144], B[144]; body_grid(a, sh, ph, A); body_grid(b, sh, ph, B); int d = 0, n = 0; for (int i = 0; i < 144; i++) { d += A[i] != B[i]; n += A[i] | B[i]; } return n ? (float)d / n : 0;
+}
 static float ink_bottom(const glyph_t *g, const fb_t *sh) {   /* how high above the baseline a glyph's ink ends (glyph units; below it, negative) */
     if (g->sw <= 0 || g->sh <= 0 || g->h <= 0 || g->sx < 0 || g->sy < 0 || g->sx + g->sw > sh->w || g->sy + g->sh > sh->h) return 0;
     for (int y = g->sh - 1; y >= 0; y--) for (int x = 0; x < g->sw; x++) if ((sh->px[(size_t)(g->sy + y) * sh->w + g->sx + x] >> 24) >= 96) return g->h - g->yo - (y + 1) * g->h / g->sh;
@@ -257,7 +269,10 @@ static float ink_bottom(const glyph_t *g, const fb_t *sh) {   /* how high above 
 }
 static void acute_ink(ga_font *f, const fb_t *sh) {   /* where the ink of an acute (á, Á...) sits over its letter: the tilde goes there */
     for (int gi = 0; gi < f->n; gi++) { glyph_t *g = &f->g[gi]; g->it = 0; if (g->sw <= 0 || g->sh <= 0 || g->sx < 0 || g->sy < 0 || g->sx + g->sw > sh->w || g->sy + g->sh > sh->h) continue;   /* each glyph's ink top */
-        for (int r = 0, done = 0; r < g->sh && !done; r++) for (int x = 0; x < g->sw; x++) if ((sh->px[(size_t)(g->sy + r) * sh->w + g->sx + x] >> 24) >= 96) { g->it = r * g->h / g->sh; done = 1; break; } }
+        g->ab = g->bt = 0; int st = 0;   /* and where its top ink ends and the next ink starts (an accent and its letter) */
+        for (int r = 0; r < g->sh && st < 3; r++) { int ink = 0; for (int x = 0; x < g->sw; x++) if ((sh->px[(size_t)(g->sy + r) * sh->w + g->sx + x] >> 24) >= 96) { ink = 1; break; }
+            if (st == 0 && ink) { g->it = r * g->h / g->sh; st = 1; } else if (st == 1 && !ink) { g->ab = r * g->h / g->sh; st = 2; } else if (st == 2 && ink) { g->bt = r * g->h / g->sh; st = 3; } }
+        if (st < 3) g->ab = g->bt = 0; }
     /* an accented letter whose body is much narrower than its plain letter's, or stands raised off the baseline
      * (fontgrid_text_a6: its á é ó ú ñ are small raised letters, its a e o u n small capitals, so "público" opens a gap
      * after the ú), is put together instead: the plain letter, and the accent of its own glyph */
@@ -265,7 +280,16 @@ static void acute_ink(ga_font *f, const fb_t *sh) {   /* where the ink of an acu
     for (int i = 0; i < NACCS; i++) { int cp = ACCS[i].cp, b = ACCS[i].base; if (!own(f, cp) || !own(f, b)) continue;
         const glyph_t *pg = &f->g[f->table[b]]; float ph = pg->h - pg->yo, wa = ink_w(&f->g[f->table[cp]], sh, ph * 0.15f, ph * 0.6f), wb = ink_w(pg, sh, ph * 0.15f, ph * 0.6f);   /* (the letter's body, under any accent) */
         float ba = ink_bottom(&f->g[f->table[cp]], sh), bb = ink_bottom(pg, sh);
-        if ((wb >= 6 && wa < wb * 0.8f) || ba - bb > ph * 0.12f) { f->comp[i] = f->table[cp]; f->table[cp] = -1; if (getenv("GH3_FONT_LOG") && f->down == 1) fprintf(stderr, "font %08x: U+%04X put together (body %.0f/%.0f wide, %.1f above)\n", f->key, cp, wa, wb, ba - bb); } }
+        if ((wb >= 6 && wa < wb * 0.8f) || ba - bb > f->size * 0.05f) { f->comp[i] = f->table[cp]; f->table[cp] = -1; if (getenv("GH3_FONT_LOG") && f->down == 1) fprintf(stderr, "font %08x: U+%04X put together (body %.0f/%.0f wide, %.1f above)\n", f->key, cp, wa, wb, ba - bb); } }
+    /* an accented letter that is the same picture as its plain letter (no accent), and fontgrid_title_a1's Á À Ä (a
+     * flattened apex under a bar, read as Ā): put together from the plain letter and a sibling's accent */
+    for (int i = 0; i < NACCS; i++) { int cp = ACCS[i].cp, b = ACCS[i].base; if (!own(f, cp) || !own(f, b)) continue; const glyph_t *g = &f->g[f->table[cp]], *pg = &f->g[f->table[b]];
+        int same = f->table[cp] == f->table[b], apex;
+        if (!same && g->sw == pg->sw && g->sh == pg->sh && g->sw > 0 && g->sx + g->sw <= sh->w && g->sy + g->sh <= sh->h && pg->sx + pg->sw <= sh->w && pg->sy + pg->sh <= sh->h) {   /* the same picture twice */
+            long d = 0; for (int y = 0; y < g->sh; y++) for (int x = 0; x < g->sw; x++) d += abs((int)(sh->px[(size_t)(g->sy + y) * sh->w + g->sx + x] >> 24) - (int)(sh->px[(size_t)(pg->sy + y) * sh->w + pg->sx + x] >> 24));
+            same = d < 12L * g->sw * g->sh; }
+        apex = f->key == gh3_qbkey("fontgrid_title_a1") && b == 'A';
+        if (same || apex) { f->table[cp] = -1; if (getenv("GH3_FONT_LOG") && f->down == 1) fprintf(stderr, "font %08x: U+%04X %s\n", f->key, cp, same ? "has no accent: put together" : "flattened apex: put together"); } }
     for (int up = 0; up < 2; up++) { const glyph_t *pg = NULL, *dg = donor(f, 0, up, &pg); float *o = f->acute[up]; o[0] = o[1] = o[2] = 0; if (!dg || dg->sh <= 0 || dg->h <= 0) continue;
         int rows = (int)(dg->sh * ((dg->h - dg->yo) - (pg->h - pg->yo)) / dg->h + 0.5f), top = -1, bot = -1; double sx = 0, sw = 0; float u = dg->h / dg->sh;
         for (int r = 0; r < rows && r < dg->sh; r++) for (int x = 0; x < dg->sw; x++) { int px = dg->sx + x, py = dg->sy + r; if (px < 0 || py < 0 || px >= sh->w || py >= sh->h) continue;
@@ -297,6 +321,8 @@ static float draw_char(const ga_font *f, float x, float base, float k, float sx,
         else if (acc == 4) { tw = (int)(tw * 0.8f + 0.5f); th = (int)(t * 2.2f + 0.5f); if (th < 3) th = 3; if (th > 12) th = 12; }
         int kind = acc == 3 ? TK_TILDE : acc == 2 ? TK_HAT : acc == 0 ? TK_ACUTE : acc == 1 ? TK_GRAVE : TK_DOTS;
         gfx_blit(tilde_at(tw, th, t, kind), 0, 0, tw, th, floorf(cx - tw / 2.0f + 0.5f), floorf(top - lift - th + 0.5f), (float)tw, (float)th, tint, a); }
+    else if (dg && dg->ab > 0 && dg->ab < strip / k + dg->it) {   /* the accent alone (down to the blank under it), as far above the letter as it stands over its own (fontgrid_title_a1 squashes its accented capitals: a fixed strip took the top of the letter too) */
+        int rows = (int)(dg->ab * dg->sh / dg->h + 0.5f); float h = rows * dg->h * k / dg->sh, gap = fmaxf((dg->bt - dg->ab) * k, g->h * k * 0.08f);   /* (clear of the letter's top by a little at least) */ if (rows > 0) gfx_blit(f->sheet, dg->sx, dg->sy, dg->sw, rows, cx - dg->w * k * sx / 2, top + g->it * k - gap - h, dg->w * k * sx, h, tint, a); }
     else if (dg) { int rows = (int)(dg->sh * strip / (dg->h * k) + 0.5f); float h = rows * dg->h * k / dg->sh; if (rows > 0) gfx_blit(f->sheet, dg->sx, dg->sy, dg->sw, rows, cx - dg->w * k * sx / 2, top - h, dg->w * k * sx, h, tint, a); }
     return adv;
 }

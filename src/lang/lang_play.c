@@ -1,13 +1,10 @@
 /* English and Spanish for the play screens (lang.h): { Portuguese key as written in the code, English, Español }.
  * The English is GH3's own where the game has the words (qb.pak: "Amp Overload", "Powerup Steal", "Lefty Flip",
- * "Death Drain", "You Rock!!!"...); the Spanish follows the Spanish edition's terms ("racha", "energía estrella"). */
+ * "Death Drain", "You Rock!!!"...); the Spanish is plain Spanish, to be polished by Spanish speakers. */
 #include "../lang.h"
 const lang_entry LANG_PLAY[] = {
-    /* the HUD (render.c) */
+    /* the HUD (render.c; PONTOS, SEM FALHAR and "%d seguidas" are lang_menus.c's rows) */
     { "Prepare-se!", "Get Ready!", "¡Prepárate!" },
-    { "PONTOS", "SCORE", "PUNTOS" },
-    { "%d seguidas", "%d streak", "racha de %d" },
-    { "SEM FALHAR", "NO FAIL", "SIN FALLAR" },
     { "STAR POWER: %s", "STAR POWER: %s", "ENERGÍA ESTRELLA: %s" },
     { "%d NOTAS SEGUIDAS!", "%d NOTE STREAK!", "¡RACHA DE %d NOTAS!" },
     /* the battle's attacks (battle.c: what lands, what is won) */
