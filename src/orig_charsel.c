@@ -11,6 +11,7 @@
 #include "app.h"
 #include "render.h"
 #include "ui.h"
+#include "lang.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -68,20 +69,20 @@ static void star(float x, float y, float sz) { gfx_sprite *s = ga_img("star_soli
 int orig_charsel_draw(double now, const cs_view *v) {
     const ga_font *ft = ga_font_get(F_TEXT), *fh = ga_font_get(F_HEAD), *fT = ga_font_get(F_TITLE); if (!ft || !fh || !fT || !ga_img_key(K_BODY_FILL) || !ga_img_key(K_PLATE)) return 0;
     int W = A.W, H = A.H; char b[160]; render_backdrop(now, SET.stageFx);
-    snprintf(b, sizeof b, "Seu dinheiro: %s", v->cash); ui_header(W, v->title, b);
+    snprintf(b, sizeof b, T("Seu dinheiro: %s"), v->cash); ui_header(W, v->title, b);
     /* the photo on its card, taped to the wall; a locked rocker's photo in the dark with its price */
-    float cx = 18, cy = 66, cw = 252, ch = 252, px = cx + 10, py = cy + 10, pw = cw - 20; int locked = !v->hub && v->sel >= 0 && v->sel < v->n && v->rows[v->sel].locked && !strcmp(v->title, "ROQUEIROS");
+    float cx = 18, cy = 66, cw = 252, ch = 252, px = cx + 10, py = cy + 10, pw = cw - 20; int locked = !v->hub && v->sel >= 0 && v->sel < v->n && v->rows[v->sel].locked && !strcmp(v->title, T("ROQUEIROS"));
     gfx_rect(cx + 5, cy + 6, cw, ch, RGBA(0, 0, 0, 110)); gfx_rect(cx, cy, cw, ch, C_CARD);
-    if (v->photo) fit(v->photo, px, py, pw, pw, locked ? RGB(80, 70, 66) : RGB(255, 255, 255), 1); else { gfx_rect(px, py, pw, pw, RGB(40, 30, 26)); ga_text_fit(ft, px + pw / 2, py + pw / 2 - 9, 16, pw - 20, "sem foto", C_SOFT, 1); }
-    if (locked) { const char *tag = v->rows[v->sel].tag; ga_text_center(fT, px + pw / 2 + 2, py + pw / 2 - 30, 34, "BLOQUEADO", RGB(0, 0, 0)); ga_text_center(fT, px + pw / 2, py + pw / 2 - 32, 34, "BLOQUEADO", RGB(225, 70, 40));
-        if (tag[0] == '$') { snprintf(b, sizeof b, "%s na Loja", tag); ga_text_center(fh, px + pw / 2, py + pw / 2 + 12, 20, b, C_PRICE); } }
+    if (v->photo) fit(v->photo, px, py, pw, pw, locked ? RGB(80, 70, 66) : RGB(255, 255, 255), 1); else { gfx_rect(px, py, pw, pw, RGB(40, 30, 26)); ga_text_fit(ft, px + pw / 2, py + pw / 2 - 9, 16, pw - 20, T("sem foto"), C_SOFT, 1); }
+    if (locked) { const char *tag = v->rows[v->sel].tag; const char *lk = T("BLOQUEADO"); float lsz = 34; while (lsz > 18 && ga_text_w(fT, lk, lsz) > pw - 16) lsz -= 2; ga_text_center(fT, px + pw / 2 + 2, py + pw / 2 - 30, lsz, lk, RGB(0, 0, 0)); ga_text_center(fT, px + pw / 2, py + pw / 2 - 32, lsz, lk, RGB(225, 70, 40));
+        if (tag[0] == '$') { snprintf(b, sizeof b, T("%s na Loja"), tag); ga_text_fit(fh, px + pw / 2, py + pw / 2 + 12, 20, pw - 16, b, C_PRICE, 1); } }
     tape(cx + 40, cy + 2, 74); tape(cx + cw - 40, cy + 2, 74);
     /* the name plate under it, the winged ornament on its sides */
     float ny = cy + ch + 4, nw = 270, nh = 66, nx = cx + cw / 2 - nw / 2; fit(ga_img_key(K_PLATE), nx - 12, ny - 30, nw + 24, nh + 56, RGB(255, 255, 255), 1);
     { gfx_sprite *wl = ga_img_key(K_WING), *wr = flipped(K_WING, 1, 0); fit(wr, nx - 18, ny + 6, 44, 22, RGB(255, 255, 255), 1); fit(wl, nx + nw - 26, ny + 6, 44, 22, RGB(255, 255, 255), 1); }
     ga_text_fit(fT, nx + nw / 2 + 1, ny + 5, 30, nw - 70, v->name, RGB(0, 0, 0), 1); ga_text_fit(fT, nx + nw / 2, ny + 4, 30, nw - 70, v->name, C_CREAM, 1);
-    float ly = ny + nh - 6; if (v->outfit[0]) { snprintf(b, sizeof b, "Visual: %s", v->outfit); ga_text_fit(ft, cx + 4, ly, 15, cw + 10, say(ft, b), C_CREAM, 0); ly += 18; }
-    if (v->guitar[0]) { snprintf(b, sizeof b, "Guitarra: %s", v->guitar); ga_text_fit(ft, cx + 4, ly, 15, cw + 10, say(ft, b), C_CREAM, 0); }
+    float ly = ny + nh - 6; if (v->outfit[0]) { snprintf(b, sizeof b, T("Visual: %s"), v->outfit); ga_text_fit(ft, cx + 4, ly, 15, cw + 10, say(ft, b), C_CREAM, 0); ly += 18; }
+    if (v->guitar[0]) { snprintf(b, sizeof b, T("Guitarra: %s"), v->guitar); ga_text_fit(ft, cx + 4, ly, 15, cw + 10, say(ft, b), C_CREAM, 0); }
     /* the list in its frame */
     float fx = 290, fy = 64, fw = W - fx - 12, fh_ = H - fy - 70, cap = fw * 40 / 256; frame(fx, fy, fw, fh_);
     fit(ga_img_key(K_BAND), fx + fw / 2 - 70, fy + 2, 140, 35, RGB(255, 255, 255), 1);   /* the ornament band on the cap */
@@ -98,7 +99,7 @@ int orig_charsel_draw(double now, const cs_view *v) {
         else if (r->sub[0] && room > 120) { float lw = fminf(ga_text_w(ft, r->label, size), room * 0.62f); ga_text_fit(ft, lx, y + 3, size, lw, say(ft, r->label), c, 0); ga_text_fit(ft, lx + lw + 8, y + 6, 12, room - lw - 8, say(ft, r->sub), on ? fb_alpha(C_INKD, 0.75f) : C_SOFT, 0); }
         else ga_text_fit(ft, lx, y + 3, size, room, say(ft, r->label), c, 0); }
     if (top > 0) ga_text_center(ft, fx + fw / 2, y0 - 14, 14, "▲", C_CREAM); if (top + vis < n) ga_text_center(ft, fx + fw / 2, y0 + vis * rowH - 4, 14, "▼", C_CREAM);
-    if (v->hub && v->blurb) wrap(ft, rx0 + 4, y0 + n * rowH + 10, 13, rx1 - rx0 - 8, 15, fy + fh_ - cap * 0.75f, say(ft, v->blurb), C_SOFT);   /* the rocker's story under the hub's four rows */
+    if (v->hub && v->blurb) wrap(ft, rx0 + 4, y0 + n * rowH + 10, 13, rx1 - rx0 - 18, 15, fy + fh_ - cap * 0.75f, say(ft, v->blurb), C_SOFT);   /* the rocker's story under the hub's four rows */
     /* what A does here, under the frame */
     wrap(ft, fx + 6, fy + fh_ + 2, 14, fw - 12, 15, H - 30, v->info, C_CREAM);
     ui_hints(H - 24, W, v->bt, v->tx, v->nh);

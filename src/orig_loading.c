@@ -3,6 +3,7 @@
 #include "original.h"
 #include "gamearts.h"
 #include "app.h"
+#include "lang.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +16,8 @@ static const char *F_TITLE = "fontgrid_title_a1", *F_TEXT = "fontgrid_text_a4";
 #define AMBER RGB(233, 176, 76)
 #define SHADOW RGBA(0, 0, 0, 230)
 
-/* the game's loading_screen_tips (qb.pak), in Portuguese; the online, co-op and outfit ones left out (not in this port) */
+/* the game's loading_screen_tips (qb.pak), in Portuguese (T(): the English is the game's own text, in
+ * lang_song.c); the online, co-op and outfit ones left out (not in this port) */
 static const char *const TIPS[] = {
     "Com dificuldade? Confira os tutoriais no menu Treino.",
     "Confira a Loja da carreira: tem músicas novas esperando por você.",
@@ -62,13 +64,15 @@ static void upper(const char *s, char *o, size_t cap) {   /* GetUpperCaseString:
         else o[n++] = (char)toupper(*p); }
     o[n] = 0;
 }
-/* the song's artist_text ("by", "as made famous by", "inspired by", "feat. X, as made famous by") in Portuguese */
+/* the song's artist_text ("by", "as made famous by", "inspired by", "feat. X, as made famous by") in the language
+ * (in English the game's own words as they are) */
 static void artist_line(const char *en, char *o, size_t cap) {
     char b[96]; *o = 0; if (!en || !*en) return; const char *f = strcasestr(en, "as made famous by");
-    if (!strcasecmp(en, "by")) snprintf(b, sizeof b, "de");
-    else if (!strcasecmp(en, "inspired by")) snprintf(b, sizeof b, "inspirada em");
+    if (lang_get() == LANG_EN) snprintf(b, sizeof b, "%s", en);
+    else if (!strcasecmp(en, "by")) snprintf(b, sizeof b, "%s", T("de"));
+    else if (!strcasecmp(en, "inspired by")) snprintf(b, sizeof b, "%s", T("inspirada em"));
     else if (f) { const char *p = en; int feat = !strncasecmp(p, "feat. ", 6); if (feat) p += 6; int n = (int)(f - p); while (n > 0 && (p[n - 1] == ' ' || p[n - 1] == ',')) n--;
-        if (n > 0) snprintf(b, sizeof b, "%s%.*s, sucesso de", feat ? "com " : "", n, p); else snprintf(b, sizeof b, "sucesso de"); }
+        if (n > 0) snprintf(b, sizeof b, "%s%.*s, %s", feat ? T("com ") : "", n, p, T("sucesso de")); else snprintf(b, sizeof b, "%s", T("sucesso de")); }
     else snprintf(b, sizeof b, "%s", en);
     upper(b, o, cap);
 }
@@ -96,11 +100,11 @@ static void spinner(float cx, float cy, float r, double now) {   /* ten dots rou
 void loading_draw(double now) {
     int W = A.W, H = A.H; L.drawn = 1;
     const gh3_song *s = A.lib && A.selSong >= 0 && A.selSong < A.lib->nsongs ? &A.lib->songs[A.selSong] : NULL;
-    const char *tip = L.tip >= 0 ? TIPS[L.tip] : TIPS[0], *venue = venue_name(A.selTier); char b[200], u[200];
+    const char *tip = T(L.tip >= 0 ? TIPS[L.tip] : TIPS[0]), *venue = venue_name(A.selTier); char b[200], u[200];
     gfx_rect(0, 0, (float)W, (float)H, RGB(0, 0, 0));
     gfx_sprite *pic = orig_ready() ? ga_img("loading_flying_static") : NULL; const ga_font *ft = ga_font_get(F_TITLE), *fx = ga_font_get(F_TEXT);
     if (!pic || !ft || !fx) {   /* without the game's art: the pixel font */
-        gfx_text_sh_center(W / 2, H / 2 - 60, 3, "CARREGANDO", C_INK, C_SHADOW); gfx_text_box(W / 6, H / 2, W * 2 / 3, 1, tip, C_MUTED);
+        gfx_text_sh_center(W / 2, H / 2 - 60, 3, T("CARREGANDO"), C_INK, C_SHADOW); gfx_text_box(W / 6, H / 2, W * 2 / 3, 1, tip, C_MUTED);
         if (s) gfx_text_sh_center(W / 2, 24, 2, s->title, C_AMP, C_SHADOW); spinner(W / 2.0f, H - 40.0f, 10, now); return; }
     /* the picture over the whole height (its letterbox bars are part of it), the sides cut */
     int pw = gfx_sprite_w(pic), ph = gfx_sprite_h(pic); float k = fmaxf((float)W / pw, (float)H / ph), ox = (W - pw * k) / 2, oy = (H - ph * k) / 2;
@@ -116,7 +120,7 @@ void loading_draw(double now) {
     if (s) { float top = oy + 8 * (ph / 512.0f) * k; upper(s->title, u, sizeof u); ga_text_fit(ft, 16, top, 27, W * 0.6f, u, CREAM, 0);
         snprintf(b, sizeof b, "%s%s%s", s->artist, *s->year ? ", " : "", s->year); ga_text_fit(fx, W - 16.0f, top + 8, 17, W * 0.34f, b, fb_alpha(CREAM, 0.75f), 2); }
     { float y = oy + 466 * (ph / 512.0f) * k; if (*venue) ga_text_fit(fx, 16, y, 18, W * 0.55f, venue, fb_alpha(CREAM, 0.8f), 0);
-      snprintf(b, sizeof b, "%s%s", diff_name_pt(A.selDiff), A.mode == MODE_PRACTICE ? " • Treino" : ""); ga_text_right(fx, W - 16.0f, y, 18, b, AMBER); }
+      snprintf(b, sizeof b, "%s%s", T(diff_name_pt(A.selDiff)), A.mode == MODE_PRACTICE ? T(" • Treino") : ""); ga_text_right(fx, W - 16.0f, y, 18, b, AMBER); }
 }
 
 /* ================================================================== the intro card */

@@ -11,8 +11,9 @@
  *     guitars for sale and the finishes for sale cost what the store's lists say ($200 to $10.000; a finish $250-$500,
  *     sold once the guitar is yours). "The rocker's own" plays the profile's guitar. Guitars with no file on disk can be
  *     bought and chosen; the 3D stage then puts the rocker's own guitar in their hands.
- * The stories and the outfit, style and finish names are shown in Portuguese (charsel_pt.c), the data's English where
- * it has none. The choice is kept in gh3.cfg (roqueiro / visual / guitarra); the 3D band (r3d_band.c) and the results' magazine
+ * The stories and the outfit, style and finish names follow the language (lang.h): Portuguese and Spanish from
+ * charsel_pt.c, English as the data has it (and the data's English where a language has none; the names are read again
+ * when the language changes). The screen's own words go through T() (src/lang/lang_store.c). The choice is kept in gh3.cfg (roqueiro / visual / guitarra); the 3D band (r3d_band.c) and the results' magazine
  * cover (orig_results.c) use it. */
 #include "charsel.h"
 #include "app.h"
@@ -22,6 +23,7 @@
 #include "render.h"
 #include "audio.h"
 #include "ui.h"
+#include "lang.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +39,12 @@
 #define L_SPECIAL 0xbc02c6adu   /* special guitars for sale */
 #define L_ROCKERS 0x1c11400au   /* secret rockers for sale */
 
-static cs_data D; static int built, demo;
+/* charsel_pt.c's, by language (lang.h): NULL when that language has none */
+const char *charsel_lang_rocker(int lang, const char *name);
+const char *charsel_lang_guitar(int lang, uint32_t id);
+const char *charsel_lang_name(int lang, int kind, const char *en);
+
+static cs_data D; static int built, builtLang, demo;
 static uint32_t be32(const uint8_t *b) { return (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 | (uint32_t)b[2] << 8 | b[3]; }
 static const qbv *S(const char *name) { return gh3_library_section(A.lib, gh3_qbkey(name)); }
 static void base_of(const char *path, char *out, size_t n) {   /* "pak\models\guitars\SG_WornRed\SG_WornRed.pak" -> "SG_WornRed" */
@@ -60,11 +67,16 @@ static void maker_line(const cs_guitar *g, char *out, size_t n) {   /* "Gibson C
     const char *ln = strcmp(g->line, g->finish) ? g->line : ""; snprintf(out, n, "%s%s%s", strncmp(ln, g->maker, strlen(g->maker)) || !*g->maker ? g->maker : "", *ln && strncmp(ln, g->maker, strlen(g->maker)) ? " " : "", ln);
 }
 static void trim(const char *s, char *out, size_t n) { while (*s == ' ') s++; snprintf(out, n, "%s", s); size_t L = strlen(out); while (L && out[L - 1] == ' ') out[--L] = 0; }
-static void say(int kind, char *s, size_t n) { const char *pt = charsel_pt_name(kind, s); if (pt != s) snprintf(s, n, "%s", pt); }   /* a name in Portuguese, in place */
-static const char *blurb_of(const char *pt, const qbv *v) { return pt ? pt : clean(v); }   /* the Portuguese story, else the data's English */
-static void money(int n, char *out, size_t cap) {   /* $10.000 */
-    char raw[24]; snprintf(raw, sizeof raw, "%d", n < 0 ? 0 : n); int L = (int)strlen(raw), o = 0; out[o++] = '$';
-    for (int i = 0; i < L && o + 1 < (int)cap; i++) { out[o++] = raw[i]; int left = L - 1 - i; if (left && left % 3 == 0 && o + 1 < (int)cap) out[o++] = '.'; } out[o] = 0;
+static int logged, nameMiss[LANG_N];   /* GH3_CHARSEL_LOG: the first build's report */
+static void say(int kind, char *s, size_t n) {   /* a name in the language chosen, in place (the data's English when it has none) */
+    if (!logged && getenv("GH3_CHARSEL_LOG")) { int has = 0; for (int l = 0; l < LANG_N; l++) if (l != LANG_EN && charsel_lang_name(l, kind, s)) has = 1;
+        if (has) for (int l = 0; l < LANG_N; l++) if (l != LANG_EN && !charsel_lang_name(l, kind, s)) { printf("  no %s name: %s\n", lang_code(l), s); nameMiss[l]++; } }
+    const char *t = charsel_lang_name(lang_get(), kind, s); if (t) snprintf(s, n, "%s", t);
+}
+static const char *blurb_of(const char *tr, const qbv *v) { return tr ? tr : clean(v); }   /* the story in the language chosen, else the data's English */
+static void money(int n, char *out, size_t cap) {   /* $10.000 ($10,000 in English) */
+    char raw[24]; snprintf(raw, sizeof raw, "%d", n < 0 ? 0 : n); int L = (int)strlen(raw), o = 0; char sep = lang_get() == LANG_EN ? ',' : '.'; out[o++] = '$';
+    for (int i = 0; i < L && o + 1 < (int)cap; i++) { out[o++] = raw[i]; int left = L - 1 - i; if (left && left % 3 == 0 && o + 1 < (int)cap) out[o++] = sep; } out[o] = 0;
 }
 
 /* ------------------------------------------------------------------ the data */
@@ -76,11 +88,11 @@ static void read_outfits(int ri, const qbv *prof, const qbv *bodies) {
         char tag[16]; snprintf(tag, sizeof tag, "_0%ds%d", o, s);   /* the outfit whose style ids say it ("axel_01s1"): its name and that style's */
         if (outs && outs->kind == QB_ARRAY) for (int k = 0; k < outs->narr; k++) { const qbv *ids = qb_getk(outs->arr[k], K_STYLEIDS), *sty = qb_get(outs->arr[k], "styles"); if (!ids || ids->kind != QB_ARRAY) continue;
             for (int j = 0; j < ids->narr; j++) if (strstr(qb_str(ids->arr[j]), tag)) { trim(qb_str(qb_get(outs->arr[k], "name")), c->oname, sizeof c->oname); if (sty && sty->kind == QB_ARRAY && j < sty->narr) trim(qb_str(sty->arr[j]), c->sname, sizeof c->sname); } }
-        if (!c->oname[0]) snprintf(c->oname, sizeof c->oname, o == 1 ? "Visual de sempre" : "Visual %d", o); if (!c->sname[0]) snprintf(c->sname, sizeof c->sname, "cor %d", s);
+        if (!c->oname[0]) snprintf(c->oname, sizeof c->oname, o == 1 ? T("Visual de sempre") : T("Visual %d"), o); if (!c->sname[0]) snprintf(c->sname, sizeof c->sname, T("cor %d"), s);
         say(CS_PT_OUTFIT, c->oname, sizeof c->oname); say(CS_PT_STYLE, c->sname, sizeof c->sname); }
 }
 const cs_data *charsel_data(void) {
-    if (built || !A.lib) return &D; built = 1; memset(&D, 0, sizeof D);
+    if ((built && builtLang == lang_get()) || !A.lib) return &D; built = 1; builtLang = lang_get(); memset(&D, 0, sizeof D);   /* (again when the language changes: the names are kept in it) */
     const qbv *mp = S("musician_profiles"), *mb = S("musician_body"), *mi = S("musician_instrument"); if (!mp || mp->kind != QB_ARRAY || !mb || !mi || mi->kind != QB_ARRAY) return &D;
     uint32_t KG = gh3_qbkey("guitarist"), KGT = gh3_qbkey("guitar"), k;
     for (int i = 0; i < mp->narr && D.nr < (int)(sizeof D.r / sizeof *D.r); i++) { const qbv *st = mp->arr[i]; const char *nm = qb_str(qb_get(st, "name"));
@@ -106,12 +118,13 @@ const cs_data *charsel_data(void) {
             D.ng++; D.m[m].n++; } }
     char tm[40]; for (int m = 0; m < D.nm; m++) { trim(D.m[m].name, tm, sizeof tm); snprintf(D.m[m].name, sizeof D.m[m].name, "%s", tm); }   /* "  Les Paul  " (the game tells its Les Pauls apart by spaces) */
     D.ok = D.nr > 0 && D.ng > 0;
-    if (getenv("GH3_CHARSEL_LOG")) { printf("charsel: %d rockers, %d outfits, %d guitars, %d finishes\n", D.nr, D.no, D.nm, D.ng);
+    if (getenv("GH3_CHARSEL_LOG") && !logged++) { { printf("charsel: %d rockers, %d outfits, %d guitars, %d finishes\n", D.nr, D.no, D.nm, D.ng);
         for (int i = 0; i < D.nr; i++) printf("  rocker %-8s %-14s body %-10s %s%s price %d\n", D.r[i].name, D.r[i].full, D.r[i].pak, D.r[i].hasPak ? "on disk" : "MISSING", D.r[i].secret ? ", secret" : "", D.r[i].price);
-        for (int i = 0; i < D.ng; i++) printf("  guitar %-12s %-22s %-14s %-10s %s%s %s $%d\n", D.m[D.g[i].model].name, D.g[i].finish, D.g[i].line, D.g[i].pak, D.g[i].hasPak ? "on disk" : "-", D.g[i].deflt ? " default" : "", D.g[i].cat == CS_GUITARS ? "guitar" : D.g[i].cat == CS_FINISHES ? "finish" : "unsold", D.g[i].price); }
-    if (getenv("GH3_CHARSEL_LOG")) { int n = 0; for (int i = 0; i < D.nr; i++) if (!charsel_pt_rocker(D.r[i].name)) { printf("  no Portuguese story: rocker %s\n", D.r[i].name); n++; }   /* charsel_pt.c: what is still shown in English */
-        for (int i = 0; i < D.ng; i++) if (!charsel_pt_guitar(D.g[i].id) && D.g[i].blurb) { printf("  no Portuguese story: guitar %08x %s %s\n", D.g[i].id, D.m[D.g[i].model].name, D.g[i].finish); n++; }
-        printf("charsel: %d stories in English\n", n); }
+        for (int i = 0; i < D.ng; i++) printf("  guitar %-12s %-22s %-14s %-10s %s%s %s $%d\n", D.m[D.g[i].model].name, D.g[i].finish, D.g[i].line, D.g[i].pak, D.g[i].hasPak ? "on disk" : "-", D.g[i].deflt ? " default" : "", D.g[i].cat == CS_GUITARS ? "guitar" : D.g[i].cat == CS_FINISHES ? "finish" : "unsold", D.g[i].price);
+        for (int l = 0; l < LANG_N; l++) { if (l == LANG_EN) continue; int n = 0;   /* charsel_pt.c: what is still shown in English, per language (English is the data's own) */
+            for (int i = 0; i < D.nr; i++) if (!charsel_lang_rocker(l, D.r[i].name)) { printf("  no %s story: rocker %s\n", lang_code(l), D.r[i].name); n++; }
+            for (int i = 0; i < D.ng; i++) if (!charsel_lang_guitar(l, D.g[i].id) && D.g[i].blurb) { printf("  no %s story: guitar %08x %s %s\n", lang_code(l), D.g[i].id, D.m[D.g[i].model].name, D.g[i].finish); n++; }
+            printf("charsel: %s: %d stories in English, %d names in English (translated in another language)\n", lang_code(l), n, nameMiss[l]); } } }
     return &D;
 }
 
@@ -161,13 +174,13 @@ static int shelf(int cat, int i) {   /* the i-th item of a shelf: a rocker or a 
 int charsel_store_n(int cat) { charsel_data(); int n = 0; if (cat == CS_ROCKERS) { for (int r = 0; r < D.nr; r++) n += D.r[r].secret; } else for (int g = 0; g < D.ng; g++) n += D.g[g].cat == cat; return n; }
 void charsel_store_item(int cat, int i, const char **title, const char **sub, int *price, int *have, const char **info, const char **why, char *key, size_t cap) {
     static char t[96], s[96], w[160]; int k = shelf(cat, i); *title = *sub = ""; *price = 0; *have = 0; *info = NULL; *why = NULL; if (key) *key = 0; if (k < 0) return;
-    if (cat == CS_ROCKERS) { const cs_rocker *r = &D.r[k]; *title = r->full; *sub = r->hasPak ? "roqueiro secreto" : "falta o arquivo do personagem"; *price = r->price; *have = owns_rocker(k); *info = r->blurb; if (key) snprintf(key, cap, "roqueiro:%s", r->name); if (!r->hasPak) *why = "Esta cópia do jogo não tem o arquivo deste roqueiro."; return; }
+    if (cat == CS_ROCKERS) { const cs_rocker *r = &D.r[k]; *title = r->full; *sub = r->hasPak ? T("roqueiro secreto") : T("falta o arquivo do personagem"); *price = r->price; *have = owns_rocker(k); *info = r->blurb; if (key) snprintf(key, cap, "roqueiro:%s", r->name); if (!r->hasPak) *why = T("Esta cópia do jogo não tem o arquivo deste roqueiro."); return; }
     const cs_guitar *g = &D.g[k]; const cs_model *m = &D.m[g->model];
     char ml[80]; maker_line(g, ml, sizeof ml);
     if (cat == CS_GUITARS) { snprintf(t, sizeof t, "%s", m->name); snprintf(s, sizeof s, "%s • %s", ml, g->finish); }
-    else { snprintf(t, sizeof t, "%s %s", m->name, g->finish); snprintf(s, sizeof s, "acabamento • %s", ml); }
+    else { snprintf(t, sizeof t, "%s %s", m->name, g->finish); snprintf(s, sizeof s, T("acabamento • %s"), ml); }
     *title = t; *sub = s; *price = g->price; *have = owns_guitar(k); *info = g->blurb; if (key) snprintf(key, cap, "guitarra:%08x", g->id);
-    if (cat == CS_FINISHES && !owns_model(g->model)) { snprintf(w, sizeof w, "Compre a guitarra %s primeiro (Guitarras).", m->name); *why = w; }
+    if (cat == CS_FINISHES && !owns_model(g->model)) { snprintf(w, sizeof w, T("Compre a guitarra %s primeiro (Guitarras)."), m->name); *why = w; }
 }
 int charsel_store_find(int cat, const char *key) { char k[64]; for (int i = 0, n = charsel_store_n(cat); i < n; i++) { const char *a, *b, *c, *d; int p, h; charsel_store_item(cat, i, &a, &b, &p, &h, &c, &d, k, sizeof k); if (!strcmp(k, key)) return i; } return -1; }
 
@@ -182,47 +195,47 @@ static int list_n(void) {
         case M_OUTFIT: for (int i = 0; i < D.no; i++) n += D.o[i].rocker == ri; return n; default: return H_N; }
 }
 static int outfit_at(int k) { int ri = cur_rocker(); for (int i = 0, n = 0; i < D.no; i++) if (D.o[i].rocker == ri && n++ == k) return i; return -1; }
-static void guitar_words(int g, int ri, char *out, size_t n) {   /* "SG Worn Red", or the rocker's own */
-    if (g < 0) { int own = ri >= 0 ? guitar_idx(D.r[ri].inst) : -1; if (own >= 0) snprintf(out, n, "%s %s (a dele)", D.m[D.g[own].model].name, D.g[own].finish); else snprintf(out, n, "A guitarra dele"); return; }
+static void guitar_words(int g, int ri, int ownTag, char *out, size_t n) {   /* "SG Worn Red", or the rocker's own ("(a dele)" after it when ownTag) */
+    if (g < 0) { int own = ri >= 0 ? guitar_idx(D.r[ri].inst) : -1; if (own >= 0) snprintf(out, n, ownTag ? T("%s %s (a dele)") : "%s %s", D.m[D.g[own].model].name, D.g[own].finish); else snprintf(out, n, "%s", T("A guitarra dele")); return; }
     snprintf(out, n, "%s %s", D.m[D.g[g].model].name, D.g[g].finish);
 }
 void charsel_view(cs_view *v) {
     memset(v, 0, sizeof *v); charsel_data(); int ri = cur_rocker(), show = mode == M_ROCKER && cur[M_ROCKER] >= 0 && cur[M_ROCKER] < D.nr ? cur[M_ROCKER] : ri, gi = cur_guitar(); char b[96];
-    static const char *T[5] = { "SEU ROQUEIRO", "ROQUEIROS", "VISUAL", "GUITARRAS", "ACABAMENTO" }; v->title = T[mode]; v->hub = mode == M_HUB;
+    static const char *TITLE[5] = { "SEU ROQUEIRO", "ROQUEIROS", "VISUAL", "GUITARRAS", "ACABAMENTO" }; v->title = T(TITLE[mode]); v->hub = mode == M_HUB;
     snprintf(v->cash, sizeof v->cash, "%s", store_cash_str());
     if (show >= 0) { const cs_rocker *r = &D.r[show]; snprintf(v->name, sizeof v->name, "%s", r->full); v->photo = r->hasPak ? charsel_photo(r->name) : NULL; v->blurb = r->blurb;
         int o = show == ri ? cur_outfit(ri) : -1; if (o < 0) for (int i = 0; i < D.no && o < 0; i++) if (D.o[i].rocker == show) o = i;
-        if (o >= 0) snprintf(v->outfit, sizeof v->outfit, "%s - %s", D.o[o].oname, D.o[o].sname); guitar_words(show == ri ? gi : -1, show, v->guitar, sizeof v->guitar); }
+        if (o >= 0) snprintf(v->outfit, sizeof v->outfit, "%s - %s", D.o[o].oname, D.o[o].sname); guitar_words(show == ri ? gi : -1, show, 1, v->guitar, sizeof v->guitar); }
     int n = list_n(); v->n = n > 72 ? 72 : n; v->sel = mode == M_HUB ? hubRow : cur[mode];
     for (int i = 0; i < v->n; i++) { cs_row *w = &v->rows[i];
         switch (mode) {
-        case M_HUB: { static const char *L[H_N] = { "COMEÇAR", "TROCAR ROQUEIRO", "TROCAR VISUAL", "TROCAR GUITARRA" }; snprintf(w->label, sizeof w->label, "%s", L[i]); break; }
+        case M_HUB: { static const char *L[H_N] = { "COMEÇAR", "TROCAR ROQUEIRO", "TROCAR VISUAL", "TROCAR GUITARRA" }; snprintf(w->label, sizeof w->label, "%s", T(L[i])); break; }
         case M_ROCKER: { const cs_rocker *r = &D.r[i]; snprintf(w->label, sizeof w->label, "%s", r->full); w->chosen = i == ri; w->off = !r->hasPak; w->locked = !owns_rocker(i);
-            if (w->off) snprintf(w->tag, sizeof w->tag, "sem arquivo"); else if (w->locked) money(r->price, w->tag, sizeof w->tag); else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); break; }
+            if (w->off) snprintf(w->tag, sizeof w->tag, "%s", T("sem arquivo")); else if (w->locked) money(r->price, w->tag, sizeof w->tag); else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); break; }
         case M_OUTFIT: { int o = outfit_at(i); if (o < 0) break; snprintf(w->label, sizeof w->label, "%s", D.o[o].oname); snprintf(w->sub, sizeof w->sub, "%s", D.o[o].sname); w->off = !D.o[o].hasPak; w->chosen = o == cur_outfit(ri);
-            if (w->off) snprintf(w->tag, sizeof w->tag, "não instalado"); else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); break; }
-        case M_GUITAR: if (!i) { snprintf(w->label, sizeof w->label, "A GUITARRA DELE"); guitar_words(-1, ri, b, sizeof b); char *p = strstr(b, " (a dele)"); if (p) *p = 0; snprintf(w->sub, sizeof w->sub, "%s", b); w->chosen = gi < 0; if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); }
+            if (w->off) snprintf(w->tag, sizeof w->tag, "%s", T("não instalado")); else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); break; }
+        case M_GUITAR: if (!i) { snprintf(w->label, sizeof w->label, "%s", T("A GUITARRA DELE")); guitar_words(-1, ri, 0, b, sizeof b); snprintf(w->sub, sizeof w->sub, "%s", b); w->chosen = gi < 0; if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); }
             else { const cs_model *m = &D.m[i - 1]; const cs_guitar *g = &D.g[m->first]; int buy = model_buy(i - 1); snprintf(w->label, sizeof w->label, "%s", m->name);
-                maker_line(g, b, sizeof b); snprintf(w->sub, sizeof w->sub, "%s - %d %s", b, m->n, m->n == 1 ? "acabamento" : "acabamentos");
-                w->locked = !owns_model(i - 1); w->chosen = gi >= 0 && D.g[gi].model == i - 1; if (w->locked) { if (buy >= 0) money(D.g[buy].price, w->tag, sizeof w->tag); else snprintf(w->tag, sizeof w->tag, "fora da loja"); } else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); }
+                maker_line(g, b, sizeof b); snprintf(w->sub, sizeof w->sub, "%s - %d %s", b, m->n, m->n == 1 ? T("acabamento") : T("acabamentos"));
+                w->locked = !owns_model(i - 1); w->chosen = gi >= 0 && D.g[gi].model == i - 1; if (w->locked) { if (buy >= 0) money(D.g[buy].price, w->tag, sizeof w->tag); else snprintf(w->tag, sizeof w->tag, "%s", T("fora da loja")); } else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); }
             break;
         case M_FINISH: { int g = D.m[model].first + i; snprintf(w->label, sizeof w->label, "%s", D.g[g].finish); maker_line(&D.g[g], w->sub, sizeof w->sub);
-            w->locked = !owns_guitar(g); w->chosen = g == gi; if (w->locked) { if (D.g[g].cat >= 0) money(D.g[g].price, w->tag, sizeof w->tag); else snprintf(w->tag, sizeof w->tag, "fora da loja"); } else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); break; }
+            w->locked = !owns_guitar(g); w->chosen = g == gi; if (w->locked) { if (D.g[g].cat >= 0) money(D.g[g].price, w->tag, sizeof w->tag); else snprintf(w->tag, sizeof w->tag, "%s", T("fora da loja")); } else if (w->chosen) snprintf(w->tag, sizeof w->tag, "✓"); break; }
         } }
     /* the line under the list: what A does on the row chosen */
     int s = v->sel; const cs_row *w = s >= 0 && s < v->n ? &v->rows[s] : NULL;
-    if (mode == M_HUB) snprintf(v->info, sizeof v->info, "%s", hubRow == H_START ? "Pronto para tocar: vamos à lista de músicas." : hubRow == H_ROCKER ? "Escolha quem sobe ao palco." : hubRow == H_OUTFIT ? "A roupa e as cores do roqueiro." : "A guitarra e o acabamento dela.");
-    else if (w && w->off) snprintf(v->info, sizeof v->info, "%s", mode == M_ROCKER ? "Esta cópia do jogo não tem o arquivo deste roqueiro." : "Esta cópia do jogo só traz o visual de sempre de cada roqueiro.");
-    else if (w && w->locked && w->tag[0] == '$') snprintf(v->info, sizeof v->info, "Bloqueado: compre na Loja por %s (A).", w->tag);
-    else if (w && w->locked) snprintf(v->info, sizeof v->info, "A loja não vende este.");
+    if (mode == M_HUB) snprintf(v->info, sizeof v->info, "%s", hubRow == H_START ? T("Pronto para tocar: vamos à lista de músicas.") : hubRow == H_ROCKER ? T("Escolha quem sobe ao palco.") : hubRow == H_OUTFIT ? T("A roupa e as cores do roqueiro.") : T("A guitarra e o acabamento dela."));
+    else if (w && w->off) snprintf(v->info, sizeof v->info, "%s", mode == M_ROCKER ? T("Esta cópia do jogo não tem o arquivo deste roqueiro.") : T("Esta cópia do jogo só traz o visual de sempre de cada roqueiro."));
+    else if (w && w->locked && w->tag[0] == '$') snprintf(v->info, sizeof v->info, T("Bloqueado: compre na Loja por %s (A)."), w->tag);
+    else if (w && w->locked) snprintf(v->info, sizeof v->info, "%s", T("A loja não vende este."));
     else if (mode == M_GUITAR || mode == M_FINISH) { int g = mode == M_FINISH ? D.m[model].first + s : s > 0 ? D.m[s - 1].first : (ri >= 0 ? guitar_idx(D.r[ri].inst) : -1);
-        if (g >= 0 && !D.g[g].hasPak) snprintf(v->info, sizeof v->info, "Sem o modelo 3D desta guitarra nesta cópia: no palco 3D o roqueiro toca a dele.");
-        else snprintf(v->info, sizeof v->info, "%s", mode == M_GUITAR && s > 0 ? "A: ver os acabamentos." : "A: escolher."); }
-    else if (w && w->chosen) snprintf(v->info, sizeof v->info, "É o escolhido.");
-    else snprintf(v->info, sizeof v->info, "A: escolher.");
+        if (g >= 0 && !D.g[g].hasPak) snprintf(v->info, sizeof v->info, "%s", T("Sem o modelo 3D desta guitarra nesta cópia: no palco 3D o roqueiro toca a dele."));
+        else snprintf(v->info, sizeof v->info, "%s", mode == M_GUITAR && s > 0 ? T("A: ver os acabamentos.") : T("A: escolher.")); }
+    else if (w && w->chosen) snprintf(v->info, sizeof v->info, "%s", T("É o escolhido."));
+    else snprintf(v->info, sizeof v->info, "%s", T("A: escolher."));
     if (mode == M_GUITAR || mode == M_FINISH) { int g = mode == M_FINISH ? D.m[model].first + s : s > 0 ? D.m[s - 1].first : -1; v->blurb = g >= 0 ? D.g[g].blurb : NULL; }
     static const char *B1[3] = { "A", "B", "Y" }, *T1[3] = { "Escolher", "Voltar", "Loja" }, *T2[2] = { "Escolher", "Voltar" };
-    v->nh = mode == M_HUB ? 3 : 2; for (int i = 0; i < v->nh; i++) { v->bt[i] = B1[i]; v->tx[i] = mode == M_HUB ? T1[i] : T2[i]; }
+    v->nh = mode == M_HUB ? 3 : 2; for (int i = 0; i < v->nh; i++) { v->bt[i] = B1[i]; v->tx[i] = T(mode == M_HUB ? T1[i] : T2[i]); }
 }
 
 int charsel_open(double now) {
@@ -244,15 +257,15 @@ void charsel_event(int in, double now) {
     if (in != IN_OK) return; int ri = cur_rocker();
     switch (mode) {
     case M_HUB: if (hubRow == H_START) { keep(); audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); screens_mode_go(now); } else { audio_sfx(SFX_OK); open_list(hubRow == H_ROCKER ? M_ROCKER : hubRow == H_OUTFIT ? M_OUTFIT : M_GUITAR); } return;
-    case M_ROCKER: { const cs_rocker *r = &D.r[*s]; if (!r->hasPak) { audio_sfx(SFX_WARN); note(now, "Esta cópia do jogo não tem o arquivo deste roqueiro."); return; }
+    case M_ROCKER: { const cs_rocker *r = &D.r[*s]; if (!r->hasPak) { audio_sfx(SFX_WARN); note(now, T("Esta cópia do jogo não tem o arquivo deste roqueiro.")); return; }
         if (!owns_rocker(*s)) { snprintf(key, sizeof key, "roqueiro:%s", r->name); audio_sfx(SFX_OK); to_store(CS_ROCKERS, key, now); return; }
         snprintf(SET.rocker, sizeof SET.rocker, "%s", r->name); SET.outfit = 0; keep(); audio_sfx(SFX_OK); mode = M_HUB; return; }
-    case M_OUTFIT: { int o = outfit_at(*s); if (o < 0) return; if (!D.o[o].hasPak) { audio_sfx(SFX_WARN); note(now, "Esta cópia do jogo só traz o visual de sempre de cada roqueiro."); return; }
+    case M_OUTFIT: { int o = outfit_at(*s); if (o < 0) return; if (!D.o[o].hasPak) { audio_sfx(SFX_WARN); note(now, T("Esta cópia do jogo só traz o visual de sempre de cada roqueiro.")); return; }
         SET.outfit = D.o[o].outfit == 1 && D.o[o].style == 1 ? 0 : D.o[o].id; keep(); audio_sfx(SFX_OK); mode = M_HUB; return; }
     case M_GUITAR: if (*s == 0) { SET.guitar = 0; keep(); audio_sfx(SFX_OK); mode = M_HUB; return; }
-        model = *s - 1; if (!owns_model(model)) { int b = model_buy(model); if (b < 0) { audio_sfx(SFX_WARN); note(now, "A loja não vende esta guitarra."); return; } snprintf(key, sizeof key, "guitarra:%08x", D.g[b].id); audio_sfx(SFX_OK); to_store(CS_GUITARS, key, now); return; }
+        model = *s - 1; if (!owns_model(model)) { int b = model_buy(model); if (b < 0) { audio_sfx(SFX_WARN); note(now, T("A loja não vende esta guitarra.")); return; } snprintf(key, sizeof key, "guitarra:%08x", D.g[b].id); audio_sfx(SFX_OK); to_store(CS_GUITARS, key, now); return; }
         audio_sfx(SFX_OK); open_list(M_FINISH); return;
-    case M_FINISH: { int g = D.m[model].first + *s; if (!owns_guitar(g)) { if (D.g[g].cat < 0) { audio_sfx(SFX_WARN); note(now, "A loja não vende este acabamento."); return; } snprintf(key, sizeof key, "guitarra:%08x", D.g[g].id); audio_sfx(SFX_OK); to_store(D.g[g].cat, key, now); return; }
+    case M_FINISH: { int g = D.m[model].first + *s; if (!owns_guitar(g)) { if (D.g[g].cat < 0) { audio_sfx(SFX_WARN); note(now, T("A loja não vende este acabamento.")); return; } snprintf(key, sizeof key, "guitarra:%08x", D.g[g].id); audio_sfx(SFX_OK); to_store(D.g[g].cat, key, now); return; }
         SET.guitar = D.g[g].id; keep(); audio_sfx(SFX_OK); mode = M_HUB; (void)ri; return; }
     }
 }
@@ -260,7 +273,7 @@ void charsel_event(int in, double now) {
 /* ------------------------------------------------------------------ drawing (the plain look, when the game's art is missing) */
 void charsel_draw(double now) {
     cs_view v; charsel_view(&v); if (SET.theme == 2 && orig_ready() && orig_charsel_draw(now, &v)) return;
-    render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; char b[160]; snprintf(b, sizeof b, "Seu dinheiro: %s", v.cash); ui_header(W, v.title, b);
+    render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; char b[160]; snprintf(b, sizeof b, T("Seu dinheiro: %s"), v.cash); ui_header(W, v.title, b);
     if (v.photo) gfx_blit(v.photo, 0, 0, gfx_sprite_w(v.photo), gfx_sprite_h(v.photo), 20, 70, 250, 250, RGB(255, 255, 255), 1); else ui_panel(20, 70, 250, 250, UI_PANEL_DARK);
     gfx_text_sh(20, 330, 2, v.name, C_INK, C_SHADOW); gfx_text(20, 356, 1, v.outfit, C_MUTED); gfx_text(20, 372, 1, v.guitar, C_MUTED);
     int x = 290, y0 = 72, rowH = 24, vis = 13, top = v.sel - vis + 1 < 0 ? 0 : v.sel - vis + 1;
