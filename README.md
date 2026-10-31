@@ -1,65 +1,74 @@
-# Guitar Hero III nativo para R36S
+# Native Guitar Hero III for the R36S
 
-Player de Guitar Hero III escrito em C para o R36S e outros portáteis RK3326 com PortMaster (ArkOS, dArkOS,
-ROCKNIX, AmberELEC). Não é emulação: ele lê os arquivos da versão PC do jogo (músicas, partituras, carreira, afinação,
-arte, cenários e personagens) e desenha com SDL2 + GLES2 no visual do próprio jogo: os menus, as fontes e a pista do
-GH3, e atrás dela os palcos, a banda e a plateia do jogo em 3D. As regras de acerto, a pontuação, as estrelas e a ordem
-da carreira seguem as do jogo original.
+English | [Português](README.pt-BR.md)
+
+A Guitar Hero III player written in C for the R36S and other RK3326 handhelds running PortMaster (ArkOS, dArkOS,
+ROCKNIX, AmberELEC). It is not emulation: it reads the PC version's own files (songs, charts, career, tuning, art,
+venues and characters) and draws them with SDL2 + GLES2 in the game's own look: GH3's menus, fonts and highway, with
+the game's venues, band and crowd in 3D behind it. Note judging, scoring, stars and the career's order follow the
+original game.
 
 | | |
 | --- | --- |
-| ![Paint It Black no palco 3D, com o vocalista e o star power](docs/jogo_3d.png) | ![Barracuda no bar, com o guitarrista e a plateia](docs/jogo_3d_bar.png) |
-| ![Menu principal](docs/menu.png) | ![Lista de músicas da carreira](docs/setlist.png) |
-| ![Escolha do roqueiro](docs/roqueiro.png) | ![Tela de resultados](docs/results.png) |
-| ![A plateia no Budokan](docs/palco_budokan.png) | |
+| ![Paint It Black on the 3D stage, with the singer and star power](docs/jogo_3d.png) | ![Barracuda in the bar, with the guitarist and the crowd](docs/jogo_3d_bar.png) |
+| ![Main menu](docs/menu.png) | ![Career set list](docs/setlist.png) |
+| ![Select Your Hero](docs/roqueiro.png) | ![Results screen](docs/results.png) |
+| ![The crowd at the Budokan](docs/palco_budokan.png) | |
 
-## O que tem
+The pictures show the menus in Portuguese; the game also runs in English and Spanish (Options > Video > Language).
 
-- Carreira liberada como no original (sets, batalhas, encores), por dificuldade, com recordes e estrelas salvos.
-- Dinheiro da carreira pela tabela do jogo e a Loja: músicas e vídeos bônus, roqueiros secretos, guitarras e
-  acabamentos com os preços originais; o coro do encore.
-- "Seu roqueiro": o roqueiro, o visual e a guitarra que sobem ao palco, como no GH3.
-- Batalhas contra Tom Morello, Slash e Lou com os ataques do jogo, o chefe na pista ao lado, o Dreno Mortal e os
-  vídeos de fim de batalha.
-- Hammer-ons, sustains, star power, multiplicador e medidor de rock com as janelas de tempo do jogo.
-- Treino como no GH3: velocidades, trechos e, abaixo da velocidade cheia, a bateria do jogo no lugar da banda.
-- Controles iguais ao Guitar Hero III de PS2 por padrão (trastes em L2, L1, R1, R2 e B), configuráveis, com cinco
-  perfis, e o toque livre do controle comum do PS2.
-- Alavanca nos dois analógicos, que abaixa o tom das notas longas como no PS2, com calibração.
-- O palco do próprio jogo em 3D (os `.scn`/`.tex` de `ZONES/`): as câmeras do jogo cortando no ritmo da música, a
-  banda tocando (com as poses de vitória e derrota e os ataques nas batalhas), a plateia que reage ao medidor de rock e
-  o show de luzes da música. No R36S roda a 58,5 quadros por segundo.
-- Os efeitos sonoros do jogo, as trapaças com os códigos de trastes, calibração do atraso do som, menus em português,
-  prévia das músicas, os vídeos do jogo e os tutoriais narrados.
+## Features
 
-## Instalação
+- The career unlocks as in the original (tiers, battles, encores), per difficulty, with saved high scores and stars.
+- Career cash from the game's own table and the Store: bonus songs and videos, secret rockers, guitars and finishes
+  at the original prices; the encore chant.
+- "Select Your Hero": the rocker, outfit and guitar that take the stage, as in GH3.
+- Battles against Tom Morello, Slash and Lou with the game's attacks, the boss on the highway beside yours, Death
+  Drain and the end-of-battle movies.
+- Hammer-ons, sustains, star power, multiplier and rock meter with the game's timing windows.
+- Practice as in GH3: speeds, sections and, below full speed, the game's drum kit instead of the band.
+- Controls match Guitar Hero III on the PS2 by default (frets on L2, L1, R1, R2 and B), remappable, with five
+  profiles, plus the PS2 pad's tap mode.
+- Whammy on both analog sticks, bending sustains down as on the PS2, with calibration.
+- The game's own venues in 3D (the `.scn`/`.tex` files in `ZONES/`): the game's cameras cutting on the song's beat,
+  the band playing (with win and lose poses and the attacks in battles), a crowd that follows the rock meter and the
+  song's light show. On the R36S it runs at 58.5 frames per second.
+- The game's sound effects, the cheats with their fret codes, audio lag calibration, menus in Portuguese, English
+  and Spanish, song previews, the game's movies and the narrated tutorials.
 
-Este repositório não traz nenhum arquivo do jogo: é preciso a pasta `DATA` da sua cópia do Guitar Hero III para PC.
-O passo a passo, os controles e as opções estão em [port/README.md](port/README.md).
+## Installation
 
-## Compilar
+This repository contains none of the game's files: you need the `DATA` folder from your own copy of Guitar Hero III
+for PC. Step-by-step installation, controls and options are in [port/README.en.md](port/README.en.md).
 
-Num Linux (ou WSL) com SDL2, `aarch64-linux-gnu-gcc` e um sysroot aarch64 com SDL2 (glibc até 2.30):
+## Building
+
+On Linux (or WSL) with SDL2, `aarch64-linux-gnu-gcc` and an aarch64 sysroot with SDL2 (glibc 2.30 or older):
 
 ```
-make            # build/gh3-3d (o jogo) e build/gh3 (o mesmo sem o 3D, para os testes) para o PC, com modos sem janela: --dump, --frames, --screens, --stretchtest, --r3dtest
-make port       # build/gh3.aarch64 (com o 3D) e o zip do PortMaster em build/port/
+make            # build/gh3-3d (the game) and build/gh3 (the same without 3D, for the tests) for the PC, with headless modes: --dump, --frames, --screens, --stretchtest, --r3dtest, --langtest
+make port       # build/gh3.aarch64 (with 3D) and the PortMaster zip in build/port/
 ```
 
-O jogo do aparelho é compilado com `-DGH3_3D` e `src/r3d/` (leitor de cenas `.scn`, bancos `.tex`/DDS, câmeras e luzes do
-`.qb` da zona, e o desenho em GLES2 cru dentro da janela do SDL_Renderer, antes da camada 2D). Sem `-DGH3_3D` nada de
-`r3d/` entra: é o `build/gh3`, que os testes sem janela usam. `build/gh3-3d --r3dtest z_dive --out DIR` carrega uma zona numa janela escondida, salva
-quadros e imprime malhas, texturas, triângulos, memória de vídeo e ms por quadro nas três resoluções do palco
-(`R3D_NODXT=1` força o caminho do Mali: texturas decodificadas e comprimidas em ETC1).
+The device build uses `-DGH3_3D` and `src/r3d/` (the `.scn` scene reader, `.tex`/DDS banks, the zone's cameras and
+lights from its `.qb`, and raw GLES2 drawing inside the SDL_Renderer window, before the 2D layer). Without
+`-DGH3_3D` nothing from `r3d/` is built in: that is `build/gh3`, which the headless tests use.
+`build/gh3-3d --r3dtest z_dive --out DIR` loads a zone in a hidden window, saves frames and prints meshes, textures,
+triangles, video memory and ms per frame at the stage's three resolutions (`R3D_NODXT=1` forces the Mali path:
+textures decoded and recompressed as ETC1).
 
-O decodificador de MP3 é o [minimp3](https://github.com/lieff/minimp3) (CC0) e o de vídeo (MPEG-1 + MP2) é o
-[pl_mpeg](https://github.com/phoboslab/pl_mpeg) (MIT), ambos em `third_party/`.
-A pasta `tools/fixes/` guarda correções de outros ports usados no mesmo aparelho.
+Every text the player reads goes through `T("...")`, with the Portuguese as the key. English and Spanish are in
+`src/lang/`, one row per text (`{ "pt", "en", "es" }`), and `--langtest` checks them. The Spanish is a plain
+translation: native speakers are welcome to improve it.
 
-## Licença
+The MP3 decoder is [minimp3](https://github.com/lieff/minimp3) (CC0) and the video decoder (MPEG-1 + MP2) is
+[pl_mpeg](https://github.com/phoboslab/pl_mpeg) (MIT), both in `third_party/`.
+`tools/fixes/` holds fixes for other ports used on the same device.
 
-O código deste projeto é livre, sob a [licença MIT](LICENSE). As bibliotecas em `third_party/` têm as suas próprias
-licenças (minimp3: CC0; pl_mpeg: MIT). A licença vale só para o código: os arquivos do jogo, as músicas e os vídeos
-continuam sendo da Activision e não fazem parte deste repositório.
+## License
 
-Guitar Hero é marca da Activision. Este projeto não é afiliado à Activision nem à RedOctane.
+This project's code is free software under the [MIT license](LICENSE). The libraries in `third_party/` have their
+own licenses (minimp3: CC0; pl_mpeg: MIT). The license covers the code only: the game's files, songs and movies
+remain Activision's and are not part of this repository.
+
+Guitar Hero is a trademark of Activision. This project is not affiliated with Activision or RedOctane.

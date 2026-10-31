@@ -1,5 +1,7 @@
 # Guitar Hero III (nativo) para R36S
 
+[English](README.en.md) | Português
+
 Port nativo do Guitar Hero III para o R36S e outros portáteis RK3326 com PortMaster (ArkOS, dArkOS, ROCKNIX, AmberELEC).
 Não é emulação nem box64: é um player escrito em C que lê os arquivos originais do jogo (versão PC) e desenha
 pela GPU do aparelho (SDL2 + GLES2), com os menus, a arte e as fontes do próprio jogo e os palcos, a banda e a plateia
@@ -65,6 +67,9 @@ Igual ao do jogo: tela de título (aperte Start, toca um riff de guitarra) e o m
 jogadores e não abrem no R36S. Nos menus tocam as 11 músicas de menu do próprio jogo, lidas de `STREAMS/` (sem essa
 pasta os menus ficam em silêncio).
 
+Os menus e os textos do jogo existem em português, English e Español. O jogo abre em português; para trocar, entre em
+**Opções > Vídeo > Idioma**. A escolha vale na hora e fica salva em `gh3.cfg`.
+
 - **Jogo rápido**: qualquer música já liberada na carreira, em qualquer dificuldade. O recorde conta, a carreira não muda.
 - **Treino > Treinar música**: escolha as seções ("Começar em" e "Terminar em") e a velocidade, como no jogo: Normal,
   Devagar (80%), Mais devagar (67%) e Bem devagar (50%). Abaixo da velocidade normal a música toca mais lenta no mesmo
@@ -73,7 +78,7 @@ pasta os menus ficam em silêncio).
 - **Treino > Tutoriais**: as lições narradas do jogo (básico, Star Power, batalha, hammer-ons e pull-offs), refeitas a
   partir dos roteiros do próprio jogo: textos, falas do Deus do Rock e de Lou na ordem certa, a pista que congela
   enquanto eles explicam, a partitura de treino e o objetivo de cada lição. As falas são em inglês (ou francês, alemão,
-  italiano, espanhol, à escolha na lista); as legendas em português resumem o que cada fala ensina. Os ataques do
+  italiano, espanhol, à escolha na lista); as legendas, no idioma escolhido em Opções > Vídeo > Idioma, resumem o que cada fala ensina. Os ataques do
   adversário da lição de batalha não são simulados. As lições concluídas ficam marcadas em `gh3-tutoriais.cfg`.
 
 ## Carreira
@@ -151,7 +156,8 @@ Organizadas como no jogo:
 - O cartaz de opções tem as doze faixas do jogo; as que não servem no R36S (calibrar imagem, gerenciar banda,
   salvar/carregar, vídeos, a loja) ficam em cinza e o cursor passa por cima delas. A faixa do login automático do PC
   ficou com **Restaurar padrões**.
-- **Vídeo**: palco 3D, a resolução do palco 3D e a banda 3D, efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
+- **Vídeo**: palco 3D, a resolução do palco 3D e a banda 3D, efeitos de palco, escurecer o fundo, FPS, vídeos de abertura e **Idioma** (Português, English ou Español: troca na hora e fica
+  salvo como `idioma=` em `gh3.cfg`).
 
 O visual é o do próprio jogo, lido de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os trastes, as chamas, a pista com
 os seus trilhos, o medidor de rock com as válvulas do star power, a caixa do placar com a válvula do multiplicador e os
