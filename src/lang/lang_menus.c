@@ -272,7 +272,6 @@ const lang_entry LANG_MENUS[] = {
     { "%d toques", "%d strums", "%d rasgueos" },
     { "Palhetar no clique", "Strum on the click", "Rasguear con el clic" },
     { "Salvar", "Save", "Guardar" },
-    { "Cancelar", "Cancel", "Cancelar" },
 
     /* ---- whammy calibration */
     { "CALIBRAR ALAVANCA", "CALIBRATE WHAMMY", "CALIBRAR PALANCA" },
