@@ -9,6 +9,7 @@
 #include "ui.h"
 #include "gh3fmt.h"
 #include "store.h"
+#include "lang.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -147,7 +148,7 @@ void orig_hud(const gh3_run *r, const hud_info *hi, double perf, int W, int H, i
     { float ang = (float)(2 * h - 1) * 0.92f, ncx = rx + 132 * HUD_K, ncy = ry + 165 * HUD_K, L = 128 * 0.8f * HUD_K;   /* the needle turns about a point 80 % down it */
         gfx_line(ncx, ncy, ncx + sinf(ang) * L, ncy - cosf(ang) * L, 3, RGB(0x1a, 0x1a, 0x1e)); gfx_line(ncx, ncy, ncx + sinf(ang) * L, ncy - cosf(ang) * L, 1.5f, RGB(0xd8, 0xdc, 0xe4)); }
     img_at("hud_rock_body", rx, ry, 0, 0, 1);
-    if (hi->noFail) gfx_text_right(W - 10, (int)ry - 12, 1, "SEM FALHAR", C_MUTED);
+    if (hi->noFail) gfx_text_right(W - 10, (int)ry - 12, 1, T("SEM FALHAR"), C_MUTED);
     if (h < 0.33 && !hi->noFail) { float k = 0.5f + 0.5f * sinf((float)perf / 90); gfx_rect(0, 0, 6, (float)H, fb_alpha(C_BAD, 0.35f * k)); gfx_rect((float)W - 6, 0, 6, (float)H, fb_alpha(C_BAD, 0.35f * k)); }
     /* score box */
     int base = mult < 1 ? 1 : mult > 4 ? 4 : mult, c = base >= 4 ? 10 : r->streak % 10; snprintf(b, sizeof b, sp ? "hud_score_nixie_%db" : "hud_score_nixie_%da", sp ? base * 2 : base);
@@ -155,7 +156,7 @@ void orig_hud(const gh3_run *r, const hud_info *hi, double perf, int W, int H, i
     for (int i = 0; i < 5; i++) img_at(c >= 2 * (i + 1) ? "hud_score_light_2" : c == 2 * i + 1 ? "hud_score_light_1" : "hud_score_light_0", sx, sy, 0, 200 - 30 * i, 1);
     { float age = (float)(perf - r->spAt); gfx_sprite *fl = ga_img("hud_score_flash"); if (fl && age >= 0 && age < 300) { float up = fminf(1, age / 200), down = fmaxf(0, (age - 200) / 100), sz = 64 * (1 + 4 * (up - down)) * HUD_K; gfx_sprite_draw(fl, sx + 128 * HUD_K, sy + 128 * HUD_K, sz / gfx_sprite_w(fl), RGB(255, 255, 255), up - down); } }
     score_digits(sx, sy, (long)r->score);
-    snprintf(b, sizeof b, "%d seguidas", r->streak); gfx_text_sh((int)(sx + box) + 6, H - 16, 1, b, r->streak >= 10 ? C_AMP : C_MUTED, C_SHADOW);
+    snprintf(b, sizeof b, T("%d seguidas"), r->streak); gfx_text_sh((int)(sx + box) + 6, H - 16, 1, b, r->streak >= 10 ? C_AMP : C_MUTED, C_SHADOW);
     if (ready) { snprintf(b, sizeof b, "STAR POWER: %s", hi->starKeys && *hi->starKeys ? hi->starKeys : "Select"); float k = 0.6f + 0.4f * sinf((float)perf / 110); int tw = gfx_text_w(b, 1) + 16;
         ui_panel((float)W - 10 - tw, ry - 36 - 70, (float)tw, 20, UI_PANEL_SP); gfx_text_sh_right(W - 18, (int)ry - 36 - 65, 1, b, fb_alpha(C_INK, k), C_SHADOW); }
     (void)pulse;

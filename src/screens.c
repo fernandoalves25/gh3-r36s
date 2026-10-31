@@ -1,6 +1,7 @@
 /* The menus, laid out like the game's own: title, main menu (Career, Co-op Career, Quickplay, Multiplayer, Training,
  * Options), the set list of each mode, song setup, options by category (Audio, Calibrate Lag, Controller, Video,
- * Top Rockers, Cheats), controls, pause, results and error, in Portuguese. */
+ * Top Rockers, Cheats), controls, pause, results and error. Every text goes through T() (lang.h): the Portuguese here
+ * is the key, English and Spanish are in src/lang/lang_menus.c. */
 #include "app.h"
 #include "render.h"
 #include "ui.h"
@@ -21,6 +22,7 @@
 #include "original.h"
 #include "orig_options.h"
 #include "overlay.h"
+#include "lang.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,15 +30,16 @@
 
 static const char *DIFF_PT[4] = { "Fácil", "Médio", "Difícil", "Expert" };
 const char *diff_name_pt(int d) { return DIFF_PT[d < 0 ? 0 : d > 3 ? 3 : d]; }
+static const char *diff_t(int d) { return T(diff_name_pt(d)); }   /* the difficulty in the chosen language */
 static void fmt_num(long n, char *out, size_t cap) { /* 1.234.567 */
     char raw[32]; snprintf(raw, sizeof raw, "%ld", n < 0 ? -n : n); int L = (int)strlen(raw), o = 0; if (n < 0) out[o++] = '-';
     for (int i = 0; i < L && o + 1 < (int)cap; i++) { out[o++] = raw[i]; int left = L - 1 - i; if (left && left % 3 == 0 && o + 1 < (int)cap) out[o++] = '.'; } out[o] = 0;
 }
 static void song_title(const gh3_song *s, char *out, size_t cap) {
-    if (s->isBoss) { const char *p = strstr(s->title, "vs."); snprintf(out, cap, "Batalha %s", p ? p : s->title); } else snprintf(out, cap, "%s", s->title);
+    if (s->isBoss) { const char *p = strstr(s->title, "vs."); snprintf(out, cap, T("Batalha %s"), p ? p : s->title); } else snprintf(out, cap, "%s", s->title);
 }
 static void stars_str(int n, char *out) { out[0] = 0; for (int i = 0; i < 5; i++) strcat(out, i < n ? "★" : "☆"); }
-static const char *part_name(const gh3_song *s, int part) { return part == 1 ? (s->hasRhythm ? "Baixo" : "Guitarra base") : "Guitarra solo"; }
+static const char *part_name(const gh3_song *s, int part) { return part == 1 ? (s->hasRhythm ? T("Baixo") : T("Guitarra base")) : T("Guitarra solo"); }
 
 /* ------------------------------------------------------------------ rows */
 int screens_tab_of(int tier) { int t = A.lib->tiers[tier].tab; return t == 1 || t == 2 ? t : 0; }   /* change_tab's three lists: the co-op encores and the rest go with the set list */
@@ -66,13 +69,13 @@ static void draw_logo(int cx, int y, int big) {   /* the game's name in the pixe
     gfx_text_sh_center(cx, y + s1 * 13 + s2 * 12 + 4, big ? 2 : 1, "LEGENDS OF ROCK", big ? C_INK : C_MUTED, C_SHADOW);
 }
 static void draw_title(double now) {
-    render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; double T = (now - A.titleAt) / 1000; float k = T < 0.7 ? (float)(T / 0.7) : 1;
+    render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; double tsec = (now - A.titleAt) / 1000; float k = tsec < 0.7 ? (float)(tsec / 0.7) : 1;
     ui_dim(W, H, 70);
     draw_logo(W / 2, 60 - (int)(30 * (1 - k) * (1 - k)), 1);
     gfx_sprite *tu = art_get(ART_TGT_UP); int tw = gfx_sprite_w(tu), th = gfx_sprite_h(tu);   /* the five frets under the logo */
-    for (int f = 0; f < 5; f++) { float b = (float)(0.5 + 0.5 * sin(T * 3 - f * 0.7)); gfx_blit(tu, 0, 0, tw, th, W / 2 - 130 + f * 52, 312, 48, 48.0f * th / tw, FRET_COLORS[f], 0.55f + 0.45f * b); }
-    if (fmod(T, 1.1) < 0.7) gfx_text_sh_center(W / 2, H - 92, 2, "APERTE START", C_INK, C_SHADOW);
-    gfx_text_center(W / 2, H - 30, 1, "port nativo para R36S • Select + Start fecha o jogo", C_LINE);
+    for (int f = 0; f < 5; f++) { float b = (float)(0.5 + 0.5 * sin(tsec * 3 - f * 0.7)); gfx_blit(tu, 0, 0, tw, th, W / 2 - 130 + f * 52, 312, 48, 48.0f * th / tw, FRET_COLORS[f], 0.55f + 0.45f * b); }
+    if (fmod(tsec, 1.1) < 0.7) gfx_text_sh_center(W / 2, H - 92, 2, T("APERTE START"), C_INK, C_SHADOW);
+    gfx_text_center(W / 2, H - 30, 1, T("port nativo para R36S • Select + Start fecha o jogo"), C_LINE);
 }
 enum { MM_CAREER, MM_COOP, MM_QUICK, MM_MULTI, MM_TRAINING, MM_OPTIONS, MM_EXIT, MM_N };
 static const char *MM_LABEL[MM_N] = { "CARREIRA", "CARREIRA CO-OP", "JOGO RÁPIDO", "MULTIJOGADOR", "TREINO", "OPÇÕES", "SAIR" };
@@ -89,11 +92,11 @@ static void draw_note(double now) {   /* a short line over any menu ("Precisa de
     if (A.noteAt <= 0 || now - A.noteAt > 2600) return; float a = now - A.noteAt > 2100 ? (float)(1 - (now - A.noteAt - 2100) / 500) : 1;
     int w = gfx_text_w(A.note, 1) + 40; ui_panel(A.W / 2 - w / 2, A.H - 132, w, 30, UI_PANEL_DARK); gfx_text_sh_center(A.W / 2, A.H - 122, 1, A.note, fb_alpha(C_AMP, a), C_SHADOW);
 }
-static void note(double now, const char *msg) { snprintf(A.note, sizeof A.note, "%s", msg); A.noteAt = now; }
+static void note(double now, const char *msg) { snprintf(A.note, sizeof A.note, "%s", T(msg)); A.noteAt = now; }   /* msg: the Portuguese key */
 static void draw_menu_list(const char *const *labels, const int *off, int n, int sel, int x, int y, int step) {
-    for (int i = 0; i < n; i++) { int yy = y + i * step, on = i == sel; uint32_t c = off[i] ? RGB(110, 104, 122) : on ? C_INK : RGB(210, 204, 196);
-        if (on) { ui_panel(x - 14, yy - 7, gfx_text_w(labels[i], 3) + 52, step - 4, off[i] ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), x - 8, yy - 1, 0.6f, RGB(255, 255, 255), 1); }
-        ui_title(x + 16, yy, 3, labels[i], c, C_SHADOW, on ? 2 : 1); }
+    for (int i = 0; i < n; i++) { int yy = y + i * step, on = i == sel; uint32_t c = off[i] ? RGB(110, 104, 122) : on ? C_INK : RGB(210, 204, 196); const char *l = T(labels[i]);
+        if (on) { ui_panel(x - 14, yy - 7, gfx_text_w(l, 3) + 52, step - 4, off[i] ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), x - 8, yy - 1, 0.6f, RGB(255, 255, 255), 1); }
+        ui_title(x + 16, yy, 3, l, c, C_SHADOW, on ? 2 : 1); }
 }
 static void draw_main(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; char b[120];
@@ -101,18 +104,18 @@ static void draw_main(double now) {
     draw_menu_list(MM_LABEL, MM_OFF, MM_N, A.mainRow, 46, 130, 36);
     /* the career at a glance, like the game's status board */
     int px = W - 228, py = 132; ui_panel(px, py, 208, 150, UI_PANEL_FLAT);
-    gfx_text_sh(px + 14, py + 12, 1, "SUA CARREIRA", C_AMP, C_SHADOW);
+    gfx_text_sh(px + 14, py + 12, 1, T("SUA CARREIRA"), C_AMP, C_SHADOW);
     int ntier = 0; for (int t = 0; t < A.lib->ntiers; t++) ntier += A.lib->tiers[t].career;
     static int doneBy[4]; static double statsAt = -1e9;   /* recounted once a second, not every frame */
     if (now - statsAt > 1000 || now < statsAt) { statsAt = now; tierstate_t *ts = malloc(A.lib->ntiers * sizeof *ts); for (int d = 0; d < 4; d++) { career_eval(A.lib, d, SET.unlockAll, ts); doneBy[d] = career_tiers_done(A.lib, ts); } free(ts); }
     for (int d = 0; d < 4; d++) { int done = doneBy[d];
-        snprintf(b, sizeof b, "%s", diff_name_pt(d)); gfx_text(px + 14, py + 36 + d * 22, 1, b, C_MUTED);
-        snprintf(b, sizeof b, "%d/%d sets", done, ntier); gfx_text_sh_right(px + 194, py + 36 + d * 22, 1, b, done == ntier ? C_GOOD : C_INK, C_SHADOW);
+        snprintf(b, sizeof b, "%s", diff_t(d)); gfx_text(px + 14, py + 36 + d * 22, 1, b, C_MUTED);
+        snprintf(b, sizeof b, T("%d/%d sets"), done, ntier); gfx_text_sh_right(px + 194, py + 36 + d * 22, 1, b, done == ntier ? C_GOOD : C_INK, C_SHADOW);
         ui_bar(px + 70, py + 38 + d * 22, 60, 5, ntier ? (float)done / ntier : 0, done == ntier ? C_GOOD : C_AMP); }
-    { gfx_sprite *st = fx_star(1, SET.theme >= 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), px + 12, py + 120, 20, 20, RGB(255, 255, 255), 1); } snprintf(b, sizeof b, "%d estrelas", records_count_stars()); gfx_text_sh(px + 38, py + 126, 1, b, C_INK, C_SHADOW);
-    ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, MM_HELP[A.mainRow], C_MUTED);
-    static const char *bt[2] = { "A", "B" }, *tx[2] = { "Escolher", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2);
-    if (A.confirmQuit) { ui_dim(W, H, 150); ui_panel(W / 2 - 150, H / 2 - 50, 300, 100, UI_PANEL_DARK); gfx_text_sh_center(W / 2, H / 2 - 34, 2, "Sair do jogo?", C_INK, C_SHADOW); static const char *qb[2] = { "A", "B" }, *qt[2] = { "Sim, sair", "Ficar" }; ui_hints(H / 2 + 14, W, qb, qt, 2); }
+    { gfx_sprite *st = fx_star(1, SET.theme >= 1); gfx_blit(st, 0, 0, gfx_sprite_w(st), gfx_sprite_h(st), px + 12, py + 120, 20, 20, RGB(255, 255, 255), 1); } snprintf(b, sizeof b, T("%d estrelas"), records_count_stars()); gfx_text_sh(px + 38, py + 126, 1, b, C_INK, C_SHADOW);
+    ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, T(MM_HELP[A.mainRow]), C_MUTED);
+    static const char *bt[2] = { "A", "B" }; const char *tx[2] = { T("Escolher"), T("Voltar") }; ui_hints(H - 24, W, bt, tx, 2);
+    if (A.confirmQuit) { ui_dim(W, H, 150); ui_panel(W / 2 - 150, H / 2 - 50, 300, 100, UI_PANEL_DARK); gfx_text_sh_center(W / 2, H / 2 - 34, 2, T("Sair do jogo?"), C_INK, C_SHADOW); static const char *qb[2] = { "A", "B" }; const char *qt[2] = { T("Sim, sair"), T("Ficar") }; ui_hints(H / 2 + 14, W, qb, qt, 2); }
 }
 enum { TR_TUTORIAL, TR_PRACTICE, TR_N };
 static const char *TR_LABEL[TR_N] = { "TUTORIAIS", "TREINAR MÚSICA" };
@@ -121,10 +124,10 @@ static const char *TR_HELP[TR_N] = {
     "As lições narradas do jogo, com o Deus do Rock e Lou: o básico, Star Power, batalhas, hammer-ons e pull-offs.",
     "Escolha uma música já liberada e a seção onde começar. A música não falha e nada é salvo: é só para treinar." };
 static void draw_training(double now) {
-    render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; ui_header(W, "TREINO", NULL);
+    render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; ui_header(W, T("TREINO"), NULL);
     draw_menu_list(TR_LABEL, TR_OFF, TR_N, A.trainRow, 46, 110, 44);
-    ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, TR_HELP[A.trainRow], C_MUTED);
-    static const char *bt[2] = { "A", "B" }, *tx[2] = { "Escolher", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2);
+    ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, T(TR_HELP[A.trainRow]), C_MUTED);
+    static const char *bt[2] = { "A", "B" }; const char *tx[2] = { T("Escolher"), T("Voltar") }; ui_hints(H - 24, W, bt, tx, 2);
 }
 
 /* ------------------------------------------------------------------ set list */
@@ -132,20 +135,21 @@ static void draw_setlist(double now) {
     if (SET.theme == 2 && orig_ready() && orig_setlist_draw(now)) return;
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; gh3_library *lib = A.lib; char b[200], b2[64];
     int done = career_tiers_done(lib, A.tiers), ntier = 0, career = A.mode == MODE_CAREER; for (int t = 0; t < lib->ntiers; t++) ntier += lib->tiers[t].career;
-    if (career) snprintf(b, sizeof b, "%s • %d/%d sets • ★ %d • %s", diff_name_pt(A.selDiff), done, ntier, records_count_stars(), store_cash_str()); else snprintf(b, sizeof b, "★ %d", records_count_stars());
-    ui_header(W, career ? "CARREIRA" : A.mode == MODE_QUICK ? "JOGO RÁPIDO" : "TREINO", b);
-    snprintf(b, sizeof b, career ? "Dificuldade da carreira:  ← %s →" : "Dificuldade:  ← %s →", diff_name_pt(A.selDiff)); gfx_text_sh(16, 66, 1, b, C_MUTED, C_SHADOW);
-    { static const char *TAB[3] = { "Setlist", "Bônus", "Downloads" }; snprintf(b, sizeof b, "L1 %s%s%s R1", A.slTab == 0 ? "[Setlist]" : TAB[0], A.slTab == 1 ? "  [Bônus]  " : "  Bônus  ", A.slTab == 2 ? "[Downloads]" : TAB[2]); gfx_text_right(W - 16, 66, 1, b, C_LINE); }
+    if (career) snprintf(b, sizeof b, T("%s • %d/%d sets • ★ %d • %s"), diff_t(A.selDiff), done, ntier, records_count_stars(), store_cash_str()); else snprintf(b, sizeof b, "★ %d", records_count_stars());
+    ui_header(W, career ? T("CARREIRA") : A.mode == MODE_QUICK ? T("JOGO RÁPIDO") : T("TREINO"), b);
+    snprintf(b, sizeof b, career ? T("Dificuldade da carreira:  ← %s →") : T("Dificuldade:  ← %s →"), diff_t(A.selDiff)); gfx_text_sh(16, 66, 1, b, C_MUTED, C_SHADOW);
+    { static const char *TAB[3] = { "Setlist", "Bônus", "Downloads" }; char tb[3][40]; for (int k = 0; k < 3; k++) snprintf(tb[k], sizeof tb[k], A.slTab == k ? "[%s]" : "%s", T(TAB[k]));
+      snprintf(b, sizeof b, "L1 %s  %s  %s R1", tb[0], tb[1], tb[2]); gfx_text_right(W - 16, 66, 1, b, C_LINE); }
     int rowH = 22, top = 84, vis = (H - top - 34) / rowH;
     if (A.cursor < A.scroll) A.scroll = A.cursor; if (A.cursor >= A.scroll + vis) A.scroll = A.cursor - vis + 1; if (A.scroll < 0) A.scroll = 0;
     for (int i = A.scroll, y = top; i < A.nrows && i < A.scroll + vis; i++, y += rowH) {
         if (A.rows[i].kind == 0) { const gh3_tier *tr = &lib->tiers[A.rows[i].idx]; const tierstate_t *ts = &A.tiers[A.rows[i].idx];
             gfx_rect(10, y + 2, W - 20, rowH - 4, RGBA(60, 40, 15, 120)); gfx_rect(10, y + rowH - 3, W - 20, 1, C_AMP_DARK);
-            const char *title = tr->tab == 1 ? "Músicas bônus" : tr->tab == 2 ? "Músicas baixadas" : tr->tab == 3 ? "Mais músicas" : tr->title;
+            const char *title = tr->tab == 1 ? T("Músicas bônus") : tr->tab == 2 ? T("Músicas baixadas") : tr->tab == 3 ? T("Mais músicas") : tr->title;
             gfx_text_sh(18, y + 6, 1, title, ts->open || !career ? C_AMP : C_MUTED, C_SHADOW);
-            if (tr->career && career) { if (!ts->open) snprintf(b, sizeof b, "bloqueado: termine o set anterior"); else if (ts->done) snprintf(b, sizeof b, "set concluído ✓"); else if (ts->regDone < ts->required) snprintf(b, sizeof b, "%d de %d músicas para liberar %s", ts->regDone, ts->required, tr->bossIdx >= 0 ? "a batalha" : "o encore"); else if (tr->bossIdx >= 0 && !ts->bossDone) snprintf(b, sizeof b, "vença a batalha para liberar o encore"); else snprintf(b, sizeof b, "toque o encore para fechar o set");
+            if (tr->career && career) { if (!ts->open) snprintf(b, sizeof b, "%s", T("bloqueado: termine o set anterior")); else if (ts->done) snprintf(b, sizeof b, "%s", T("set concluído ✓")); else if (ts->regDone < ts->required) snprintf(b, sizeof b, T("%d de %d músicas para liberar %s"), ts->regDone, ts->required, tr->bossIdx >= 0 ? T("a batalha") : T("o encore")); else if (tr->bossIdx >= 0 && !ts->bossDone) snprintf(b, sizeof b, "%s", T("vença a batalha para liberar o encore")); else snprintf(b, sizeof b, "%s", T("toque o encore para fechar o set"));
                 gfx_text_right(W - 18, y + 6, 1, b, ts->done ? C_GOOD : C_MUTED); }
-            else if (tr->tab == 1 && !SET.unlockAll) gfx_text_right(W - 18, y + 6, 1, career ? "à venda na Loja: aperte Y" : "à venda na Loja da carreira", C_MUTED);
+            else if (tr->tab == 1 && !SET.unlockAll) gfx_text_right(W - 18, y + 6, 1, career ? T("à venda na Loja: aperte Y") : T("à venda na Loja da carreira"), C_MUTED);
             continue; }
         const gh3_song *s = &lib->songs[A.rows[i].idx]; int sel = i == A.cursor, lock = row_lock(i); const record_t *rc = records_get(s->name, A.selDiff, 0); const record_t *rc2 = records_get(s->name, A.selDiff, 1); if (!rc || (rc2 && rc2->score > rc->score)) rc = rc2;
         if (sel) { ui_panel(10, y - 1, W - 20, rowH, lock ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), 16, y + 3, 0.5f, RGB(255, 255, 255), 1); }
@@ -153,58 +157,58 @@ static void draw_setlist(double now) {
         gfx_text_sh(34, y + 1, 2, b, tc, C_SHADOW);
         if (s->isBoss) gfx_sprite_at(art_get(ART_SKULL), 34 + gfx_text_w(b, 2) + 8, y + 1, 0.9f, RGB(255, 255, 255), lock ? 0.5f : 1);
         int tw = gfx_text_w(b, 2);
-        if (lock) { const char *why = lock >= LOCK_BUY ? store_lock_text(A.rows[i].idx, career) : !career ? "libere na carreira" : lock == LOCK_TIER ? "bloqueado" : lock == LOCK_BOSS ? "batalha bloqueada" : "encore bloqueado"; gfx_text_right(W - 20, y + 6, 1, why, lock == LOCK_BUY ? C_AMP : RGB(110, 104, 122)); }
+        if (lock) { const char *why = lock >= LOCK_BUY ? store_lock_text(A.rows[i].idx, career) : !career ? T("libere na carreira") : lock == LOCK_TIER ? T("bloqueado") : lock == LOCK_BOSS ? T("batalha bloqueada") : T("encore bloqueado"); gfx_text_right(W - 20, y + 6, 1, why, lock == LOCK_BUY ? C_AMP : RGB(110, 104, 122)); }
         else if (rc) { stars_str(rc->stars, b2); fmt_num(rc->score, b, sizeof b); gfx_text_right(W - 20, y + 6, 1, b, sel ? C_INK : C_MUTED); gfx_text_right(W - 20 - gfx_text_w(b, 1) - 12, y + 3, 2, b2, C_AMP); }
         else { snprintf(b, sizeof b, "%s%s%s", s->artist, *s->year ? " • " : "", s->year); if (gfx_text_w(b, 1) + tw + 60 < W) gfx_text_right(W - 20, y + 6, 1, b, sel ? C_MUTED : C_LINE); }
     }
-    static const char *bt[5] = { "A", "B", "← →", "L1 R1", "Y" }, *tx[5] = { "Escolher", "Voltar", "Dificuldade", "Abas", "Loja" };
+    static const char *bt[5] = { "A", "B", "← →", "L1 R1", "Y" }; const char *tx[5] = { T("Escolher"), T("Voltar"), T("Dificuldade"), T("Abas"), T("Loja") };
     ui_hints(H - 24, W, bt, tx, career ? 5 : 4);
     if (A.unlockAt > 0 && now - A.unlockAt < 4500) { float a = now - A.unlockAt > 3500 ? (float)(1 - (now - A.unlockAt - 3500) / 1000) : 1; int w = gfx_text_w(A.unlockMsg, 2) + 40; ui_panel(W / 2 - w / 2, H / 2 - 30, w, 60, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_CROWN), W / 2 - w / 2 + 10, H / 2 - 20, 1, RGB(255, 255, 255), a); gfx_text_sh_center(W / 2 + 10, H / 2 - 11, 2, A.unlockMsg, fb_alpha(C_INK, a), C_SHADOW); }
 }
 /* ------------------------------------------------------------------ setup */
 enum { SR_DIFF, SR_PART, SR_SECTION, SR_STRUM, SR_HYPER, SR_PLAY, SR_END, SR_SPEED };
 static int setup_rows(int *out) { int n = 0; out[n++] = SR_DIFF; out[n++] = SR_PART; if (A.mode == MODE_PRACTICE) { out[n++] = SR_SECTION; out[n++] = SR_END; out[n++] = SR_SPEED; } out[n++] = SR_STRUM; out[n++] = SR_HYPER; out[n++] = SR_PLAY; return n; }
-static void section_name(int k, char *out, size_t n) { if (k <= 0 || k > A.S.sd.nmarkers) snprintf(out, n, "Do começo"); else { const char *t = app_section_at(A.S.sd.markers[k - 1].t); snprintf(out, n, "%d. %s", k, *t ? t : "Seção"); } }
+static void section_name(int k, char *out, size_t n) { if (k <= 0 || k > A.S.sd.nmarkers) snprintf(out, n, "%s", T("Do começo")); else { const char *t = app_section_at(A.S.sd.markers[k - 1].t); snprintf(out, n, "%d. %s", k, *t ? t : T("Seção")); } }
 /* practice: the last section runs from the first one chosen to the one before the last ("Até o fim" covers that) */
 static void end_change(int d) { int lo = A.practiceSec > 1 ? A.practiceSec : 1, hi = A.S.sd.nmarkers - 1, cnt = 1 + (hi >= lo ? hi - lo + 1 : 0);
     int i = A.practiceEnd >= lo && A.practiceEnd <= hi ? A.practiceEnd - lo : cnt - 1; i = (i + cnt + d) % cnt; A.practiceEnd = i == cnt - 1 ? 0 : lo + i; }
 static void draw_setup(double now) {
     if (SET.theme == 2 && orig_ready()) { int r_[8], n_ = setup_rows(r_); if (orig_setup_draw(now, r_, n_)) return; }
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; const gh3_song *s = &A.lib->songs[A.selSong]; char b[200], t[160];
-    song_title(s, t, sizeof t); ui_header(W, "PREPARAR", NULL);
+    song_title(s, t, sizeof t); ui_header(W, T("PREPARAR"), NULL);
     gfx_text_sh(16, 70, 3, t, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s%s%s", s->artist, *s->year ? " • " : "", s->year); gfx_text_sh(16, 106, 1, b, C_MUTED, C_SHADOW);
     int rows[8], nr = setup_rows(rows), step = nr > 6 ? 32 : nr > 5 ? 34 : 40, y0 = nr > 6 ? 122 : 132; char hv[16], sec[80], endv[80], spv[40];
-    if (SET.hyper) snprintf(hv, sizeof hv, "+%d", SET.hyper); else snprintf(hv, sizeof hv, "Normal"); section_name(A.practiceSec, sec, sizeof sec);
-    if (A.practiceEnd > 0) section_name(A.practiceEnd, endv, sizeof endv); else snprintf(endv, sizeof endv, "Até o fim");
-    int spk = A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(spv, sizeof spv, "%s (%d%%)", PRACTICE_SPEED_NAME[spk], (int)lround(PRACTICE_SPEED[spk] * 100));
+    if (SET.hyper) snprintf(hv, sizeof hv, "+%d", SET.hyper); else snprintf(hv, sizeof hv, "%s", T("Normal")); section_name(A.practiceSec, sec, sizeof sec);
+    if (A.practiceEnd > 0) section_name(A.practiceEnd, endv, sizeof endv); else snprintf(endv, sizeof endv, "%s", T("Até o fim"));
+    int spk = A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(spv, sizeof spv, "%s (%d%%)", T(PRACTICE_SPEED_NAME[spk]), (int)lround(PRACTICE_SPEED[spk] * 100));
     int lock = app_song_lock(A.selTier, A.selSong);
     for (int i = 0; i < nr; i++) { int y = y0 + i * step, r = rows[i];
-        switch (r) { case SR_DIFF: ui_option(30, y, W - 60, "Dificuldade", diff_name_pt(A.selDiff), A.setupRow == i, 1); break; case SR_PART: ui_option(30, y, W - 60, "Parte", part_name(s, A.selPart), A.setupRow == i, 1); break;
-            case SR_SECTION: ui_option(30, y, W - 60, "Começar em", sec, A.setupRow == i, 1); break; case SR_STRUM: ui_option(30, y, W - 60, "Palhetada", SET.tap ? "Toque livre" : "Normal", A.setupRow == i, 1); break;
-            case SR_END: ui_option(30, y, W - 60, "Terminar em", endv, A.setupRow == i, 1); break; case SR_SPEED: ui_option(30, y, W - 60, "Velocidade", spv, A.setupRow == i, 1); break;
-            case SR_HYPER: ui_option(30, y, W - 60, "Velocidade da pista", hv, A.setupRow == i, 1); break;
-            default: if (A.setupRow == i) ui_panel(22, y - 8, W - 44, 34, lock ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_text_sh_center(W / 2, y, 2, lock ? "Bloqueada nesta dificuldade" : A.mode == MODE_PRACTICE ? "♪  Treinar!  ♪" : "♪  Tocar!  ♪", lock ? C_MUTED : (A.setupRow == i ? C_INK : C_AMP), C_SHADOW); } }
+        switch (r) { case SR_DIFF: ui_option(30, y, W - 60, T("Dificuldade"), diff_t(A.selDiff), A.setupRow == i, 1); break; case SR_PART: ui_option(30, y, W - 60, T("Parte"), part_name(s, A.selPart), A.setupRow == i, 1); break;
+            case SR_SECTION: ui_option(30, y, W - 60, T("Começar em"), sec, A.setupRow == i, 1); break; case SR_STRUM: ui_option(30, y, W - 60, T("Palhetada"), SET.tap ? T("Toque livre") : T("Normal"), A.setupRow == i, 1); break;
+            case SR_END: ui_option(30, y, W - 60, T("Terminar em"), endv, A.setupRow == i, 1); break; case SR_SPEED: ui_option(30, y, W - 60, T("Velocidade"), spv, A.setupRow == i, 1); break;
+            case SR_HYPER: ui_option(30, y, W - 60, T("Velocidade da pista"), hv, A.setupRow == i, 1); break;
+            default: if (A.setupRow == i) ui_panel(22, y - 8, W - 44, 34, lock ? UI_PANEL_DARK : UI_PANEL_AMBER); gfx_text_sh_center(W / 2, y, 2, lock ? T("Bloqueada nesta dificuldade") : A.mode == MODE_PRACTICE ? T("♪  Treinar!  ♪") : T("♪  Tocar!  ♪"), lock ? C_MUTED : (A.setupRow == i ? C_INK : C_AMP), C_SHADOW); } }
     /* the record and the chart */
     const record_t *rc = records_get(s->name, A.selDiff, A.selPart); int y = nr > 6 ? 376 : 344;
     ui_panel(16, y, W - 32, 62, UI_PANEL_FLAT);
-    if (A.mode == MODE_PRACTICE) { gfx_text_sh(28, y + 10, 1, "Treino: não falha, sem Star Power, nada é salvo.", C_SP, C_SHADOW);
-        if (rc) { char n[32], st[32]; fmt_num(rc->score, n, sizeof n); stars_str(rc->stars, st); snprintf(b, sizeof b, "Seu recorde: %s pontos  %s", n, st); gfx_text(28, y + 28, 1, b, C_MUTED); }
+    if (A.mode == MODE_PRACTICE) { gfx_text_sh(28, y + 10, 1, T("Treino: não falha, sem Star Power, nada é salvo."), C_SP, C_SHADOW);
+        if (rc) { char n[32], st[32]; fmt_num(rc->score, n, sizeof n); stars_str(rc->stars, st); snprintf(b, sizeof b, T("Seu recorde: %s pontos  %s"), n, st); gfx_text(28, y + 28, 1, b, C_MUTED); }
         const gh3_partdiff *pd = A.S.sd.parts[A.selPart][A.selDiff].raw ? &A.S.sd.parts[A.selPart][A.selDiff] : &A.S.sd.parts[A.selPart ? 0 : 1][A.selDiff];   /* the stretch chosen: its notes and how long it takes */
         double end = A.S.sd.nfret ? A.S.sd.fretbars[A.S.sd.nfret - 1] : 0, from, to; practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, end, &from, &to); int cnt = 0;
         for (int i = 0; i + 2 < pd->nraw; i += 3) cnt += pd->raw[i] >= from - 1 && pd->raw[i] < to;
-        int sec2 = (int)((to - from) / PRACTICE_SPEED[spk] / 1000 + 0.5); snprintf(b, sizeof b, "Trecho: %d notas • %d:%02d a %d%% da velocidade", cnt, sec2 / 60, sec2 % 60, (int)lround(PRACTICE_SPEED[spk] * 100)); gfx_text(28, y + 44, 1, b, C_LINE); }
-    else if (rc) { char n[32], st[32]; fmt_num(rc->score, n, sizeof n); stars_str(rc->stars, st); snprintf(b, sizeof b, "Seu recorde: %s pontos  %s", n, st); gfx_text_sh(28, y + 10, 1, b, C_AMP, C_SHADOW);
-        snprintf(b, sizeof b, "%d%% das notas • maior sequência %d • tocada %d %s", rc->pct, rc->streak, rc->plays, rc->plays == 1 ? "vez" : "vezes"); gfx_text(28, y + 28, 1, b, C_MUTED); }
-    else { gfx_text_sh(28, y + 10, 1, "Ainda sem recorde nesta parte e dificuldade.", C_MUTED, C_SHADOW); }
+        int sec2 = (int)((to - from) / PRACTICE_SPEED[spk] / 1000 + 0.5); snprintf(b, sizeof b, T("Trecho: %d notas • %d:%02d a %d%% da velocidade"), cnt, sec2 / 60, sec2 % 60, (int)lround(PRACTICE_SPEED[spk] * 100)); gfx_text(28, y + 44, 1, b, C_LINE); }
+    else if (rc) { char n[32], st[32]; fmt_num(rc->score, n, sizeof n); stars_str(rc->stars, st); snprintf(b, sizeof b, T("Seu recorde: %s pontos  %s"), n, st); gfx_text_sh(28, y + 10, 1, b, C_AMP, C_SHADOW);
+        snprintf(b, sizeof b, T("%d%% das notas • maior sequência %d • tocada %d %s"), rc->pct, rc->streak, rc->plays, rc->plays == 1 ? T("vez") : T("vezes")); gfx_text(28, y + 28, 1, b, C_MUTED); }
+    else { gfx_text_sh(28, y + 10, 1, T("Ainda sem recorde nesta parte e dificuldade."), C_MUTED, C_SHADOW); }
     int charted = A.S.sd.parts[A.selPart][A.selDiff].raw != NULL; int notes = charted ? A.S.sd.parts[A.selPart][A.selDiff].nraw / 3 : (A.S.sd.parts[A.selPart ? 0 : 1][A.selDiff].raw ? A.S.sd.parts[A.selPart ? 0 : 1][A.selDiff].nraw / 3 : 0);
-    snprintf(b, sizeof b, "%s em %s: %d notas%s", part_name(s, A.selPart), diff_name_pt(A.selDiff), notes, charted ? "" : " (esta parte usa a partitura da outra)"); if (A.mode != MODE_PRACTICE) gfx_text(28, y + 44, 1, b, C_LINE);
-    static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Tocar", "Voltar", "Mudar" }; ui_hints(H - 24, W, bt, tx, 3);
+    snprintf(b, sizeof b, T("%s em %s: %d notas%s"), part_name(s, A.selPart), diff_t(A.selDiff), notes, charted ? "" : T(" (esta parte usa a partitura da outra)")); if (A.mode != MODE_PRACTICE) gfx_text(28, y + 44, 1, b, C_LINE);
+    static const char *bt[3] = { "A", "B", "← →" }; const char *tx[3] = { T("Tocar"), T("Voltar"), T("Mudar") }; ui_hints(H - 24, W, bt, tx, 3);
     encore_draw(now);
 }
 /* ------------------------------------------------------------------ options */
-enum { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, OPT_INTRO, OPT_STAGE3D, OPT_BAND3D, OPT_RES3D, OPT_WHAMCAL, OPT_WHAMSENS, OPT_N };   /* OPT_STAGE3D, OPT_BAND3D, OPT_RES3D: listed in the gh3-3d build only */
+enum { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, OPT_LEFTY, OPT_STRUM, OPT_BUTTONS, OPT_THEME, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, OPT_INTRO, OPT_STAGE3D, OPT_BAND3D, OPT_RES3D, OPT_WHAMCAL, OPT_WHAMSENS, OPT_LANG, OPT_N };   /* OPT_STAGE3D, OPT_BAND3D, OPT_RES3D: listed in the gh3-3d build only */
 static const char *OPT_LABEL[OPT_N] = { "Volume da banda", "Volume da guitarra", "Volume dos efeitos", "Música do menu", "Prévia das músicas", "Atraso do áudio", "Canhoto (lefty flip)", "Palhetada", "Botões…",
-    "Tema visual", "Efeitos de palco", "Escurecer o fundo", "Mostrar FPS", "Hyperspeed", "Sem falhar (No Fail)", "Liberar todas as músicas", "Vídeos de abertura", "Palco 3D", "Banda 3D", "Resolução do palco 3D", "Calibrar alavanca", "Sensibilidade" };
+    "Tema visual", "Efeitos de palco", "Escurecer o fundo", "Mostrar FPS", "Hyperspeed", "Sem falhar (No Fail)", "Liberar todas as músicas", "Vídeos de abertura", "Palco 3D", "Banda 3D", "Resolução do palco 3D", "Calibrar alavanca", "Sensibilidade", "Idioma" };
 static const char *OPT_HELP[OPT_N] = {
     "O volume da banda (as outras faixas da música) e da música do menu.", "O volume da parte que você toca. Ela silencia quando você erra, como no jogo.", "Volume dos sons do menu, erros e star power.",
     "As músicas do menu do próprio jogo tocam nos menus.", "Na lista de músicas, toca um trecho da música selecionada no lugar da música do menu.",
@@ -221,7 +225,8 @@ static const char *OPT_HELP[OPT_N] = {
     "Os músicos do jogo no palco 3D: o guitarrista, o baixista (ou o chefe numa batalha), o baterista e o vocalista, tocando com a música. Vale a partir da próxima música. Desligue se o aparelho engasgar.",
     "O tamanho em que o cenário 3D é desenhado antes de ser ampliado atrás da pista: Alta (a tela inteira), Média (3/4, mais leve) ou Baixa (metade, a mais leve). A pista e o placar continuam nítidos.",
     "Mede o analógico da alavanca: onde ele descansa (a zona morta) e até onde vai empurrado. Faça se a alavanca treme sozinha ou não chega ao fim.",
-    "Quanto da alavanca o jogo sente: acima de 100% chega ao máximo antes do fim do curso, abaixo pede o curso inteiro." };
+    "Quanto da alavanca o jogo sente. Acima de 100% (mais sensível) chega ao máximo antes do fim do curso; abaixo, pede o curso inteiro.",
+    "A língua dos menus e dos textos do jogo: Português, English ou Español. Muda na hora e fica salva." };
 /* the twelve strips of the game's options poster, in its order (create_options_menu: audio, graphics, the two lag
  * calibrations, controller, manage band, save / load, videos, the store, top rockers, cheats, automatic login): the ones
  * the R36S has no use for are written grey and passed over, as the game greys what it does not offer; the PC's
@@ -230,7 +235,7 @@ enum { CAT_AUDIO, CAT_VIDEO, CAT_VLAG, CAT_CALIB, CAT_CONTROL, CAT_BAND, CAT_SAV
 static const char *CAT_LABEL[CAT_N] = { "ÁUDIO", "VÍDEO", "CALIBRAR IMAGEM", "CALIBRAR ATRASO", "CONTROLE", "GERENCIAR BANDA", "SALVAR / CARREGAR", "VÍDEOS", "A LOJA", "TOP ROCKERS", "TRAPAÇAS", "RESTAURAR PADRÕES" };
 static const char *CAT_HELP[CAT_N] = {
     "Volumes da banda, da guitarra e dos efeitos, a música do menu, as prévias e o atraso do áudio.",
-    "Palco 3D e a sua resolução, efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
+    "Palco 3D e a sua resolução, efeitos de palco, escurecer o fundo, FPS, os vídeos de abertura e o idioma.",
     "No PC o jogo mede também o atraso da imagem. A tela do R36S não tem esse atraso: só o do som conta (Calibrar atraso).",
     "Toca um clique e você palheta no ritmo: o jogo mede o atraso do som e ajusta as notas e o julgamento. Faça antes de jogar.",
     "Canhoto, modo de palhetada, a alavanca (calibrar e sensibilidade) e os botões de cada ação.",
@@ -238,11 +243,11 @@ static const char *CAT_HELP[CAT_N] = {
     "Não precisa: a carreira, os recordes, a Loja e as opções são salvos sozinhos a cada música.",
     "Os vídeos bônus ficam na Loja da carreira: compre e assista por lá (Y na lista de músicas).",
     "A Loja abre na lista de músicas da carreira: aperte Y.",
-    "Os seus melhores resultados em cada música.", "As trapaças do jogo: toque os códigos nos trastes ou ligue cada uma direto.", "Volta todas as opções e controles ao padrão (recordes e carreira ficam)." };
+    "Os seus melhores resultados em cada música.", "As trapaças do jogo: toque os códigos nos trastes ou ligue cada uma direto.", "Volta todas as opções e controles ao padrão (recordes, carreira e idioma ficam)." };
 #ifdef GH3_3D
-#define VIDEO_ITEMS { OPT_STAGE3D, OPT_RES3D, OPT_BAND3D, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
+#define VIDEO_ITEMS { OPT_STAGE3D, OPT_RES3D, OPT_BAND3D, OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, OPT_LANG }   /* eight: the row holds no -1 (cat_count stops at 8) */
 #else
-#define VIDEO_ITEMS { OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, -1 }
+#define VIDEO_ITEMS { OPT_STAGE, OPT_DIM, OPT_FPS, OPT_INTRO, OPT_LANG, -1 }
 #endif
 static const int CAT_ITEMS[CAT_N][8] = { { OPT_VOLB, OPT_VOLG, OPT_VOLS, OPT_MENUMUS, OPT_PREVIEW, OPT_OFFSET, -1 }, VIDEO_ITEMS, { -1 }, { -1 }, { OPT_LEFTY, OPT_STRUM, OPT_WHAMCAL, OPT_WHAMSENS, OPT_BUTTONS, -1 },
     { -1 }, { -1 }, { -1 }, { -1 }, { -1 }, { OPT_HYPER, OPT_NOFAIL, OPT_UNLOCK, -1 }, { -1 } };
@@ -250,15 +255,15 @@ static int cat_count(int c) { int n = 0; while (n < 8 && CAT_ITEMS[c][n] >= 0) n
 static int cat_na(int c) { return c == CAT_VLAG || c == CAT_BAND || c == CAT_SAVE || c == CAT_MOVIES || c == CAT_STORE; }   /* not on the R36S: grey, passed over */
 static int cat_off(int c) { return cat_na(c) || (A.optionsFrom == SC_PAUSE && (c == CAT_CALIB || c == CAT_TOP || c == CAT_RESET)); }
 static void opt_value(int i, char *out, size_t n) {
-    switch (i) { case OPT_THEME: snprintf(out, n, "%s", render_theme_name(SET.theme)); break; case OPT_STRUM: snprintf(out, n, "%s", SET.tap ? "Toque livre" : "Normal"); break; case OPT_LEFTY: snprintf(out, n, "%s", SET.lefty ? "Sim" : "Não"); break;
-    case OPT_HYPER: if (SET.hyper) snprintf(out, n, "+%d", SET.hyper); else snprintf(out, n, "Desligada"); break; case OPT_NOFAIL: snprintf(out, n, "%s", SET.noFail ? "Ligado" : "Desligado"); break;
-    case OPT_STAGE: snprintf(out, n, "%s", SET.stageFx ? "Ligados" : "Desligados"); break; case OPT_DIM: snprintf(out, n, "%d%%", SET.bgDim); break; case OPT_PREVIEW: snprintf(out, n, "%s", SET.preview ? "Ligada" : "Desligada"); break;
-    case OPT_MENUMUS: snprintf(out, n, "%s", SET.menuMusic ? "Ligada" : "Desligada"); break;
+    switch (i) { case OPT_THEME: snprintf(out, n, "%s", render_theme_name(SET.theme)); break; case OPT_STRUM: snprintf(out, n, "%s", SET.tap ? T("Toque livre") : T("Normal")); break; case OPT_LEFTY: snprintf(out, n, "%s", SET.lefty ? T("Sim") : T("Não")); break;
+    case OPT_HYPER: if (SET.hyper) snprintf(out, n, "+%d", SET.hyper); else snprintf(out, n, "%s", T("Desligada")); break; case OPT_NOFAIL: snprintf(out, n, "%s", SET.noFail ? T("Ligado") : T("Desligado")); break;
+    case OPT_STAGE: snprintf(out, n, "%s", SET.stageFx ? T("Ligados") : T("Desligados")); break; case OPT_DIM: snprintf(out, n, "%d%%", SET.bgDim); break; case OPT_PREVIEW: snprintf(out, n, "%s", SET.preview ? T("Ligada") : T("Desligada")); break;
+    case OPT_MENUMUS: snprintf(out, n, "%s", SET.menuMusic ? T("Ligada") : T("Desligada")); break; case OPT_LANG: snprintf(out, n, "%s", lang_name(lang_get())); break;   /* each language by its own name */
     case OPT_VOLB: snprintf(out, n, "%d%%", SET.volMusic); break; case OPT_VOLG: snprintf(out, n, "%d%%", SET.volGuitar); break; case OPT_VOLS: snprintf(out, n, "%d%%", SET.volSfx); break; case OPT_OFFSET: snprintf(out, n, "%+d ms", SET.offsetMs); break;
-    case OPT_FPS: snprintf(out, n, "%s", SET.showFps ? "Sim" : "Não"); break; case OPT_UNLOCK: snprintf(out, n, "%s", SET.unlockAll ? "Ligado" : "Desligado"); break;
-    case OPT_INTRO: snprintf(out, n, "%s", SET.introMovies ? "Ligados" : "Desligados"); break; case OPT_STAGE3D: snprintf(out, n, "%s", SET.stage3d ? "Ligado" : "Desligado"); break; case OPT_BAND3D: snprintf(out, n, "%s", SET.band3d ? "Ligada" : "Desligada"); break;
+    case OPT_FPS: snprintf(out, n, "%s", SET.showFps ? T("Sim") : T("Não")); break; case OPT_UNLOCK: snprintf(out, n, "%s", SET.unlockAll ? T("Ligado") : T("Desligado")); break;
+    case OPT_INTRO: snprintf(out, n, "%s", SET.introMovies ? T("Ligados") : T("Desligados")); break; case OPT_STAGE3D: snprintf(out, n, "%s", SET.stage3d ? T("Ligado") : T("Desligado")); break; case OPT_BAND3D: snprintf(out, n, "%s", SET.band3d ? T("Ligada") : T("Desligada")); break;
     case OPT_WHAMSENS: snprintf(out, n, "%d%%", SET.whamSens); break;
-    case OPT_RES3D: { static const char *RN[3] = { "Alta", "Média", "Baixa" }; snprintf(out, n, "%s", RN[SET.stage3dRes < 0 || SET.stage3dRes > 2 ? 1 : SET.stage3dRes]); break; } default: out[0] = 0; }
+    case OPT_RES3D: { static const char *RN[3] = { "Alta", "Média", "Baixa" }; snprintf(out, n, "%s", T(RN[SET.stage3dRes < 0 || SET.stage3dRes > 2 ? 1 : SET.stage3dRes])); break; } default: out[0] = 0; }
 }
 static int clamp100(int v) { return v < 0 ? 0 : v > 100 ? 100 : v; }
 static void opt_change(int i, int d) {
@@ -269,115 +274,116 @@ static void opt_change(int i, int d) {
     case OPT_VOLS: SET.volSfx = clamp100(SET.volSfx + d * 10); app_apply_volumes(); break;
     case OPT_OFFSET: SET.offsetMs += d * 5; if (SET.offsetMs < -300) SET.offsetMs = -300; if (SET.offsetMs > 300) SET.offsetMs = 300; break;
     case OPT_FPS: SET.showFps = !SET.showFps; break; case OPT_UNLOCK: SET.unlockAll = !SET.unlockAll; app_refresh_career(0); break; case OPT_INTRO: SET.introMovies = !SET.introMovies; break; case OPT_STAGE3D: SET.stage3d = !SET.stage3d; break; case OPT_BAND3D: SET.band3d = !SET.band3d; break; case OPT_RES3D: SET.stage3dRes = (SET.stage3dRes + 3 + d) % 3; break;
-    case OPT_WHAMSENS: SET.whamSens += d * 10; if (SET.whamSens < 50) SET.whamSens = 50; if (SET.whamSens > 200) SET.whamSens = 200; break; }
+    case OPT_WHAMSENS: SET.whamSens += d * 10; if (SET.whamSens < 50) SET.whamSens = 50; if (SET.whamSens > 200) SET.whamSens = 200; break;
+    case OPT_LANG: SET.lang = (lang_get() + LANG_N + d) % LANG_N; lang_set(SET.lang); settings_save(); break; }   /* at once, and kept */
 }
 static void draw_options(double now) {
     if (SET.theme == 2 && orig_ready() && orig_options_draw(now, CAT_LABEL, CAT_HELP, CAT_ITEMS, CAT_N, OPT_LABEL, OPT_HELP, opt_value, cat_off)) return;
     if (A.optionsFrom == SC_PAUSE) { hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 0, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail, NULL }; render_game(&A.S.run, now, &hi); ui_dim(A.W, A.H, 200); } else render_backdrop(now, SET.stageFx);
     int W = A.W, H = A.H; char v[40];
     if (A.optCat < 0) {   /* the categories, as the game's Options menu lists them */
-        ui_header(W, "OPÇÕES", NULL); int off[CAT_N]; for (int c = 0; c < CAT_N; c++) off[c] = cat_off(c);
+        ui_header(W, T("OPÇÕES"), NULL); int off[CAT_N]; for (int c = 0; c < CAT_N; c++) off[c] = cat_off(c);
         draw_menu_list(CAT_LABEL, off, CAT_N, A.optRow, 46, 72, 38);
-        ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, cat_off(A.optRow) ? "Não dá para abrir durante a música." : CAT_HELP[A.optRow], C_MUTED);
-        static const char *bt[2] = { "A", "B" }, *tx[2] = { "Abrir", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2); return; }
-    ui_header(W, CAT_LABEL[A.optCat], "salvas ao sair");
+        ui_panel(14, H - 86, W - 28, 50, UI_PANEL_FLAT); gfx_text_box(26, H - 78, W - 52, 1, cat_off(A.optRow) ? T("Não dá para abrir durante a música.") : T(CAT_HELP[A.optRow]), C_MUTED);
+        static const char *bt[2] = { "A", "B" }; const char *tx[2] = { T("Abrir"), T("Voltar") }; ui_hints(H - 24, W, bt, tx, 2); return; }
+    ui_header(W, T(CAT_LABEL[A.optCat]), T("salvas ao sair"));
     int n = cat_count(A.optCat), rowH = 30, top = 80; if (A.optRow >= n) A.optRow = n - 1;   /* a row past the category (one that lost an item) */
     for (int k = 0; k < n; k++) { int i = CAT_ITEMS[A.optCat][k], y = top + k * rowH, sel = k == A.optRow; opt_value(i, v, sizeof v);
         if (sel) { ui_panel(14, y - 7, W - 28, rowH - 2, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), 20, y - 3, 0.5f, RGB(255, 255, 255), 1); }
-        gfx_text_sh(36, y, 2, OPT_LABEL[i], sel ? C_INK : C_MUTED, C_SHADOW);
+        gfx_text_sh(36, y, 2, T(OPT_LABEL[i]), sel ? C_INK : C_MUTED, C_SHADOW);
         if (v[0]) { char b[60]; if (sel) snprintf(b, sizeof b, "← %s →", v); else snprintf(b, sizeof b, "%s", v); gfx_text_sh_right(W - 30, y + 2, 1, b, sel ? C_AMP : C_INK, C_SHADOW); }
         if (i == OPT_VOLB || i == OPT_VOLG || i == OPT_VOLS || i == OPT_DIM) ui_bar(W - 30 - 150 - 70, y + 4, 60, 8, (i == OPT_VOLB ? SET.volMusic : i == OPT_VOLG ? SET.volGuitar : i == OPT_VOLS ? SET.volSfx : SET.bgDim) / 100.0f, sel ? C_AMP : C_MUTED); }
-    ui_panel(14, H - 96, W - 28, 60, UI_PANEL_FLAT); gfx_text_box(26, H - 88, W - 52, 1, OPT_HELP[CAT_ITEMS[A.optCat][A.optRow]], C_MUTED);
-    static const char *bt[3] = { "← →", "A", "B" }, *tx[3] = { "Mudar", "Abrir", "Voltar" }; ui_hints(H - 24, W, bt, tx, 3);
+    ui_panel(14, H - 96, W - 28, 60, UI_PANEL_FLAT); gfx_text_box(26, H - 88, W - 52, 1, T(OPT_HELP[CAT_ITEMS[A.optCat][A.optRow]]), C_MUTED);
+    static const char *bt[3] = { "← →", "A", "B" }; const char *tx[3] = { T("Mudar"), T("Abrir"), T("Voltar") }; ui_hints(H - 24, W, bt, tx, 3);
 }
 /* ------------------------------------------------------------------ top rockers */
 static void draw_toprock(double now) {
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; gh3_library *lib = A.lib; char b[160], b2[64];
-    snprintf(b, sizeof b, "← %s →", diff_name_pt(A.topDiff)); ui_header(W, "TOP ROCKERS", b);
+    snprintf(b, sizeof b, "← %s →", diff_t(A.topDiff)); ui_header(W, T("TOP ROCKERS"), b);
     int rowH = 22, top = 70, vis = (H - top - 34) / rowH, cur = A.topScroll;
     int first = cur - vis / 2; if (first > A.nrows - vis) first = A.nrows - vis; if (first < 0) first = 0;
     for (int i = first, y = top; i < A.nrows && i < first + vis; i++, y += rowH) {
-        if (A.rows[i].kind == 0) { const gh3_tier *tr = &lib->tiers[A.rows[i].idx]; gfx_rect(10, y + 2, W - 20, rowH - 4, RGBA(60, 40, 15, 120)); gfx_text_sh(18, y + 6, 1, tr->tab == 1 ? "Músicas bônus" : tr->tab == 2 ? "Músicas baixadas" : tr->tab == 3 ? "Mais músicas" : tr->title, C_AMP, C_SHADOW); continue; }
+        if (A.rows[i].kind == 0) { const gh3_tier *tr = &lib->tiers[A.rows[i].idx]; gfx_rect(10, y + 2, W - 20, rowH - 4, RGBA(60, 40, 15, 120)); gfx_text_sh(18, y + 6, 1, tr->tab == 1 ? T("Músicas bônus") : tr->tab == 2 ? T("Músicas baixadas") : tr->tab == 3 ? T("Mais músicas") : tr->title, C_AMP, C_SHADOW); continue; }
         const gh3_song *s = &lib->songs[A.rows[i].idx]; const record_t *rc = records_get(s->name, A.topDiff, 0), *rc2 = records_get(s->name, A.topDiff, 1); if (!rc || (rc2 && rc2->score > rc->score)) rc = rc2;
         if (i == cur) ui_panel(10, y - 1, W - 20, rowH, UI_PANEL_AMBER);
         song_title(s, b, sizeof b); gfx_text_sh(24, y + 6, 1, b, rc ? C_INK : C_MUTED, C_SHADOW);
         if (rc) { stars_str(rc->stars, b2); fmt_num(rc->score, b, sizeof b); gfx_text_sh_right(W - 24, y + 6, 1, b, C_INK, C_SHADOW); gfx_text_right(W - 120, y + 3, 2, b2, C_AMP); snprintf(b, sizeof b, "%d%%", rc->pct); gfx_text_right(W - 236, y + 6, 1, b, C_MUTED); }
         else gfx_text_right(W - 24, y + 6, 1, "—", C_LINE); }
-    static const char *bt[3] = { "↑↓", "← →", "B" }, *tx[3] = { "Rolar", "Dificuldade", "Voltar" }; ui_hints(H - 24, W, bt, tx, 3);
+    static const char *bt[3] = { "↑↓", "← →", "B" }; const char *tx[3] = { T("Rolar"), T("Dificuldade"), T("Voltar") }; ui_hints(H - 24, W, bt, tx, 3);
 }
 /* ------------------------------------------------------------------ controls */
 #define CTL_ROWS (ACT_N + 2)   /* profile, actions, reset */
 static void draw_controls(double now) {
     if (SET.theme == 2 && orig_ready() && orig_controls_draw(now)) return;
     render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; char b[80];
-    ui_header(W, "CONTROLES", "A: trocar   X: apagar   ← →: coluna");
-    gfx_text(200, 62, 1, "1º", C_LINE); gfx_text(345, 62, 1, "2º", C_LINE); gfx_text(490, 62, 1, "3º", C_LINE);
+    ui_header(W, T("CONTROLES"), T("A: trocar   X: apagar   ← →: coluna"));
+    gfx_text(200, 62, 1, T("1º"), C_LINE); gfx_text(345, 62, 1, T("2º"), C_LINE); gfx_text(490, 62, 1, T("3º"), C_LINE);
     int top = 74, rowH = 20;
     for (int r = 0; r < CTL_ROWS; r++) { int y = top + r * rowH; int sel = r == A.ctlRow;
         if (sel) ui_panel(12, y - 4, W - 24, rowH, UI_PANEL_AMBER);
-        if (r == 0) { gfx_text_sh(24, y, 1, "Perfil", sel ? C_INK : C_MUTED, C_SHADOW); snprintf(b, sizeof b, sel ? "← %s →" : "%s", input_preset_name(A.preset)); gfx_text_sh_right(W - 24, y, 1, b, sel ? C_AMP : C_INK, C_SHADOW); continue; }
-        if (r == CTL_ROWS - 1) { gfx_text_sh_center(W / 2, y, 1, "Restaurar o perfil escolhido", sel ? C_INK : C_MUTED, C_SHADOW); continue; }
+        if (r == 0) { gfx_text_sh(24, y, 1, T("Perfil"), sel ? C_INK : C_MUTED, C_SHADOW); snprintf(b, sizeof b, sel ? "← %s →" : "%s", input_preset_name(A.preset)); gfx_text_sh_right(W - 24, y, 1, b, sel ? C_AMP : C_INK, C_SHADOW); continue; }
+        if (r == CTL_ROWS - 1) { gfx_text_sh_center(W / 2, y, 1, T("Restaurar o perfil escolhido"), sel ? C_INK : C_MUTED, C_SHADOW); continue; }
         int a = r - 1; gfx_text_sh(24, y, 1, input_action_name(a), sel ? C_INK : C_MUTED, C_SHADOW);
         if (a < 5) gfx_rect(14, y + 2, 6, 7, FRET_COLORS[a]);
         for (int s = 0; s < BIND_SLOTS; s++) { input_bind_name(&SET.binds[a][s], b, sizeof b); int x = 200 + s * 145; int hot = sel && A.ctlSlot == s;
             if (hot) gfx_rect(x - 6, y - 3, 138, rowH - 2, RGBA(255, 255, 255, 30)); gfx_text_sh(x, y, 1, b, hot ? C_AMP : SET.binds[a][s].type ? C_INK : C_LINE, C_SHADOW); } }
     /* the live test: the five targets, the strum, star power and the whammy */
-    int ty = H - 86; ui_panel(12, ty - 10, W - 24, 60, UI_PANEL_FLAT); gfx_text(24, ty - 2, 1, "Teste: aperte os botões", C_MUTED);
+    int ty = H - 86; ui_panel(12, ty - 10, W - 24, 60, UI_PANEL_FLAT); gfx_text(24, ty - 2, 1, T("Teste: aperte os botões"), C_MUTED);
     gfx_sprite *tu = art_get(ART_TGT_UP), *td = art_get(ART_TGT_DOWN); int tw = gfx_sprite_w(tu), th = gfx_sprite_h(tu);
     for (int f = 0; f < 5; f++) { int down = A.testHeld & (1 << f); float x = 40 + f * 44; gfx_blit(down ? td : tu, 0, 0, tw, th, x, (float)ty + 10, 40, 40.0f * th / tw, FRET_COLORS[f], 1); }
-    float sa = (float)(now - A.testStrumAt); int strumOn = sa < 150; gfx_text_sh(270, ty + 16, 2, A.testStrum < 0 ? "↑" : "↓", strumOn ? C_INK : C_LINE, C_SHADOW); gfx_text(290, ty + 20, 1, "palhetada", strumOn ? C_INK : C_LINE);
+    float sa = (float)(now - A.testStrumAt); int strumOn = sa < 150; gfx_text_sh(270, ty + 16, 2, A.testStrum < 0 ? "↑" : "↓", strumOn ? C_INK : C_LINE, C_SHADOW); gfx_text(290, ty + 20, 1, T("palhetada"), strumOn ? C_INK : C_LINE);
     gfx_sprite_at(art_get(ART_BOLT), 370, ty + 12, 0.7f, A.testStar ? C_SP : C_LINE, 1); gfx_text(386, ty + 20, 1, "star power", A.testStar ? C_SP : C_LINE);
-    gfx_text(470, ty + 8, 1, "alavanca", C_MUTED); ui_bar(470, ty + 22, 140, 10, A.testWhammy, C_AMP);
+    gfx_text(470, ty + 8, 1, T("alavanca"), C_MUTED); ui_bar(470, ty + 22, 140, 10, A.testWhammy, C_AMP);
     if (A.capturing) { ui_dim(W, H, 170); ui_panel(W / 2 - 200, H / 2 - 50, 400, 100, UI_PANEL_SP); snprintf(b, sizeof b, "%s", input_action_name(A.ctlRow - 1)); gfx_text_sh_center(W / 2, H / 2 - 36, 2, b, C_INK, C_SHADOW);
-        gfx_text_center(W / 2, H / 2 - 6, 1, "Aperte um botão ou mova um analógico", C_SP); char cb[60]; snprintf(cb, sizeof cb, "(sem apertar nada, cancela em %d s)", (int)ceil((A.capAt + 5000 - now) / 1000)); gfx_text_center(W / 2, H / 2 + 14, 1, cb, C_MUTED);
+        gfx_text_center(W / 2, H / 2 - 6, 1, T("Aperte um botão ou mova um analógico"), C_SP); char cb[80]; snprintf(cb, sizeof cb, T("(sem apertar nada, cancela em %d s)"), (int)ceil((A.capAt + 5000 - now) / 1000)); gfx_text_center(W / 2, H / 2 + 14, 1, cb, C_MUTED);
         if (now - A.capAt > 5000) A.capturing = 0; }
-    static const char *bt[3] = { "A", "X", "B" }, *tx[3] = { "Trocar", "Apagar", "Voltar" }; ui_hints(H - 22, W, bt, tx, 3);
+    static const char *bt[3] = { "A", "X", "B" }; const char *tx[3] = { T("Trocar"), T("Apagar"), T("Voltar") }; ui_hints(H - 22, W, bt, tx, 3);
 }
 /* ------------------------------------------------------------------ pause / results / error */
 static void draw_pause(double now) {
     hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 0, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail }; if (BTL.on) render_battle(now, 0); else render_game(&A.S.run, now, &hi);
     int W = A.W, H = A.H; ui_dim(W, H, 170); ui_panel(W / 2 - 140, 120, 280, 230, UI_PANEL_DARK);
-    ui_title(W / 2 - gfx_text_w("PAUSA", 4) / 2, 134, 4, "PAUSA", C_INK, C_SHADOW, 3);
-    const char *it[4] = { "Continuar", "Reiniciar", "Opções", "Sair da música" };
+    const char *pt = T("PAUSA"); ui_title(W / 2 - gfx_text_w(pt, 4) / 2, 134, 4, pt, C_INK, C_SHADOW, 3);
+    const char *it[4] = { T("Continuar"), T("Reiniciar"), T("Opções"), T("Sair da música") };
     for (int i = 0; i < 4; i++) { int y = 196 + i * 34; if (i == A.pauseRow) { ui_panel(W / 2 - 120, y - 7, 240, 30, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_PICK), W / 2 - 112, y - 3, 0.5f, RGB(255, 255, 255), 1); } gfx_text_sh_center(W / 2 + 6, y, 2, it[i], i == A.pauseRow ? C_INK : C_MUTED, C_SHADOW); }
 }
 static void draw_results(double now) {
     if (SET.theme == 2 && orig_ready() && orig_results_draw(now)) return;
-    render_backdrop(now, SET.stageFx); gh3_run *r = &A.S.run; char b[120], n[32]; int W = A.W, H = A.H; double T = (now - A.resultsAt) / 1000;
-    ui_header(W, r->failed ? "QUE PENA…" : "VOCÊ ARRASOU!", NULL);
-    song_title(A.S.song, b, sizeof b); gfx_text_sh_center(W / 2, 70, 2, b, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s • %s • %s", A.S.song->artist, part_name(A.S.song, A.S.part), diff_name_pt(A.S.diff)); gfx_text_center(W / 2, 96, 1, b, C_MUTED);
-    fmt_num((long)r->score, n, sizeof n); ui_title(W / 2 - gfx_text_w(n, 5) / 2, 120, 5, n, r->failed ? C_MUTED : C_AMP, C_SHADOW, 4); gfx_text_center(W / 2, 180, 1, "PONTOS", C_MUTED);
+    render_backdrop(now, SET.stageFx); gh3_run *r = &A.S.run; char b[120], n[32]; int W = A.W, H = A.H; double tsec = (now - A.resultsAt) / 1000;
+    ui_header(W, r->failed ? T("QUE PENA…") : T("VOCÊ ARRASOU!"), NULL);
+    song_title(A.S.song, b, sizeof b); gfx_text_sh_center(W / 2, 70, 2, b, C_INK, C_SHADOW); snprintf(b, sizeof b, "%s • %s • %s", A.S.song->artist, part_name(A.S.song, A.S.part), diff_t(A.S.diff)); gfx_text_center(W / 2, 96, 1, b, C_MUTED);
+    fmt_num((long)r->score, n, sizeof n); ui_title(W / 2 - gfx_text_w(n, 5) / 2, 120, 5, n, r->failed ? C_MUTED : C_AMP, C_SHADOW, 4); gfx_text_center(W / 2, 180, 1, T("PONTOS"), C_MUTED);
     if (BTL.on) battle_result_lines(W / 2, 194);   /* a battle: who won and the attacks */
-    else if (!r->failed) render_stars(W / 2, 200, A.resultStars, 3, T);
-    else { gfx_sprite_draw(art_get(ART_SKULL), W / 2, 216, 1.5f, RGB(255, 255, 255), 1); gfx_text_center(W / 2, 236, 1, "A plateia vaiou… tente de novo!", C_BAD); }
+    else if (!r->failed) render_stars(W / 2, 200, A.resultStars, 3, tsec);
+    else { gfx_sprite_draw(art_get(ART_SKULL), W / 2, 216, 1.5f, RGB(255, 255, 255), 1); gfx_text_center(W / 2, 236, 1, T("A plateia vaiou… tente de novo!"), C_BAD); }
     int total = r->nnotes, hit = r->hits; int y = 256;
     ui_panel(W / 2 - 220, y - 8, 440, 96, UI_PANEL_FLAT);
-    snprintf(b, sizeof b, "Notas acertadas"); gfx_text(W / 2 - 200, y, 1, b, C_MUTED); snprintf(b, sizeof b, "%d / %d  (%d%%)", hit, total, A.resultPct); gfx_text_sh_right(W / 2 + 200, y - 3, 2, b, C_INK, C_SHADOW);
-    gfx_text(W / 2 - 200, y + 26, 1, "Maior sequência", C_MUTED); snprintf(b, sizeof b, "%d", r->best); gfx_text_sh_right(W / 2 + 200, y + 23, 2, b, C_INK, C_SHADOW);
-    gfx_text(W / 2 - 200, y + 52, 1, "Palhetadas erradas", C_MUTED); snprintf(b, sizeof b, "%d", r->overstrums); gfx_text_sh_right(W / 2 + 200, y + 49, 2, b, r->overstrums ? C_BAD : C_GOOD, C_SHADOW);
+    snprintf(b, sizeof b, "%s", T("Notas acertadas")); gfx_text(W / 2 - 200, y, 1, b, C_MUTED); snprintf(b, sizeof b, "%d / %d  (%d%%)", hit, total, A.resultPct); gfx_text_sh_right(W / 2 + 200, y - 3, 2, b, C_INK, C_SHADOW);
+    gfx_text(W / 2 - 200, y + 26, 1, T("Maior sequência"), C_MUTED); snprintf(b, sizeof b, "%d", r->best); gfx_text_sh_right(W / 2 + 200, y + 23, 2, b, C_INK, C_SHADOW);
+    gfx_text(W / 2 - 200, y + 52, 1, T("Palhetadas erradas"), C_MUTED); snprintf(b, sizeof b, "%d", r->overstrums); gfx_text_sh_right(W / 2 + 200, y + 49, 2, b, r->overstrums ? C_BAD : C_GOOD, C_SHADOW);
     ui_bar(W / 2 - 200, y + 14, 180, 6, A.resultPct / 100.0f, A.resultPct >= 95 ? C_GOOD : A.resultPct >= 80 ? C_AMP : C_BAD);
-    if (A.newRecord && !r->failed && T > 1.9) { float k = (float)fmin(1, (T - 1.9) / 0.3); int w = 230; ui_panel(W / 2 - w / 2, 356 - (int)(10 * (1 - k)), w, 32, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_CROWN), W / 2 - w / 2 + 10, 362, 1, RGB(255, 255, 255), 1); gfx_text_sh(W / 2 - w / 2 + 40, 362, 2, "NOVO RECORDE!", C_INK, C_SHADOW); }
-    if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, sizeof b, "Treino a %d%% da velocidade: nada é salvo.", (int)lround(PRACTICE_SPEED[k] * 100)); gfx_text_center(W / 2, 362, 1, b, C_SP); }
-    else if (SET.noFail && !r->failed) gfx_text_center(W / 2, 362, 1, "Modo sem falhar: não vale para recordes nem para a carreira.", C_MUTED);
-    else if (!cheats_records_ok(A.mode) && !r->failed) gfx_text_center(W / 2, 362, 1, "Easy Expert: não vale para recordes.", C_MUTED);
-    else if (A.mode == MODE_QUICK && !r->failed && !A.newRecord && !r->autoPlay) gfx_text_center(W / 2, 362, 1, "Jogo rápido: o recorde conta, a carreira não muda.", C_MUTED);
-    store_draw_result(W, 200, T);
-    const char *it[3] = { "Tocar de novo", A.mode == MODE_PRACTICE ? "Mudar o treino" : store_encore_offer() >= 0 ? "Encore!" : "Lista de músicas", "Mais estatísticas" }; int by = 404, ni = r->failed ? 2 : 3, cw = ni == 3 ? 204 : 244;
+    if (A.newRecord && !r->failed && tsec > 1.9) { float k = (float)fmin(1, (tsec - 1.9) / 0.3); int w = 230; ui_panel(W / 2 - w / 2, 356 - (int)(10 * (1 - k)), w, 32, UI_PANEL_AMBER); gfx_sprite_at(art_get(ART_CROWN), W / 2 - w / 2 + 10, 362, 1, RGB(255, 255, 255), 1); gfx_text_sh(W / 2 - w / 2 + 40, 362, 2, T("NOVO RECORDE!"), C_INK, C_SHADOW); }
+    if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, sizeof b, T("Treino a %d%% da velocidade: nada é salvo."), (int)lround(PRACTICE_SPEED[k] * 100)); gfx_text_center(W / 2, 362, 1, b, C_SP); }
+    else if (SET.noFail && !r->failed) gfx_text_center(W / 2, 362, 1, T("Modo sem falhar: não vale para recordes nem para a carreira."), C_MUTED);
+    else if (!cheats_records_ok(A.mode) && !r->failed) gfx_text_center(W / 2, 362, 1, T("Easy Expert: não vale para recordes."), C_MUTED);
+    else if (A.mode == MODE_QUICK && !r->failed && !A.newRecord && !r->autoPlay) gfx_text_center(W / 2, 362, 1, T("Jogo rápido: o recorde conta, a carreira não muda."), C_MUTED);
+    store_draw_result(W, 200, tsec);
+    const char *it[3] = { T("Tocar de novo"), A.mode == MODE_PRACTICE ? T("Mudar o treino") : store_encore_offer() >= 0 ? T("Encore!") : T("Lista de músicas"), T("Mais estatísticas") }; int by = 404, ni = r->failed ? 2 : 3, cw = ni == 3 ? 204 : 244;
     for (int i = 0; i < ni; i++) { int x = W / 2 - ni * cw / 2 + 8 + i * cw; if (i == A.resRow) ui_panel(x, by - 7, cw - 16, 30, UI_PANEL_AMBER); gfx_text_sh_center(x + cw / 2 - 8, by, ni == 3 ? 1 : 2, it[i], i == A.resRow ? C_INK : C_MUTED, C_SHADOW); }
-    static const char *bt[2] = { "A", "← →" }, *tx[2] = { "Confirmar", "Escolher" }; ui_hints(H - 22, W, bt, tx, 2);
+    static const char *bt[2] = { "A", "← →" }; const char *tx[2] = { T("Confirmar"), T("Escolher") }; ui_hints(H - 22, W, bt, tx, 2);
 }
 static void draw_calib(double now) {
     if (SET.theme == 2 && orig_ready() && orig_calib_draw(now)) return;
     int W = A.W, H = A.H; char b[120]; double raw = audio_song_ms(); int med = A.calN >= 4 ? app_calib_result() : SET.offsetMs;
     render_calib(raw - med, 500, now, A.calN, A.calLastDiff, A.calLastTapAt);
-    ui_header(W, "CALIBRAR ATRASO", NULL);
+    ui_header(W, T("CALIBRAR ATRASO"), NULL);
     ui_panel(14, 66, W - 28, 64, UI_PANEL_FLAT);
-    gfx_text_box(26, 74, W - 52, 1, "Palhete (direcional ↑ ou ↓) junto com cada clique, de preferência ouvindo e sem olhar a pista. Depois de uns 10 toques o atraso medido fica estável.", C_INK);
-    snprintf(b, sizeof b, "Atual: %+d ms", SET.offsetMs); gfx_text_sh(26, 142, 1, b, C_MUTED, C_SHADOW);
-    if (A.calN >= 4) { snprintf(b, sizeof b, "Medido: %+d ms", med); int bw = gfx_text_w(b, 2) + 24; ui_panel(W / 2 - bw / 2, 134, bw, 30, UI_PANEL_AMBER); gfx_text_sh_center(W / 2, 140, 2, b, C_INK, C_SHADOW); }
-    snprintf(b, sizeof b, "%d toques", A.calN); gfx_text_sh_right(W - 26, 142, 1, b, C_MUTED, C_SHADOW);
+    gfx_text_box(26, 74, W - 52, 1, T("Palhete (direcional ↑ ou ↓) junto com cada clique, de preferência ouvindo e sem olhar a pista. Depois de uns 10 toques o atraso medido fica estável."), C_INK);
+    snprintf(b, sizeof b, T("Atual: %+d ms"), SET.offsetMs); gfx_text_sh(26, 142, 1, b, C_MUTED, C_SHADOW);
+    if (A.calN >= 4) { snprintf(b, sizeof b, T("Medido: %+d ms"), med); int bw = gfx_text_w(b, 2) + 24; ui_panel(W / 2 - bw / 2, 134, bw, 30, UI_PANEL_AMBER); gfx_text_sh_center(W / 2, 140, 2, b, C_INK, C_SHADOW); }
+    snprintf(b, sizeof b, A.calN == 1 ? T("%d toque") : T("%d toques"), A.calN); gfx_text_sh_right(W - 26, 142, 1, b, C_MUTED, C_SHADOW);
     if (A.calN > 0 && now - A.calLastTapAt < 600) { snprintf(b, sizeof b, "%+d ms", (int)A.calLastDiff); gfx_text_sh_center(W / 2, H - 70, 2, b, fabs(A.calLastDiff) < 35 ? C_GOOD : C_AMP, C_SHADOW); }
-    static const char *bt[3] = { "↑↓", "A", "B" }, *tx[3] = { "Palhetar no clique", "Salvar", "Cancelar" }; ui_hints(H - 24, W, bt, tx, 3);
+    static const char *bt[3] = { "↑↓", "A", "B" }; const char *tx[3] = { T("Palhetar no clique"), T("Salvar"), T("Cancelar") }; ui_hints(H - 24, W, bt, tx, 3);
 }
 /* Calibrar alavanca (Opções > Controle): the stick let go (its rest, the dead zone past it), then pushed all the way (its
  * full throw), then the sensitivity with the whammy live; A keeps it, B puts the old one back */
@@ -398,14 +404,14 @@ static void whammy_event(int in, double now) {
 }
 static void draw_whammy(double now) {
     if (SET.theme == 2 && orig_ready() && orig_whammy_draw(now)) return;
-    int W = A.W, H = A.H; char b[120]; render_backdrop(now, SET.stageFx); ui_header(W, "CALIBRAR ALAVANCA", NULL); ui_panel(14, 66, W - 28, 200, UI_PANEL_FLAT);
-    gfx_text_box(26, 76, W - 52, 1, A.whamStep == 0 ? "Solte a alavanca (o analógico) e aperte A." : A.whamStep == 1 ? "Empurre a alavanca até o fim, segure e aperte A." : "Pronto. ← → mudam a sensibilidade; A salva, B volta ao que era.", C_INK);
-    gfx_text_sh(26, 120, 1, "analógico", C_MUTED, C_SHADOW); ui_bar(120, 120, W - 160, 10, A.whamNow, C_MUTED);
-    gfx_text_sh(26, 150, 1, "o jogo sente", C_MUTED, C_SHADOW); ui_bar(120, 150, W - 160, 10, input_whammy_level(A.whamNow), C_AMP);
-    snprintf(b, sizeof b, "Repouso %d%%   Fim %d%%   Sensibilidade %d%%", SET.whamRest, SET.whamFull, SET.whamSens); gfx_text_sh(26, 190, 1, b, C_INK, C_SHADOW);
-    static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Confirmar", "Cancelar", "Sensibilidade" }; ui_hints(H - 24, W, bt, tx, A.whamStep == 2 ? 3 : 2);
+    int W = A.W, H = A.H; char b[120]; render_backdrop(now, SET.stageFx); ui_header(W, T("CALIBRAR ALAVANCA"), NULL); ui_panel(14, 66, W - 28, 200, UI_PANEL_FLAT);
+    gfx_text_box(26, 76, W - 52, 1, A.whamStep == 0 ? T("Solte a alavanca (o analógico) e aperte A.") : A.whamStep == 1 ? T("Empurre a alavanca até o fim, segure e aperte A.") : T("Pronto. ← → mudam a sensibilidade; A salva, B volta ao que era."), C_INK);
+    gfx_text_sh(26, 120, 1, T("analógico"), C_MUTED, C_SHADOW); ui_bar(120, 120, W - 160, 10, A.whamNow, C_MUTED);
+    gfx_text_sh(26, 150, 1, T("o jogo sente"), C_MUTED, C_SHADOW); ui_bar(120, 150, W - 160, 10, input_whammy_level(A.whamNow), C_AMP);
+    snprintf(b, sizeof b, T("Repouso %d%%   Fim %d%%   Sensibilidade %d%%"), SET.whamRest, SET.whamFull, SET.whamSens); gfx_text_sh(26, 190, 1, b, C_INK, C_SHADOW);
+    static const char *bt[3] = { "A", "B", "← →" }; const char *tx[3] = { T("Confirmar"), T("Cancelar"), T("Sensibilidade") }; ui_hints(H - 24, W, bt, tx, A.whamStep == 2 ? 3 : 2);
 }
-static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; ui_header(W, "OPA…", NULL); ui_panel(30, 120, W - 60, 160, UI_PANEL_DARK); gfx_text_sh(46, 134, 2, "Algo deu errado", C_BAD, C_SHADOW); gfx_text_box(46, 170, W - 92, 1, A.errMsg, C_INK); static const char *bt[1] = { "A" }, *tx[1] = { "Continuar" }; ui_hints(H - 24, W, bt, tx, 1); }
+static void draw_error(double now) { render_backdrop(now, SET.stageFx); int W = A.W, H = A.H; ui_header(W, T("OPA…"), NULL); ui_panel(30, 120, W - 60, 160, UI_PANEL_DARK); gfx_text_sh(46, 134, 2, T("Algo deu errado"), C_BAD, C_SHADOW); gfx_text_box(46, 170, W - 92, 1, A.errMsg, C_INK); static const char *bt[1] = { "A" }; const char *tx[1] = { T("Continuar") }; ui_hints(H - 24, W, bt, tx, 1); }
 
 void screens_draw(double now) {
     switch (A.screen) { case SC_TITLE: draw_title(now); break; case SC_MAIN: draw_main(now); break; case SC_TRAINING: draw_training(now); break; case SC_TOPROCK: draw_toprock(now); break;
@@ -455,7 +461,7 @@ void screens_event(int in, double now) {
         else if (in == IN_LEFT || in == IN_RIGHT) { A.selDiff = (A.selDiff + 4 + (in == IN_RIGHT ? 1 : -1)) % 4; app_refresh_career(0); audio_sfx(SFX_MOVE); }
         else if (in == IN_L || in == IN_R) { int to = A.slTab + (in == IN_R ? 1 : -1); while (to >= 0 && to <= 2 && !screens_set_tab(to)) to += in == IN_R ? 1 : -1;   /* change_tab: the next list that has songs */
             if (to >= 0 && to <= 2) { audio_sfx(SFX_OK); app_preview(A.cursor < A.nrows ? A.rows[A.cursor].idx : -1); } else audio_sfx(SFX_WARN); }
-        else if (in == IN_OK && A.cursor < A.nrows) { int lock = row_lock(A.cursor); if (lock) { audio_sfx(SFX_WARN); snprintf(A.unlockMsg, sizeof A.unlockMsg, "%s", lock == LOCK_BUY ? (A.mode == MODE_CAREER ? "Compre esta música na Loja (Y)" : "Compre esta música na Loja da carreira") : lock == LOCK_FINALE ? "Termine a carreira para liberar esta" : A.mode != MODE_CAREER ? "Libere esta música na carreira primeiro" : lock == LOCK_TIER ? "Termine o set anterior primeiro" : lock == LOCK_BOSS ? "Complete mais músicas do set para a batalha" : "Complete o set (e a batalha) para o encore"); A.unlockAt = now; return; }
+        else if (in == IN_OK && A.cursor < A.nrows) { int lock = row_lock(A.cursor); if (lock) { audio_sfx(SFX_WARN); snprintf(A.unlockMsg, sizeof A.unlockMsg, "%s", T(lock == LOCK_BUY ? (A.mode == MODE_CAREER ? "Compre esta música na Loja (Y)" : "Compre esta música na Loja da carreira") : lock == LOCK_FINALE ? "Termine a carreira para liberar esta" : A.mode != MODE_CAREER ? "Libere esta música na carreira primeiro" : lock == LOCK_TIER ? "Termine o set anterior primeiro" : lock == LOCK_BOSS ? "Complete mais músicas do set para a batalha" : "Complete o set (e a batalha) para o encore")); A.unlockAt = now; return; }
             A.selSong = A.rows[A.cursor].idx; A.selTier = A.rows[A.cursor].tier; A.practiceSec = A.practiceEnd = 0; if (app_prepare_song(A.selSong) == 0) { int rows[8]; A.setupRow = setup_rows(rows) - 1; A.screen = SC_SETUP; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); } }
         else if (in == IN_Y && A.mode == MODE_CAREER) store_open(now);
         else if (in == IN_BACK) { to_main(); audio_sfx(SFX_BACK); }
@@ -477,7 +483,8 @@ void screens_event(int in, double now) {
             else if (A.optRow == CAT_TOP) { topKeep[0] = A.cursor < A.nrows ? A.rows[A.cursor].idx : -1; topKeep[1] = A.slTab; A.slTab = -1; screens_build_rows();   /* every song, whatever tab the list is on */
                 A.screen = SC_TOPROCK; A.topDiff = A.selDiff; A.topScroll = 0; while (A.topScroll < A.nrows - 1 && A.rows[A.topScroll].kind == 0) A.topScroll++; audio_sfx(SFX_OK); }
             else if (A.optRow == CAT_CHEATS) { cheats_open(); audio_sfx(SFX_OK); }
-            else if (A.optRow == CAT_RESET) { int seen = SET.careerIntro; settings_defaults(); SET.careerIntro = seen; A.preset = 0; app_apply_volumes(); app_refresh_career(0); audio_sfx(SFX_OK); note(now, "Opções e controles voltaram ao padrão."); }
+            else if (A.optRow == CAT_RESET) { int seen = SET.careerIntro, lang = SET.lang; settings_defaults(); SET.careerIntro = seen; SET.lang = lang;   /* the language stays */
+                 A.preset = 0; app_apply_volumes(); app_refresh_career(0); audio_sfx(SFX_OK); note(now, "Opções e controles voltaram ao padrão."); }
             else { A.optCat = A.optRow; A.optRow = 0; audio_sfx(SFX_OK); audio_sfx(SFX_WHOOSH); }
             return; }
         int n = cat_count(A.optCat), it = CAT_ITEMS[A.optCat][A.optRow];

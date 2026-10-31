@@ -16,6 +16,7 @@
 #include "ui.h"
 #include "input.h"
 #include "audio.h"
+#include "lang.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -50,14 +51,14 @@ const gh3_tuning *cheats_tuning(const gh3_tuning *base, int mode) {
 int cheats_records_ok(int mode) { return !(SET.easyExpert && !SET.precision && mode != MODE_CAREER); }
 
 static void value(int c, char *out, size_t n) {
-    switch (c) { case CH_HYPER: if (SET.hyper) snprintf(out, n, "+%d", SET.hyper); else snprintf(out, n, "Desligada"); break;
-        case CH_NOFAIL: snprintf(out, n, "%s", SET.noFail ? "Ligado" : "Desligado"); break; case CH_EASY: snprintf(out, n, "%s", SET.easyExpert ? "Ligado" : "Desligado"); break;
-        case CH_PRECISION: snprintf(out, n, "%s", SET.precision ? "Ligado" : "Desligado"); break; case CH_SONGS: case CH_ALL: snprintf(out, n, "%s", SET.unlockAll ? "Ligado" : "Desligado"); break;
+    switch (c) { case CH_HYPER: if (SET.hyper) snprintf(out, n, "+%d", SET.hyper); else snprintf(out, n, "%s", T("Desligada")); break;
+        case CH_NOFAIL: snprintf(out, n, "%s", SET.noFail ? T("Ligado") : T("Desligado")); break; case CH_EASY: snprintf(out, n, "%s", SET.easyExpert ? T("Ligado") : T("Desligado")); break;
+        case CH_PRECISION: snprintf(out, n, "%s", SET.precision ? T("Ligado") : T("Desligado")); break; case CH_SONGS: case CH_ALL: snprintf(out, n, "%s", SET.unlockAll ? T("Ligado") : T("Desligado")); break;
 #ifdef GH3_3D
-        case CH_AIR: snprintf(out, n, "%s", SET.airGuitar ? "Ligado" : "Desligado"); break; case CH_PERF: snprintf(out, n, "%s", SET.perfMode ? "Ligado" : "Desligado"); break;
-        case CH_BRET: snprintf(out, n, "%s", SET.bretMichaels ? (bret_here() ? "Ligado" : "Ligado (sem os arquivos)") : "Desligado"); break;
+        case CH_AIR: snprintf(out, n, "%s", SET.airGuitar ? T("Ligado") : T("Desligado")); break; case CH_PERF: snprintf(out, n, "%s", SET.perfMode ? T("Ligado") : T("Desligado")); break;
+        case CH_BRET: snprintf(out, n, "%s", SET.bretMichaels ? (bret_here() ? T("Ligado") : T("Ligado (sem os arquivos)")) : T("Desligado")); break;
 #endif
-        default: snprintf(out, n, "precisa da banda 3D"); }
+        default: snprintf(out, n, "%s", T("precisa da banda 3D")); }
 }
 static void change(int c, int d) {
     switch (c) { case CH_HYPER: SET.hyper = (SET.hyper + 6 + d) % 6; break; case CH_NOFAIL: SET.noFail = !SET.noFail; break;
@@ -87,50 +88,50 @@ static void help(int c, char *b, size_t n) {
     const gh3_tuning *t = &A.lib->tuning; int e = (int)(t->early + 0.5), l = (int)(t->late + 0.5);
     switch (c) {
 #ifdef GH3_3D
-    case CH_AIR: snprintf(b, n, "O guitarrista e o baixista (e o chefe, nas batalhas) tocam sem o instrumento, como no jogo. Precisa da Banda 3D ligada."); break;
-    case CH_PERF: snprintf(b, n, "Sem pista nem painel: a banda 3D toca a música sozinha e você assiste. Não vale recorde nem carreira; não vale nas batalhas nem no treino."); break;
-    case CH_BRET: if (bret_here()) snprintf(b, n, "Troca o vocalista da banda 3D por Bret Michaels (o perfil Singer_Bret do jogo)."); else snprintf(b, n, "Troca o vocalista por Bret Michaels, mas o corpo dele (PAK/Singer_Brett.pak.xen) não está nos arquivos deste jogo: fica o vocalista de sempre."); break;
+    case CH_AIR: snprintf(b, n, "%s", T("O guitarrista e o baixista (e o chefe, nas batalhas) tocam sem o instrumento, como no jogo. Precisa da Banda 3D ligada.")); break;
+    case CH_PERF: snprintf(b, n, "%s", T("Sem pista nem painel: a banda 3D toca a música sozinha e você assiste. Não vale recorde nem carreira; não vale nas batalhas nem no treino.")); break;
+    case CH_BRET: if (bret_here()) snprintf(b, n, "%s", T("Troca o vocalista da banda 3D por Bret Michaels (o perfil Singer_Bret do jogo).")); else snprintf(b, n, "%s", T("Troca o vocalista por Bret Michaels, mas o corpo dele (PAK/Singer_Brett.pak.xen) não está nos arquivos deste jogo: fica o vocalista de sempre.")); break;
 #else
-    case CH_AIR: snprintf(b, n, "O guitarrista da banda toca sem a guitarra. Só muda o personagem 3D, que este port não desenha."); break;
-    case CH_PERF: snprintf(b, n, "No jogo, tira a pista e o painel da tela para a banda 3D tocar sozinha. Sem a banda, não há o que assistir aqui."); break;
+    case CH_AIR: snprintf(b, n, "%s", T("O guitarrista da banda toca sem a guitarra. Só muda o personagem 3D, que este port não desenha.")); break;
+    case CH_PERF: snprintf(b, n, "%s", T("No jogo, tira a pista e o painel da tela para a banda 3D tocar sozinha. Sem a banda, não há o que assistir aqui.")); break;
 #endif
-    case CH_HYPER: snprintf(b, n, "As notas descem mais rápido e mais espaçadas, em 5 níveis como no jogo. Não muda a dificuldade."); break;
-    case CH_NOFAIL: snprintf(b, n, "O medidor de rock nunca encerra a música. A pontuação aparece, mas não vale recorde nem carreira."); break;
-    case CH_EASY: snprintf(b, n, "Janelas de acerto dobradas: %d ms antes e %d depois da nota (normal %d e %d). Como no jogo, não vale na carreira; fora dela não vale recorde. Desliga o Precision Mode.", e * 2, l * 2, e, l); break;
-    case CH_PRECISION: snprintf(b, n, "Janelas de acerto pela metade: %d ms antes e %d depois da nota (normal %d e %d); os hammer-ons mantêm a janela deles. Desliga o Easy Expert.", e / 2, l / 2, e, l); break;
+    case CH_HYPER: snprintf(b, n, "%s", T("As notas descem mais rápido e mais espaçadas, em 5 níveis como no jogo. Não muda a dificuldade.")); break;
+    case CH_NOFAIL: snprintf(b, n, "%s", T("O medidor de rock nunca encerra a música. A pontuação aparece, mas não vale recorde nem carreira.")); break;
+    case CH_EASY: snprintf(b, n, T("Janelas de acerto dobradas: %d ms antes e %d depois da nota (normal %d e %d). Como no jogo, não vale na carreira; fora dela não vale recorde. Desliga o Precision Mode."), e * 2, l * 2, e, l); break;
+    case CH_PRECISION: snprintf(b, n, T("Janelas de acerto pela metade: %d ms antes e %d depois da nota (normal %d e %d); os hammer-ons mantêm a janela deles. Desliga o Easy Expert."), e / 2, l / 2, e, l); break;
 #ifndef GH3_3D
-    case CH_BRET: snprintf(b, n, "Troca o vocalista da banda por Bret Michaels. Só muda o personagem 3D, que este port não desenha."); break;
+    case CH_BRET: snprintf(b, n, "%s", T("Troca o vocalista da banda por Bret Michaels. Só muda o personagem 3D, que este port não desenha.")); break;
 #endif
-    case CH_SONGS: snprintf(b, n, "Abre todos os sets sem passar pela carreira. Os recordes continuam valendo."); break;
-    default: snprintf(b, n, "No jogo também libera a loja (guitarras, roupas e personagens). Aqui só há músicas para liberar: é o mesmo que a de cima."); }
+    case CH_SONGS: snprintf(b, n, "%s", T("Abre todos os sets sem passar pela carreira. Os recordes continuam valendo.")); break;
+    default: snprintf(b, n, "%s", T("No jogo também libera a loja (guitarras, roupas e personagens). Aqui só há músicas para liberar: é o mesmo que a de cima.")); }
 }
 void cheats_draw(double now) {
     if (A.optionsFrom == SC_PAUSE) { hud_info hi = { A.S.song->title, A.S.song->artist, A.S.section, 0, SET.lefty, SET.stageFx, SET.bgDim, 0, SET.noFail, NULL }; render_game(&A.S.run, now, &hi); ui_dim(A.W, A.H, 200); } else render_backdrop(now, SET.stageFx);
     int W = A.W, H = A.H, rowH = 27, top = 70; char v[48], b[300];
-    ui_header(W, "TRAPAÇAS", "salvas ao sair");
+    ui_header(W, T("TRAPAÇAS"), T("salvas ao sair"));
     for (int i = 0; i <= CH_N; i++) { int y = top + i * rowH, sel = i == row, c = i - 1, ok = i == 0 || avail(c);
         if (sel) { ui_panel(14, y - 6, W - 28, rowH - 2, ok ? UI_PANEL_AMBER : UI_PANEL_DARK); gfx_sprite_at(art_get(ART_PICK), 20, y - 2, 0.5f, RGB(255, 255, 255), 1); }
-        const char *name = i == 0 ? "Tocar um código" : CH[c].name; uint32_t tc = !ok ? RGB(110, 104, 122) : sel ? C_INK : C_MUTED;
+        const char *name = i == 0 ? T("Tocar um código") : T(CH[c].name); uint32_t tc = !ok ? RGB(110, 104, 122) : sel ? C_INK : C_MUTED;
         gfx_text_sh(36, y, 2, name, tc, C_SHADOW);
-        if (i > 0 && (SET.cheatCodes >> c & 1)) gfx_text_sh(36 + gfx_text_w(name, 2) + 8, y + 3, 1, "✓ código", C_GOOD, C_SHADOW);
-        if (i == 0) snprintf(v, sizeof v, "trastes + palhetada"); else value(c, v, sizeof v);
+        if (i > 0 && (SET.cheatCodes >> c & 1)) gfx_text_sh(36 + gfx_text_w(name, 2) + 8, y + 3, 1, T("✓ código"), C_GOOD, C_SHADOW);
+        if (i == 0) snprintf(v, sizeof v, "%s", T("trastes + palhetada")); else value(c, v, sizeof v);
         if (sel && ok && i > 0) { char a[60]; snprintf(a, sizeof a, "← %s →", v); gfx_text_sh_right(W - 30, y + 3, 1, a, C_AMP, C_SHADOW); } else gfx_text_sh_right(W - 30, y + 3, 1, v, !ok ? RGB(110, 104, 122) : C_INK, C_SHADOW); }
     int py = H - 112; ui_panel(14, py, W - 28, 80, UI_PANEL_FLAT);
-    if (row == 0) gfx_text_box(26, py + 8, W - 52, 1, "Como no jogo: segure os trastes de cada acorde e palhete, um acorde por vez. Um código certo libera a trapaça e já a liga. Start sai.", C_MUTED);
+    if (row == 0) gfx_text_box(26, py + 8, W - 52, 1, T("Como no jogo: segure os trastes de cada acorde e palhete, um acorde por vez. Um código certo libera a trapaça e já a liga. Start sai."), C_MUTED);
     else { int c = row - 1; help(c, b, sizeof b); gfx_text_box(26, py + 8, W - 52, 1, b, C_MUTED);
-        gfx_text(26, py + 56, 1, "Código:", C_LINE); for (int k = 0; k < CH[c].len; k++) chord(80 + k * 9, py + 50, CH[c].code[k], 3); }
-    static const char *bt[3] = { "← →", "A", "B" }, *tx[3] = { "Mudar", "Escolher", "Voltar" }; ui_hints(H - 24, W, bt, tx, 3);
+        const char *cl = T("Código:"); int cx = 26 + gfx_text_w(cl, 1) + 8; if (cx < 80) cx = 80; gfx_text(26, py + 56, 1, cl, C_LINE); for (int k = 0; k < CH[c].len; k++) chord(cx + k * 9, py + 50, CH[c].code[k], 3); }
+    static const char *bt[3] = { "← →", "A", "B" }; const char *tx[3] = { T("Mudar"), T("Escolher"), T("Voltar") }; ui_hints(H - 24, W, bt, tx, 3);
     if (entry) { int pw = 460, ph = 190, px = W / 2 - pw / 2, y0 = H / 2 - ph / 2;
         ui_dim(W, H, 150); ui_panel(px, y0, pw, ph, UI_PANEL_SP);
-        ui_title(W / 2 - gfx_text_w("TOQUE O CÓDIGO", 3) / 2, y0 + 12, 3, "TOQUE O CÓDIGO", C_INK, C_SHADOW, 2);
-        gfx_text_center(W / 2, y0 + 50, 1, "Segure os trastes do acorde e palhete. Start sai.", C_SP);
+        const char *tt = T("TOQUE O CÓDIGO"); ui_title(W / 2 - gfx_text_w(tt, 3) / 2, y0 + 12, 3, tt, C_INK, C_SHADOW, 2);
+        gfx_text_center(W / 2, y0 + 50, 1, T("Segure os trastes do acorde e palhete. Start sai."), C_SP);
         for (int f = 0; f < 5; f++) gfx_rect(W / 2 - 70 + f * 28, y0 + 70, 22, 14, held & (1 << f) ? FRET_COLORS[f] : RGBA(255, 255, 255, 30));
         float k = now - strumAt < 180 ? 1 - (float)((now - strumAt) / 180) : 0; if (k > 0) gfx_frame(W / 2 - 76, y0 + 66, 152, 22, 2, fb_alpha(C_INK, k));
         for (int i = 0; i < nhist; i++) chord(px + 30 + i * 26, y0 + 104, hist[i], 9);
-        if (!nhist) gfx_text_center(W / 2, y0 + 124, 1, "(os acordes tocados aparecem aqui)", C_LINE); }
+        if (!nhist) gfx_text_center(W / 2, y0 + 124, 1, T("(os acordes tocados aparecem aqui)"), C_LINE); }
     if (now - unlockAt < 3000 && lastUnlock >= 0) { float a = now - unlockAt > 2400 ? (float)(1 - (now - unlockAt - 2400) / 600) : 1;
-        snprintf(b, sizeof b, "Trapaça liberada: %s", CH[lastUnlock].name); int w = gfx_text_w(b, 2) + 40; ui_panel(W / 2 - w / 2, 40, w, 40, UI_PANEL_AMBER); gfx_text_sh_center(W / 2, 52, 2, b, fb_alpha(C_INK, a), C_SHADOW);
-        if (!avail(lastUnlock)) gfx_text_sh_center(W / 2, 84, 1, "(só muda a banda 3D, que este port não desenha)", fb_alpha(C_MUTED, a), C_SHADOW); }
+        snprintf(b, sizeof b, T("Trapaça liberada: %s"), T(CH[lastUnlock].name)); int w = gfx_text_w(b, 2) + 40; ui_panel(W / 2 - w / 2, 40, w, 40, UI_PANEL_AMBER); gfx_text_sh_center(W / 2, 52, 2, b, fb_alpha(C_INK, a), C_SHADOW);
+        if (!avail(lastUnlock)) gfx_text_sh_center(W / 2, 84, 1, T("(só muda a banda 3D, que este port não desenha)"), fb_alpha(C_MUTED, a), C_SHADOW); }
 }
 void cheats_event(int in, double now) {
     if (entry) return;

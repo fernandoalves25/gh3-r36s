@@ -1,17 +1,18 @@
 #include "input.h"
+#include "lang.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 
 static const char *ACTNAME[ACT_N] = { "Traste verde", "Traste vermelho", "Traste amarelo", "Traste azul", "Traste laranja", "Palhetada para cima", "Palhetada para baixo", "Star Power", "Alavanca (whammy)", "Pausa" };
-const char *input_action_name(int a) { return a >= 0 && a < ACT_N ? ACTNAME[a] : "?"; }
+const char *input_action_name(int a) { return a >= 0 && a < ACT_N ? T(ACTNAME[a]) : "?"; }   /* in the chosen language */
 /* The R36S buttons are named by their labels (A right, B bottom, X top, Y left), as PortMaster maps them.
  * Profile 0 (the default) is the order the player settled on on the device: green L1, red L2, yellow R2, blue R1. Profile 1 is the GH3 PS2 manual's DualShock layout by name: green L2, red L1, yellow R1, blue R2.
  * Both: orange on Cross (bottom = B), strum on the D-pad, star power on Select (and on X, the Triangle spot), whammy
  * on the analog sticks. Profile 2 is the first Guitar Hero's face-button layout: green R2, red Circle, yellow
  * Triangle, blue Cross, orange Square. */
 static const char *PRESET[PRESET_N] = { "R36S (L1 L2 R2 R1 B)", "PS2 (L2 L1 R1 R2 B)", "GH1 PS2 (R2 A X B Y)", "Em linha (X Y B A R1)", "Invertido (R1 A B Y X)", "Gatilhos (L1 X Y A R1)" };
-const char *input_preset_name(int p) { return p >= 0 && p < PRESET_N ? PRESET[p] : "?"; }
+const char *input_preset_name(int p) { return p >= 0 && p < PRESET_N ? T(PRESET[p]) : "?"; }
 
 static bind_t B(int id) { bind_t b = { BIND_BUTTON, id, 0 }; return b; }
 static bind_t AX(int id, int dir) { bind_t b = { BIND_AXIS, id, dir }; return b; }
@@ -42,14 +43,14 @@ void input_apply_preset(int p) {
 void input_bind_name(const bind_t *b, char *out, size_t n) {
     if (b->type == BIND_BUTTON) {
         static const char *names[] = { "A", "B", "X", "Y", "Select", "Guide", "Start", "L3", "R3", "L1", "R1", "↑ direcional", "↓ direcional", "← direcional", "→ direcional" };
-        if (b->id >= 0 && b->id < (int)(sizeof names / sizeof names[0])) snprintf(out, n, "%s", names[b->id]); else snprintf(out, n, "Botão %d", b->id);
-    } else if (b->type == BIND_STICK) snprintf(out, n, "analógico %s", b->id ? "direito" : "esquerdo");
+        if (b->id >= 0 && b->id < (int)(sizeof names / sizeof names[0])) snprintf(out, n, "%s", b->id >= 11 ? T(names[b->id]) : names[b->id]); else snprintf(out, n, T("Botão %d"), b->id);   /* the D-pad's words translated, the labels as printed */
+    } else if (b->type == BIND_STICK) snprintf(out, n, "%s", b->id ? T("analógico direito") : T("analógico esquerdo"));
     else if (b->type == BIND_AXIS) {
         if (b->id == SDL_CONTROLLER_AXIS_TRIGGERLEFT) snprintf(out, n, "L2");
         else if (b->id == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) snprintf(out, n, "R2");
-        else if (b->id == SDL_CONTROLLER_AXIS_LEFTY || b->id == SDL_CONTROLLER_AXIS_RIGHTY) { const char *side = b->id == SDL_CONTROLLER_AXIS_LEFTY ? "E" : "D"; snprintf(out, n, b->dir < 0 ? "analógico %s ↑" : b->dir > 0 ? "analógico %s ↓" : "analógico %s ↕", side); }
-        else if (b->id == SDL_CONTROLLER_AXIS_LEFTX || b->id == SDL_CONTROLLER_AXIS_RIGHTX) { const char *side = b->id == SDL_CONTROLLER_AXIS_LEFTX ? "E" : "D"; snprintf(out, n, b->dir < 0 ? "analógico %s ←" : b->dir > 0 ? "analógico %s →" : "analógico %s ↔", side); }
-        else snprintf(out, n, "eixo %d", b->id);
+        else if (b->id == SDL_CONTROLLER_AXIS_LEFTY || b->id == SDL_CONTROLLER_AXIS_RIGHTY) { const char *side = b->id == SDL_CONTROLLER_AXIS_LEFTY ? T("analógico E") : T("analógico D"); snprintf(out, n, b->dir < 0 ? "%s ↑" : b->dir > 0 ? "%s ↓" : "%s ↕", side); }
+        else if (b->id == SDL_CONTROLLER_AXIS_LEFTX || b->id == SDL_CONTROLLER_AXIS_RIGHTX) { const char *side = b->id == SDL_CONTROLLER_AXIS_LEFTX ? T("analógico E") : T("analógico D"); snprintf(out, n, b->dir < 0 ? "%s ←" : b->dir > 0 ? "%s →" : "%s ↔", side); }
+        else snprintf(out, n, T("eixo %d"), b->id);
     } else snprintf(out, n, "–");
 }
 void input_action_buttons(int a, char *out, size_t n) {   /* "Select / L2" */

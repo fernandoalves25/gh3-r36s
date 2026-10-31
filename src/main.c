@@ -209,11 +209,11 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
     app_session_free(); session_t *S = &A.S; S->song = song; S->diff = diff;
     char nm[128]; size_t len;
     snprintf(nm, sizeof nm, "%s_song.pak.xen", song->name);
-    S->pakBytes = read_data("songs", nm, &len); if (!S->pakBytes) { snprintf(err, errCap, "Não achei a partitura SONGS/%s", nm); return -1; }
-    if (gh3_songpak_read(S->pakBytes, len, song->name, &S->sd)) { snprintf(err, errCap, "Sem dados de partitura em %s", nm); return -1; }
-    int p = part; if (!S->sd.parts[p][diff].raw) { p = p == 1 ? 0 : 1; if (!S->sd.parts[p][diff].raw) { snprintf(err, errCap, "Essa parte não tem notas em %s", diff_name_pt(diff)); return -1; } }
+    S->pakBytes = read_data("songs", nm, &len); if (!S->pakBytes) { snprintf(err, errCap, T("Não achei a partitura SONGS/%s"), nm); return -1; }
+    if (gh3_songpak_read(S->pakBytes, len, song->name, &S->sd)) { snprintf(err, errCap, T("Sem dados de partitura em %s"), nm); return -1; }
+    int p = part; if (!S->sd.parts[p][diff].raw) { p = p == 1 ? 0 : 1; if (!S->sd.parts[p][diff].raw) { snprintf(err, errCap, T("Essa parte não tem notas em %s"), T(diff_name_pt(diff))); return -1; } }
     S->part = p;
-    if (gh3_chart_build(&S->sd, p, diff, song->hmScale > 0 ? song->hmScale : lib.tuning.hmScale, lib.tuning.susShorten, &S->chart)) { snprintf(err, errCap, "A partitura não tem notas"); return -1; }
+    if (gh3_chart_build(&S->sd, p, diff, song->hmScale > 0 ? song->hmScale : lib.tuning.hmScale, lib.tuning.susShorten, &S->chart)) { snprintf(err, errCap, "%s", T("A partitura não tem notas")); return -1; }
     S->durationMs = 0;
     if (withAudio) {
         snprintf(nm, sizeof nm, "%s.fsb.xen", song->name); size_t flen, dlen;
@@ -234,7 +234,7 @@ static int load_song(const gh3_song *song, int part, int diff, int autoPlay, int
     if (withAudio && A.mode == MODE_PRACTICE) { /* practice: only the sections chosen, and no star power (the game has none in practice) */
         double from, to; practice_range(&S->sd, A.practiceSec, A.practiceEnd, endMs, &from, &to); gh3_chart *c = &S->chart; int k = 0;
         for (int i = 0; i < c->nnotes; i++) if (c->notes[i].t >= from - 1 && c->notes[i].t < to) { c->notes[k] = c->notes[i]; c->notes[k].star = -1; k++; }
-        if (!k) { snprintf(err, errCap, "Esse trecho não tem notas nesta parte"); return -1; }
+        if (!k) { snprintf(err, errCap, "%s", T("Esse trecho não tem notas nesta parte")); return -1; }
         c->nnotes = k; if (to + 120 < endMs) endMs = to + 120;
         if (practicePlay && practice_speed() < 1) practice_drums_load(S->pakBytes, len, S->sd.name); }   /* below full speed: the song's drum cues for the game's kit */
     o.endMs = endMs; o.speed = 100;
@@ -250,7 +250,7 @@ uint8_t *app_read_data(const char *dir, const char *name, size_t *len) { return 
 const char *app_data_path(const char *dir, const char *name) { const fentry *e = find_file(dir, name); return e ? e->path : NULL; }
 int app_load_song_named(const char *name, int diff, int autoPlay, int withAudio, char *err, size_t errCap) {
     for (int i = 0; i < lib.nsongs; i++) if (!strcasecmp(lib.songs[i].name, name)) return load_song(&lib.songs[i], 0, diff, autoPlay, withAudio, err, errCap);
-    snprintf(err, errCap, "%s não está na lista de músicas", name); return -1;
+    snprintf(err, errCap, T("%s não está na lista de músicas"), name); return -1;
 }
 int app_prepare_song(int songIdx) { char e[300]; if (load_song(&lib.songs[songIdx], A.selPart, A.selDiff, 1, 0, e, sizeof e)) { snprintf(A.errMsg, sizeof A.errMsg, "%s", e); A.screen = SC_ERROR; return -1; } return 0; }
 void app_apply_volumes(void) { audio_set_master(1); audio_set_bus_gain(BUS_PLAYER, SET.volGuitar / 100.0); audio_set_bus_gain(BUS_BAND, SET.volMusic / 100.0); audio_set_bus_gain(BUS_OTHER, SET.volMusic / 100.0); audio_set_sfx_gain(SET.volSfx / 100.0 * 0.9); }
@@ -274,9 +274,9 @@ void app_refresh_career(int announce) {
     store_refresh(&lib);
     if (before) { A.unlockMsg[0] = 0;
         for (int t = 0; t < lib.ntiers; t++) { const gh3_tier *tr = &lib.tiers[t];
-            if (!before[t].open && A.tiers[t].open) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", tr->title);
-            else if (!before[t].encoreOpen && A.tiers[t].encoreOpen) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Encore liberado: %s", lib.songs[tr->encoreIdx].title);
-            else if (!before[t].bossOpen && A.tiers[t].bossOpen) snprintf(A.unlockMsg, sizeof A.unlockMsg, "Batalha liberada!");
+            if (!before[t].open && A.tiers[t].open) snprintf(A.unlockMsg, sizeof A.unlockMsg, T("Novo set liberado: %s"), tr->title);
+            else if (!before[t].encoreOpen && A.tiers[t].encoreOpen) snprintf(A.unlockMsg, sizeof A.unlockMsg, T("Encore liberado: %s"), lib.songs[tr->encoreIdx].title);
+            else if (!before[t].bossOpen && A.tiers[t].bossOpen) snprintf(A.unlockMsg, sizeof A.unlockMsg, "%s", T("Batalha liberada!"));
             if (tr->career && !before[t].done && A.tiers[t].done && tr->movie[0]) snprintf(A.moviePending, sizeof A.moviePending, "%s", tr->movie); }   /* shown on the way back to the set list */
         if (A.unlockMsg[0]) A.unlockPending = 1; free(before); }
 }
@@ -533,7 +533,7 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     { int c0 = A.cursor, boss = -1; for (int i = 0; i < A.nrows; i++) if (A.rows[i].kind == 1 && lib.songs[A.rows[i].idx].isBoss) { boss = i; break; }   /* the list's top, a battle further down, a message just in */
       A.cursor = 0; while (A.cursor < A.nrows && A.rows[A.cursor].kind == 0) A.cursor++; gfx_begin(); screens_draw(10000); gfx_end(); save_named("setlist_top");
       if (boss >= 0) { A.cursor = boss; gfx_begin(); screens_draw(20000); gfx_end(); save_named("setlist_boss"); }
-      A.cursor = c0; snprintf(A.unlockMsg, sizeof A.unlockMsg, "Novo set liberado: %s", lib.tiers[1].title); A.unlockAt = 29000; gfx_begin(); screens_draw(30000); gfx_end(); save_named("setlist_unlock"); A.unlockAt = 0; }
+      A.cursor = c0; snprintf(A.unlockMsg, sizeof A.unlockMsg, T("Novo set liberado: %s"), lib.tiers[1].title); A.unlockAt = 29000; gfx_begin(); screens_draw(30000); gfx_end(); save_named("setlist_unlock"); A.unlockAt = 0; }
     { int c0 = A.cursor; store_demo(2350);   /* the bonus songs with their prices, the store (a pretend balance: nothing saved) */
       screens_event(IN_R, 0); A.cursor = A.nrows > 3 ? 3 : A.nrows - 1;   /* the Bonus tab (R1), a few songs down */
       gfx_begin(); screens_draw(0); gfx_end(); save_named("setlist_bonus");
@@ -546,11 +546,12 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
       charsel_screens(save_named); }   /* the character hub, its lists, the store's rockers / guitars / finishes */
     if (app_prepare_song(A.selSong)) { fprintf(stderr, "load: %s\n", A.errMsg); return; }
     A.screen = SC_SETUP; A.setupRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup");
-    loading_start(-500); A.screen = SC_LOADING; gfx_begin(); screens_draw(0); gfx_end(); save_named("loading");   /* the loading screen, its spinner half a second in */
+    loading_start(-500); A.screen = SC_LOADING; gfx_begin(); screens_draw(0); gfx_end(); save_named("loading"); A.screen = SC_SETUP;   /* the loading screen, its spinner half a second in; then back to the setup for the shots after it */
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     { int r0 = A.setupRow; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_play"); A.setupRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_part"); A.setupRow = r0; }
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
-    A.optCat = 1; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
+    A.optCat = 1; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Idioma) */
+    A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video_row2");   /* and its third (gh3-3d: Banda 3D, the longest help) */
     A.optCat = 4; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle");   /* Controle, on Canhoto */
     { A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle_alavanca");   /* on Calibrar alavanca, then its three steps (the readings made up; nothing saved) */
       screens_event(IN_OK, 0); A.whamNow = 0.08f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_rest"); screens_event(IN_OK, 0);
@@ -621,7 +622,7 @@ int main(int argc, char **argv) {
     index_dir(cfg.data, "");
     if (!nfiles) fprintf(stderr, "no game files under %s (set GH3_DATA or --data)\n", cfg.data);
     { size_t pl, bl; uint8_t *pak = read_data("pak", "qb.pak.xen", &pl), *pab = read_data("pak", "qb.pab.xen", &bl);
-      if (pak && pab && gh3_library_read(pak, pl, pab, bl, &lib) == 0) A.libOk = 1; else snprintf(libErr, sizeof libErr, "Não consegui ler PAK/qb.pak.xen + qb.pab.xen em %s. Copie a pasta DATA do jogo (PAK, SONGS e MUSIC) para ports/gh3/DATA.", cfg.data);
+      if (pak && pab && gh3_library_read(pak, pl, pab, bl, &lib) == 0) A.libOk = 1; else snprintf(libErr, sizeof libErr, T("Não consegui ler PAK/qb.pak.xen + qb.pab.xen em %s. Copie a pasta DATA do jogo (PAK, SONGS e MUSIC) para ports/gh3/DATA."), cfg.data);
       { size_t sl; uint8_t *sb = read_data("zones", "global_sfx.pak.xen", &sl); sfx_init(pak, pl, pab, bl, sb, sl); }   /* the game's sound effects (sfx keeps the bank) */
       practice_init(pak, pl, pab, bl);   /* practice_notemapping: the drum kit of slowed practice */
       free(pak); free(pab); }
@@ -708,7 +709,7 @@ int main(int argc, char **argv) {
             else if (r->autoPlay && !A.autoPlay && perf_mode() && render_venue(now)) {}   /* Performance Mode: the highway never rises, the HUD never comes */
 #endif
             else render_game(r, now, &hi);
-            if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); ui_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, "Continuando…", C_AMP, C_SHADOW); }
+            if (A.resumeAt > 0) { char b[8]; snprintf(b, sizeof b, "%d", (int)ceil((A.resumeAt - now) / 1000)); ui_dim(A.W, A.H, 90); ui_title(A.W / 2 - gfx_text_w(b, 8) / 2, A.H / 2 - 50, 8, b, C_INK, C_SHADOW, 3); gfx_text_sh_center(A.W / 2, A.H / 2 + 50, 2, T("Continuando…"), C_AMP, C_SHADOW); }
             else if (r->failed || r->finished) app_finish_song(now);
         } else if (A.screen == SC_MOVIE) { if (!movie_tick(now)) movie_finish(now, 0); if (A.screen == SC_MOVIE) movie_draw(A.W, A.H); else screens_draw(now);
         } else {
