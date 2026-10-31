@@ -8,6 +8,7 @@
 #include "settings.h"
 #include "original.h"
 #include "orig_loading.h"
+#include "lang.h"
 #ifdef GH3_3D
 #include "r3d/r3d.h"
 #endif
@@ -307,7 +308,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
         float sa = (float)((perf - r->spFlash) / 500); if (sa >= 0 && sa < 1) gfx_rect(0, 0, V.W, V.H, fb_alpha(C_SP, 0.22f * (1 - sa)));
         float so = (float)((perf - r->spAt) / 320); if (so >= 0 && so < 1) gfx_rect(0, 0, V.W, V.H, fb_alpha(RGB(150, 238, 255), 0.4f * (1 - so) * (1 - so)));
         float ma = (float)((perf - r->missFlash) / 220); if (ma >= 0 && ma < 1 && !r->autoPlay) gfx_rect(0, 0, V.W, V.H, fb_alpha(C_BAD, 0.1f * (1 - ma)));
-        if (t < 0 && hi && hi->showCountdown) { char b[16]; int n3 = (int)ceil(-t / 1000); snprintf(b, sizeof b, "%d", n3); float k = (float)fmod(-t, 1000) / 1000; int sc = 8 + (int)(3 * k); gfx_text_title((int)V.W / 2 - gfx_text_w(b, sc) / 2, (int)V.H / 2 - 50, sc, b, C_INK, C_SHADOW, 3); gfx_text_sh_center((int)V.W / 2, (int)V.H / 2 + 50, 2, "Prepare-se!", C_AMP, C_SHADOW); }
+        if (t < 0 && hi && hi->showCountdown) { char b[16]; int n3 = (int)ceil(-t / 1000); snprintf(b, sizeof b, "%d", n3); float k = (float)fmod(-t, 1000) / 1000; int sc = 8 + (int)(3 * k); gfx_text_title((int)V.W / 2 - gfx_text_w(b, sc) / 2, (int)V.H / 2 - 50, sc, b, C_INK, C_SHADOW, 3); gfx_text_sh_center((int)V.W / 2, (int)V.H / 2 + 50, 2, T("Prepare-se!"), C_AMP, C_SHADOW); }
         /* HUD */
         if (hi) { int W = (int)V.W, H = (int)V.H; char b[64];
             uint32_t mc = sp ? C_SP : mult >= 4 ? RGB(0xf2, 0x8d, 0x2d) : mult == 3 ? RGB(0xf3, 0xd2, 0x3b) : mult == 2 ? RGB(0x31, 0xc4, 0x66) : C_INK;
@@ -320,10 +321,10 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             if (orig()) orig_hud(r, hi, perf, W, H, mult, sp, pulse); else {
             /* top right: score panel */
             snprintf(b, sizeof b, "%ld", (long)r->score); int sw = gfx_text_w(b, 3); int pw = (sw > 120 ? sw : 120) + 24;
-            ui_panel(W - 14 - pw, 8, pw, 52, 0); gfx_text_sh_right(W - 26, 16, 3, b, C_INK, C_SHADOW); gfx_text_right(W - 26, 46, 1, "PONTOS", C_MUTED);
+            ui_panel(W - 14 - pw, 8, pw, 52, 0); gfx_text_sh_right(W - 26, 16, 3, b, C_INK, C_SHADOW); gfx_text_right(W - 26, 46, 1, T("PONTOS"), C_MUTED);
             /* bottom left: multiplier badge and streak */
             snprintf(b, sizeof b, "%d×", mult); int ms = (int)(5 * bs); ui_panel(14, H - 78, 92, 64, sp ? 2 : 0); gfx_text_title(22, H - 70 - (ms - 5) * 4, ms, b, mc, C_SHADOW, 3);
-            snprintf(b, sizeof b, "%d seguidas", r->streak); gfx_text_sh(116, H - 36, 1, b, r->streak >= 10 ? C_AMP : C_MUTED, C_SHADOW);
+            snprintf(b, sizeof b, T("%d seguidas"), r->streak); gfx_text_sh(116, H - 36, 1, b, r->streak >= 10 ? C_AMP : C_MUTED, C_SHADOW);
             if (r->streak > 0) { int dots = r->streak % 10; if (mult >= 4 && !sp) dots = 10; for (int i = 0; i < 10; i++) gfx_rect(116 + i * 9, H - 48, 7, 7, i < dots ? mc : C_PANEL2); }
             /* bottom right: rock meter and star power */
             gfx_sprite *meter = art_get(ART_METER); int mw = gfx_sprite_w(meter), mh = gfx_sprite_h(meter); float mx = W - 14 - mw, my = H - 14 - mh;
@@ -331,7 +332,7 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
             gfx_sprite_at(meter, mx, my, 1, RGB(255, 255, 255), 1);
             double h = r->health > 1 ? 1 : r->health < 0 ? 0 : r->health; float ang = (float)M_PI * (float)(1 - h); float ncx = mx + mw / 2.0f, ncy = my + mh - 2 * PXS;
             gfx_line(ncx, ncy, ncx + cosf(ang) * (mw * 0.42f), ncy - sinf(ang) * (mw * 0.42f), 2.0f * PXS, C_INK); gfx_rect(ncx - 2 * PXS, ncy - 2 * PXS, 4 * PXS, 4 * PXS, C_AMP);
-            if (hi->noFail) gfx_text_right(W - 22, my - 30, 1, "SEM FALHAR", C_MUTED); else gfx_text_right(W - 22, my - 30, 1, "ROCK", h < 0.33 ? C_BAD : C_MUTED);
+            if (hi->noFail) gfx_text_right(W - 22, my - 30, 1, T("SEM FALHAR"), C_MUTED); else gfx_text_right(W - 22, my - 30, 1, "ROCK", h < 0.33 ? C_BAD : C_MUTED);
             if (h < 0.33 && !hi->noFail) { float k = 0.5f + 0.5f * sinf((float)perf / 90); gfx_rect(mx - 8, my - 34, mw + 16, mh + 48, fb_alpha(C_BAD, 0.12f + 0.18f * k));
                 gfx_rect(0, 0, 6, V.H, fb_alpha(C_BAD, 0.35f * k)); gfx_rect(V.W - 6, 0, 6, V.H, fb_alpha(C_BAD, 0.35f * k)); }
             /* star power cells */
@@ -342,11 +343,11 @@ void render_game(gh3_run *r, double perf, const hud_info *hi) {
                 if (on || sp) gfx_rect(mx + 12 + i * cw, my - 18, cw - 2, 10, sp ? fb_alpha(C_SP, 0.6f + 0.4f * pulse) : (r->sp >= 0.5 ? fb_alpha(C_SP, 0.8f + 0.2f * sinf((float)perf / 120)) : C_SP));
                 else if (part > 0) gfx_rect(mx + 12 + i * cw, my - 18, (cw - 2) * part, 10, fb_alpha(C_SP, 0.7f)); }
             gfx_rect(mx + 12 + 4 * cw - 2, my - 21, 2, 16, r->sp >= 0.5 ? C_INK : C_MUTED);   /* half: from here star power can be used */
-            if (!sp && r->sp >= 0.5) { char sk[80]; snprintf(sk, sizeof sk, "STAR POWER: %s", hi->starKeys && *hi->starKeys ? hi->starKeys : "Select"); float k = 0.6f + 0.4f * sinf((float)perf / 110);
+            if (!sp && r->sp >= 0.5) { char sk[80]; snprintf(sk, sizeof sk, T("STAR POWER: %s"), hi->starKeys && *hi->starKeys ? hi->starKeys : "Select"); float k = 0.6f + 0.4f * sinf((float)perf / 110);
                 int tw2 = gfx_text_w(sk, 1) + 16; ui_panel(W - 14 - tw2, my - 58, tw2, 20, UI_PANEL_SP); gfx_text_sh_right(W - 22, my - 53, 1, sk, fb_alpha(C_INK, k), C_SHADOW); }
             }
             /* messages in the middle */
-            if (r->streakAt > -1e8 && perf - r->streakAt < 1500) { snprintf(b, sizeof b, "%d NOTAS SEGUIDAS!", r->streakN); gfx_text_title(W / 2 - gfx_text_w(b, 3) / 2, (int)(H * 0.24f), 3, b, C_AMP, C_SHADOW, 2); }
+            if (r->streakAt > -1e8 && perf - r->streakAt < 1500) { snprintf(b, sizeof b, T("%d NOTAS SEGUIDAS!"), r->streakN); gfx_text_title(W / 2 - gfx_text_w(b, 3) / 2, (int)(H * 0.24f), 3, b, C_AMP, C_SHADOW, 2); }
             else if (bump >= 0 && bump < 1 && mult > 1) { snprintf(b, sizeof b, "%d×!", mult); gfx_text_title(W / 2 - gfx_text_w(b, 4) / 2, (int)(H * 0.24f) - (int)(10 * bump), 4, b, mc, C_SHADOW, 2); }
             if (hi->fps > 0) { snprintf(b, sizeof b, "%d fps", hi->fps); gfx_text(W / 2 - 20, 6, 1, b, C_MUTED); }
         }

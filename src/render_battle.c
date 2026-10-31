@@ -10,6 +10,7 @@
 #include "input.h"
 #include "audio.h"
 #include "overlay.h"
+#include "lang.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -68,7 +69,7 @@ static void lane_top(const bside_t *s, double perf) {
     for (int f = 0; f < 5; f++) if (s->broken[f]) { float x, y, sc; render_lane_xy(f, 0, &x, &y, &sc);
         gfx_rect(x - hw * 0.17f, y - hw * 0.07f, hw * 0.34f, hw * 0.14f, RGBA(120, 0, 0, 150)); gfx_line(x - 8, y - 15, x + 6, y + 3, 2, RGB(255, 106, 80));
         snprintf(b, sizeof b, "%d", s->broken[f]); gfx_text_sh_center((int)x, (int)(y - 32), 2, b, RGB(255, 217, 200), C_SHADOW); }
-    if (s->whammy > 0) { float x, y, sc; render_lane_xy(2, 0, &x, &y, &sc); float a = 0.75f + 0.25f * sinf((float)perf / 90); snprintf(b, sizeof b, "Alavanca!  %d", s->whammy); gfx_text_sh_center((int)RL.cx, (int)(y - 60), 2, b, fb_alpha(RGB(255, 230, 128), a), C_SHADOW); }
+    if (s->whammy > 0) { float x, y, sc; render_lane_xy(2, 0, &x, &y, &sc); float a = 0.75f + 0.25f * sinf((float)perf / 90); snprintf(b, sizeof b, T("Alavanca!  %d"), s->whammy); gfx_text_sh_center((int)RL.cx, (int)(y - 60), 2, b, fb_alpha(RGB(255, 230, 128), a), C_SHADOW); }
     if (s->death && t >= s->deathFrom && t < s->deathUntil) { float k = 0.5f + 0.5f * sinf((float)perf / 120); gfx_rect(RL.cx - hw * 1.1f, A.H * 0.12f, hw * 2.2f, A.H * 0.88f, RGBA(200, 20, 20, (int)(60 + 50 * k))); }
     if (in_wins(s->wins, s->nwins, t) || s->mask) { float k = 0.5f + 0.5f * sinf((float)perf / 160); gfx_rect(RL.cx - hw * 1.08f, A.H * 0.84f + 6, hw * 2.16f, 3, fb_alpha(C_BAD, 0.4f + 0.4f * k)); }   /* under attack: the meters move */
 }
@@ -82,7 +83,7 @@ static void meter(const bside_t *s, double perf) {
     float ang = (float)M_PI * (float)(1 - h), ncx = mx + mw / 2.0f, ncy = my + mh - 2 * px;
     gfx_line(ncx, ncy, ncx + cosf(ang) * (mw * 0.42f), ncy - sinf(ang) * (mw * 0.42f), 2.0f * px, C_INK); gfx_rect(ncx - 2 * px, ncy - 2 * px, 4 * px, 4 * px, C_AMP);
     if (h < 0.25) { float k = 0.5f + 0.5f * sinf((float)perf / 70); gfx_rect(x0, y0, pw, ph, fb_alpha(C_BAD, 0.1f + 0.15f * k)); }
-    const char *nm = s->cpu ? BTL.boss->name : "Você"; gfx_text_sh_center((int)(x0 + pw / 2), (int)(my + mh + 2), 1, nm, s->cpu ? RGB(255, 200, 180) : RGB(255, 240, 215), C_SHADOW);
+    const char *nm = s->cpu ? BTL.boss->name : T("Você"); gfx_text_sh_center((int)(x0 + pw / 2), (int)(my + mh + 2), 1, nm, s->cpu ? RGB(255, 200, 180) : RGB(255, 240, 215), C_SHADOW);
     for (int j = 0; j < 3; j++) { float x, y, d; slot_xy(s->side, j, &x, &y, &d); int c = j < s->ncards ? s->cards[s->ncards - 1 - j] : -1;
         int flying = 0; for (int i = 0; i < BTL.nflies; i++) if (BTL.flies[i].side == s->side && perf - BTL.flies[i].at < 300 && j == 0) flying = 1;
         card(flying ? -1 : c, x, y, d, c >= 0 || j == 0 ? 1 : 0.6f); }
@@ -117,30 +118,30 @@ void render_battle(double perf, int countdown) {
     meter(&BTL.me, perf); meter(&BTL.cpu, perf); tug(perf);
     bolts_alerts_flies(perf);
     char b[96];
-    if (BTL.me.ncards && !r->autoPlay && !BTL.over) { char keys[80]; snprintf(keys, sizeof keys, "%s", A.starKeys[0] ? A.starKeys : "Select"); snprintf(b, sizeof b, "ATACAR: %s", keys); float k = 0.6f + 0.4f * sinf((float)perf / 110);
+    if (BTL.me.ncards && !r->autoPlay && !BTL.over) { char keys[80]; snprintf(keys, sizeof keys, "%s", A.starKeys[0] ? A.starKeys : "Select"); snprintf(b, sizeof b, T("ATACAR: %s"), keys); float k = 0.6f + 0.4f * sinf((float)perf / 110);
         int tw = gfx_text_w(b, 1) + 16; ui_panel(W / 2 - tw / 2, H - 28, tw, 20, UI_PANEL_AMBER); gfx_text_sh_center(W / 2, H - 23, 1, b, fb_alpha(C_INK, k), C_SHADOW); }
     if (countdown && r->now < 0) { int n3 = (int)ceil(-r->now / 1000); snprintf(b, sizeof b, "%d", n3); float k = (float)fmod(-r->now, 1000) / 1000; int sc = 8 + (int)(3 * k);
-        ui_title(W / 2 - gfx_text_w(b, sc) / 2, H / 2 - 50, sc, b, C_INK, C_SHADOW, 3); snprintf(b, sizeof b, "Derrote %s!", BTL.boss->name); gfx_text_sh_center(W / 2, H / 2 + 50, 2, b, C_AMP, C_SHADOW); }
+        ui_title(W / 2 - gfx_text_w(b, sc) / 2, H / 2 - 50, sc, b, C_INK, C_SHADOW, 3); snprintf(b, sizeof b, T("Derrote %s!"), BTL.boss->name); gfx_text_sh_center(W / 2, H / 2 + 50, 2, b, C_AMP, C_SHADOW); }
     if (SET.showFps && A.fps > 0) { snprintf(b, sizeof b, "%d fps", A.fps); gfx_text(W / 2 - 20, H - 44, 1, b, C_MUTED); }
 }
 
 /* ---- SC_BATTLE */
 static void draw_intro(double now) {
-    int W = A.W, H = A.H; const gh3_song *s = &A.lib->songs[BTL.songIdx]; const gh3_boss *b = gh3_library_boss(A.lib, BTL.songIdx); double T = (now - BTL.phaseAt) / 1000; char t[160], keys[80];
+    int W = A.W, H = A.H; const gh3_song *s = &A.lib->songs[BTL.songIdx]; const gh3_boss *b = gh3_library_boss(A.lib, BTL.songIdx); double secs = (now - BTL.phaseAt) / 1000; char t[160], keys[80];
     bake_icons(); render_backdrop(now, SET.stageFx); ui_dim(W, H, 60);
-    float k = T < 0.35 ? (float)(T / 0.35) : 1; int y0 = 40 - (int)(30 * (1 - k));
-    ui_title(W / 2 - gfx_text_w("BATALHA", 6) / 2, y0, 6, "BATALHA", C_AMP, C_SHADOW, 4);
+    float k = secs < 0.35 ? (float)(secs / 0.35) : 1; int y0 = 40 - (int)(30 * (1 - k));
+    const char *ttl = T("BATALHA"); ui_title(W / 2 - gfx_text_w(ttl, 6) / 2, y0, 6, ttl, C_AMP, C_SHADOW, 4);
     snprintf(t, sizeof t, "vs %s", b ? b->name : s->artist); int sc = gfx_text_w(t, 4) > W - 40 ? 3 : 4; ui_title(W / 2 - gfx_text_w(t, sc) / 2, y0 + 84, sc, t, C_INK, C_SHADOW, 3);
     gfx_text_sh_center(W / 2, y0 + 140, 1, s->title, C_MUTED, C_SHADOW);
     input_action_buttons(ACT_STAR, keys, sizeof keys);
-    const char *L[3]; char l2[160], l3[120]; snprintf(l2, sizeof l2, "Lance o ataque do topo com o botão de star power (%s).", keys[0] ? keys : "Select"); snprintf(l3, sizeof l3, "Faça %s falhar antes do fim da música!", b ? b->name : "o chefe");
-    L[0] = "Complete as notas de batalha para ganhar um ataque (até 3)."; L[1] = l2; L[2] = l3;
+    const char *L[3]; char l2[160], l3[120]; snprintf(l2, sizeof l2, T("Lance o ataque do topo com o botão de star power (%s)."), keys[0] ? keys : "Select"); snprintf(l3, sizeof l3, T("Faça %s falhar antes do fim da música!"), b ? b->name : T("o chefe"));
+    L[0] = T("Complete as notas de batalha para ganhar um ataque (até 3)."); L[1] = l2; L[2] = l3;
     ui_panel(30, 214, W - 60, 150, UI_PANEL_DARK);
     static const int IC[3] = { PU_DIFFUP, PU_LIGHTNING, PU_DEATH };
-    for (int i = 0; i < 3; i++) { float a = (float)fmax(0, fmin(1, (T - 0.3 - 0.25 * i) / 0.3)); if (a <= 0) continue; int y = 228 + i * 44; gfx_sprite *ic = icons[theme()][IC[i]];
+    for (int i = 0; i < 3; i++) { float a = (float)fmax(0, fmin(1, (secs - 0.3 - 0.25 * i) / 0.3)); if (a <= 0) continue; int y = 228 + i * 44; gfx_sprite *ic = icons[theme()][IC[i]];
         gfx_blit(ic, 0, 0, gfx_sprite_w(ic), gfx_sprite_h(ic), 45, y - 5, 28, 28, RGB(255, 255, 255), a); gfx_text_box(84, y + 3, W - 130, 1, L[i], fb_alpha(C_INK, a)); }
     if (BTL.phaseMs > 0) ui_bar(30, 376, W - 60, 6, (float)((now - BTL.phaseAt) / BTL.phaseMs), C_AMP);
-    static const char *bt[2] = { "A", "B" }, *tx[2] = { "Começar", "Voltar" }; ui_hints(H - 24, W, bt, tx, 2);
+    static const char *bt[2] = { "A", "B" }, *tx0[2] = { "Começar", "Voltar" }; const char *tx[2] = { T(tx0[0]), T(tx0[1]) }; ui_hints(H - 24, W, bt, tx, 2);
 }
 static void draw_end(double now) {
     int W = A.W, H = A.H; double age = now - BTL.phaseAt; char sub[120] = "";
@@ -153,15 +154,15 @@ static void draw_end(double now) {
     uint32_t col = BTL.endKind == 0 ? C_BAD : BTL.endKind == 3 ? RGB(255, 215, 90) : C_INK;
     ui_title(W / 2 - gfx_text_w(tx, s2) / 2 + jx, H / 2 - 40 - pop * 6 + jy, s2, tx, col, C_SHADOW, 4);
     const char *bn = BTL.boss ? BTL.boss->name : "Lou";
-    if (BTL.endKind == 1) snprintf(sub, sizeof sub, "%s falhou: a batalha é sua!", bn); else if (BTL.endKind == 2) snprintf(sub, sizeof sub, "Toque o resto da música até o fim!");
-    else if (BTL.endKind == 3) snprintf(sub, sizeof sub, "O diabo foi derrotado!"); else snprintf(sub, sizeof sub, "Você não derrotou %s. Tente de novo!", bn);
+    if (BTL.endKind == 1) snprintf(sub, sizeof sub, T("%s falhou: a batalha é sua!"), bn); else if (BTL.endKind == 2) snprintf(sub, sizeof sub, "%s", T("Toque o resto da música até o fim!"));
+    else if (BTL.endKind == 3) snprintf(sub, sizeof sub, "%s", T("O diabo foi derrotado!")); else snprintf(sub, sizeof sub, T("Você não derrotou %s. Tente de novo!"), bn);
     if (age > 500) gfx_text_sh_center(W / 2, H / 2 + 40, 2, sub, C_AMP, C_SHADOW);
-    if (age > 1200) { static const char *bt[1] = { "A" }, *t2[1] = { "Continuar" }; ui_hints(H - 24, W, bt, t2, 1); }
+    if (age > 1200) { static const char *bt[1] = { "A" }, *t20[1] = { "Continuar" }; const char *t2[1] = { T(t20[0]) }; ui_hints(H - 24, W, bt, t2, 1); }
 }
 void battle_screen_draw(double now) { if (BTL.phase == BPH_INTRO) draw_intro(now); else draw_end(now); }
 void battle_result_lines(int cx, int y) {
-    gh3_run *r = BTL.me.r; char b[120]; const char *bn = BTL.boss->name; int played = 0; for (int i = 0; i < r->nnotes; i++) played += r->notes[i].hit || r->notes[i].missed;
-    if (BTL.won) snprintf(b, sizeof b, "Você venceu %s!", bn); else snprintf(b, sizeof b, "%s venceu a batalha", bn);
+    gh3_run *r = BTL.me.r ? BTL.me.r : &A.S.run; char b[120]; if (!BTL.boss) return; const char *bn = BTL.boss->name;   /* (--screens draws the results of a battle never played) */ int played = 0; for (int i = 0; i < r->nnotes; i++) played += r->notes[i].hit || r->notes[i].missed;
+    if (BTL.won) snprintf(b, sizeof b, T("Você venceu %s!"), bn); else snprintf(b, sizeof b, T("%s venceu a batalha"), bn);
     gfx_text_sh_center(cx, y, 2, b, BTL.won ? C_GOOD : C_BAD, C_SHADOW);
-    snprintf(b, sizeof b, "Ataques: %d seus, %d de %s • notas tocadas: %d de %d", BTL.me.fired, BTL.cpu.fired, bn, r->hits, played); gfx_text_center(cx, y + 28, 1, b, C_MUTED);
+    snprintf(b, sizeof b, T("Ataques: %d seus, %d de %s • notas tocadas: %d de %d"), BTL.me.fired, BTL.cpu.fired, bn, r->hits, played); gfx_text_center(cx, y + 28, 1, b, C_MUTED);
 }

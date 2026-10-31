@@ -5,6 +5,7 @@
 #include "audio.h"
 #include "render.h"
 #include "overlay.h"
+#include "lang.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +19,7 @@ battle_t BTL;
 static int introSkip, legendShown, verbose, nAttacks, nAwards;
 static const char *PU_PT[PU_KINDS] = { "Amp Sobrecarregado", "Dificuldade Maior", "Notas Dobradas", "Roubo de Poder", "Inversão Canhota", "Corda Arrebentada", "Ataque de Alavanca", "Dreno Mortal" };
 static const gh3_powerup *pu(int i) { return i >= 0 && i < BTL.BT->npu ? &BTL.BT->pu[i] : NULL; }
-const char *battle_pu_title(int i) { const gh3_powerup *p = pu(i); if (!p) return ""; if (p->id == PU_LEFTY && SET.lefty) return "Inversão Destra"; return p->id >= 0 ? PU_PT[p->id] : p->title; }
+const char *battle_pu_title(int i) { const gh3_powerup *p = pu(i); if (!p) return ""; if (p->id == PU_LEFTY && SET.lefty) return T("Inversão Destra"); return p->id >= 0 ? T(PU_PT[p->id]) : p->title; }   /* (the data's own title, English, for one the port does not know) */
 int battle_pu_kind(int i) { const gh3_powerup *p = pu(i); return p ? p->id : -1; }
 static double frand(void) { return rand() / (RAND_MAX + 1.0); }
 static bside_t *other(bside_t *s) { return s->side ? &BTL.me : &BTL.cpu; }
@@ -83,8 +84,8 @@ static void hit(bside_t *v, int pi, double t, double perf, bside_t *a, double dr
     /* bossbattle_trigger_on passes the power-up's own drain_time: battle_<diff>_drain_offset is added only by the two
      * player battle_trigger_on */
     if (!p) p = &DEATH; int d = v->diff, id = p->id; double drain = drainMs > 0 ? drainMs : p->drain, from = t + v->r->lookahead, to = from + drain;
-    const char *label = pi >= 0 ? battle_pu_title(pi) : PU_PT[PU_DEATH];
-    if (id == PU_DIFFUP && (d == 3 || !v->hasUp)) { id = PU_DOUBLE; label = PU_PT[PU_DOUBLE]; }   /* battle_up_difficulty: against an expert it is Double Notes */
+    const char *label = pi >= 0 ? battle_pu_title(pi) : T(PU_PT[PU_DEATH]);
+    if (id == PU_DIFFUP && (d == 3 || !v->hasUp)) { id = PU_DOUBLE; label = T(PU_PT[PU_DOUBLE]); }   /* battle_up_difficulty: against an expert it is Double Notes */
     double miss = BTL.boss->miss[d];
     if (id == PU_LIGHTNING) { v->shake = fmax(v->shake, t) + drain; v->flick = p->flicker[d] > 0 ? (int)p->flicker[d] : 2; addwin(v, t, v->shake, miss, p->noAi); }
     else if (id == PU_DIFFUP) { swap_up(v, from, to); addwin(v, from, to, miss, p->noAi); }
@@ -231,14 +232,14 @@ static void intro_done(void) { audio_clear(); BTL.phase = BPH_NONE; introSkip = 
 int battle_end(double now) {
     gh3_run *r = &A.S.run;
     if (!BTL.on) {   /* the devil's last part played through: the golden guitar */
-        if (BTL.finishing > 0 && !r->failed && !legendShown) { legendShown = 1; snprintf(BTL.banner, sizeof BTL.banner, "Você é uma lenda do rock!"); BTL.endKind = 3; BTL.phaseMs = 4400; overlay_play("Golden_Guitar", now); audio_fade_out(0.5); audio_sfx(SFX_DEVIL_DIE); A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1; }
+        if (BTL.finishing > 0 && !r->failed && !legendShown) { legendShown = 1; snprintf(BTL.banner, sizeof BTL.banner, "%s", T("Você é uma lenda do rock!")); BTL.endKind = 3; BTL.phaseMs = 4400; overlay_play("Golden_Guitar", now); audio_fade_out(0.5); audio_sfx(SFX_DEVIL_DIE); A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1; }
         return 0; }
     if (BTL.shown) return 0;
     if (!BTL.won) r->failed = 1;   /* a battle is won only by making the boss fail */
     BTL.over = 1; audio_fade_out(0.3);
-    if (BTL.won && BTL.finishAt > 0) { snprintf(BTL.banner, sizeof BTL.banner, "Agora acabe com ele!"); BTL.endKind = 2; BTL.phaseMs = 2800; overlay_play("Satan-Battle_WIN", now); }
-    else if (BTL.won) { snprintf(BTL.banner, sizeof BTL.banner, "Você arrasou!"); BTL.endKind = 1; BTL.phaseMs = 4300; overlay_play("Player1_wins", now); audio_sfx(SFX_WIN_P1); }
-    else { snprintf(BTL.banner, sizeof BTL.banner, "%s arrasou!", BTL.boss->name); BTL.endKind = 0; BTL.phaseMs = 4300; overlay_play(BTL.devil ? "Satan-Battle_LOSS" : "Player2_wins", now); audio_sfx(SFX_WIN_P2); }
+    if (BTL.won && BTL.finishAt > 0) { snprintf(BTL.banner, sizeof BTL.banner, "%s", T("Agora acabe com ele!")); BTL.endKind = 2; BTL.phaseMs = 2800; overlay_play("Satan-Battle_WIN", now); }
+    else if (BTL.won) { snprintf(BTL.banner, sizeof BTL.banner, "%s", T("Você arrasou!")); BTL.endKind = 1; BTL.phaseMs = 4300; overlay_play("Player1_wins", now); audio_sfx(SFX_WIN_P1); }
+    else { snprintf(BTL.banner, sizeof BTL.banner, T("%s arrasou!"), BTL.boss->name); BTL.endKind = 0; BTL.phaseMs = 4300; overlay_play(BTL.devil ? "Satan-Battle_LOSS" : "Player2_wins", now); audio_sfx(SFX_WIN_P2); }
     A.screen = SC_BATTLE; BTL.phase = BPH_END; BTL.phaseAt = now; return 1;
 }
 static void results_count(void) { gh3_run *r = &A.S.run; int n = r->nnotes; while (n > 0 && !r->notes[n - 1].hit && !r->notes[n - 1].missed) n--; r->nnotes = n; }   /* the results count the notes the battle got to */
