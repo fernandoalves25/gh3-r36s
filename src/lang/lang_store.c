@@ -8,7 +8,6 @@ const lang_entry LANG_STORE[] = {
     /* ---- the store (store.c) */
     { "LOJA", "THE STORE", "LA TIENDA" },
     { "Seu dinheiro: %s", "Your cash: %s", "Tu dinero: %s" },
-    { "MÚSICAS BÔNUS", "BONUS SONGS", "CANCIONES EXTRA" },
     { "VÍDEOS BÔNUS", "BONUS VIDEOS", "VÍDEOS EXTRA" },
     { "ROQUEIROS", "ROCKERS", "ROCKEROS" },
     { "GUITARRAS", "GUITARS", "GUITARRAS" },
@@ -40,10 +39,8 @@ const lang_entry LANG_STORE[] = {
     { "Termine a carreira (em qualquer dificuldade) para liberar esta.", "Finish the career (on any difficulty) to unlock this one.", "Termina la carrera (en cualquier dificultad) para desbloquear esta." },
     { "Faltam %s: tire 3 estrelas ou mais na carreira.", "You need %s more: get 3 stars or more in Career.", "Te faltan %s: consigue 3 estrellas o más en la carrera." },
     { "Falta o vídeo \"%s\" em DATA/MOVIES/R36S.", "The video \"%s\" is missing from DATA/MOVIES/R36S.", "Falta el vídeo \"%s\" en DATA/MOVIES/R36S." },
-    /* the money on the results, the encore chant */
-    { "sem dinheiro novo", "no new cash", "sin dinero nuevo" },
+    /* the money on the results, the encore chant (MÚSICAS BÔNUS, sem dinheiro novo and ENCORE! are lang_song.c's) */
     { "total %s", "total %s", "total %s" },
-    { "ENCORE!", "ENCORE!", "¡OTRA!" },
     { "A plateia quer mais uma!", "The crowd wants one more!", "¡El público quiere otra!" },
     { "Tocar já", "Play now", "Tocar ya" },
 
