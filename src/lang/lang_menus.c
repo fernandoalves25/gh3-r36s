@@ -245,7 +245,7 @@ const lang_entry LANG_MENUS[] = {
     { "Reiniciar", "Restart", "Reiniciar" },
     { "Sair da música", "Quit Song", "Salir del tema" },
     { "QUE PENA…", "TOO BAD…", "QUÉ PENA…" },
-    { "PONTOS", "POINTS", "PUNTOS" },
+    { "PONTOS", "SCORE", "PUNTOS" },
     { "A plateia vaiou… tente de novo!", "The crowd booed you… try again!", "El público te abucheó… ¡inténtalo otra vez!" },
     { "Notas acertadas", "Notes Hit", "Notas acertadas" },
     { "Maior sequência", "Best Streak", "Mejor racha" },
