@@ -24,7 +24,7 @@ const lang_entry LANG_SONG[] = {
     { "setlist", "setlist", "lista" },
     { "bônus", "bonus", "extras" },
     { "downloads", "downloads", "descargas" },
-    { "CARREIRA", "CAREER", "CARRERA" },
+    { "CARREIRA", "CAREER", "TRAYECTORIA" },
     { "JOGO RÁPIDO", "QUICKPLAY", "PARTIDA RÁPIDA" },
     { "Abas", "Tabs", "Pestañas" },
 
