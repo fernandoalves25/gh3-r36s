@@ -1,5 +1,5 @@
-# Host build (Linux / WSL): make            -> build/gh3 (2D) and build/gh3-3d (the same plus the 3D venues, -DGH3_3D)
-# R36S build:               make arm64      -> build/gh3.aarch64 and build/gh3-3d.aarch64 (needs SYSROOT, see scripts/build_arm64.sh)
+# Host build (Linux / WSL): make            -> build/gh3 (2D, for the headless tests) and build/gh3-3d (the player the R36S gets, -DGH3_3D)
+# R36S build:               make arm64      -> build/gh3.aarch64, the 3D player (-DGH3_3D; needs SYSROOT, see scripts/build_arm64.sh)
 CC ?= gcc
 CFLAGS ?= -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-misleading-indentation -std=gnu11 -D_GNU_SOURCE
 SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)

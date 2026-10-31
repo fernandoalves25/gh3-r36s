@@ -1,8 +1,9 @@
 #!/bin/bash
 # PortMaster launcher for Guitar Hero III (native) on the R36S and other RK3326 handhelds.
 # Layout under ports/gh3/:
-#   gh3.aarch64        the player (this repo: scripts/build_arm64.sh)
-#   DATA/              YOUR copy of the game's data folder (PAK/, SONGS/, MUSIC/ are what is read)
+#   gh3.aarch64        the player, with the game's venues, band and crowd in 3D (this repo: scripts/build_arm64.sh)
+#   cache-3d/          the venues' textures recompressed for the GPU, made on the first load of each
+#   DATA/              YOUR copy of the game's data folder (PAK/, SONGS/, MUSIC/, ZONES/ are what is read)
 #   gh3.cfg            options and controls, written by the game's own menus (Opções / Controles)
 #   gh3-recordes.cfg   records and career progress
 #   gh3-carreira.cfg   career money and what the store sold

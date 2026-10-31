@@ -230,7 +230,7 @@ enum { CAT_AUDIO, CAT_VIDEO, CAT_VLAG, CAT_CALIB, CAT_CONTROL, CAT_BAND, CAT_SAV
 static const char *CAT_LABEL[CAT_N] = { "ÁUDIO", "VÍDEO", "CALIBRAR IMAGEM", "CALIBRAR ATRASO", "CONTROLE", "GERENCIAR BANDA", "SALVAR / CARREGAR", "VÍDEOS", "A LOJA", "TOP ROCKERS", "TRAPAÇAS", "RESTAURAR PADRÕES" };
 static const char *CAT_HELP[CAT_N] = {
     "Volumes da banda, da guitarra e dos efeitos, a música do menu, as prévias e o atraso do áudio.",
-    "Palco 3D e a sua resolução (no GH3 3D), efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
+    "Palco 3D e a sua resolução, efeitos de palco, escurecer o fundo, FPS e os vídeos de abertura.",
     "No PC o jogo mede também o atraso da imagem. A tela do R36S não tem esse atraso: só o do som conta (Calibrar atraso).",
     "Toca um clique e você palheta no ritmo: o jogo mede o atraso do som e ajusta as notas e o julgamento. Faça antes de jogar.",
     "Canhoto, modo de palhetada, a alavanca (calibrar e sensibilidade) e os botões de cada ação.",

@@ -1,19 +1,18 @@
 #!/bin/bash
 # Assembles the PortMaster package build/port/gh3-r36s.zip:
-#   GH3.sh, GH3 3D.sh        the launchers (the 2D stage; the game's venues in 3D)
-#   gh3/gh3.aarch64          the player (scripts/build_arm64.sh)
-#   gh3/gh3-3d.aarch64       the same player built with the 3D venues (-DGH3_3D); same folder, same DATA and save files
+#   GH3.sh                   the launcher
+#   gh3/gh3.aarch64          the player, with the game's venues in 3D (scripts/build_arm64.sh, -DGH3_3D)
 #   gh3/port.json, README.md, port.cfg
 #   gh3/DATA/PUT_THE_GAME_DATA_HERE.txt
 # No game material goes in: the player copies their own DATA folder to ports/gh3/DATA.
 set -eu
 cd "$(dirname "$0")/.."
-BIN=build/gh3.aarch64; BIN3D=build/gh3-3d.aarch64
-[ -f "$BIN" ] && [ -f "$BIN3D" ] || { echo "no $BIN / $BIN3D: run scripts/build_arm64.sh first"; exit 1; }
+BIN=build/gh3.aarch64
+[ -f "$BIN" ] || { echo "no $BIN: run scripts/build_arm64.sh first"; exit 1; }
 OUT=build/port; rm -rf "$OUT"; mkdir -p "$OUT/gh3/DATA"
-cp port/GH3.sh "port/GH3 3D.sh" "$OUT/"; chmod +x "$OUT/GH3.sh" "$OUT/GH3 3D.sh"
-cp "$BIN" "$BIN3D" port/port.json port/README.md port/port.cfg "$OUT/gh3/"
-printf 'Copy the game'"'"'s DATA folder contents here: PAK/, SONGS/, MUSIC/ (ZONES for the 3D stage; MOVIES and STREAMS are optional).\n' > "$OUT/gh3/DATA/PUT_THE_GAME_DATA_HERE.txt"
+cp port/GH3.sh "$OUT/"; chmod +x "$OUT/GH3.sh"
+cp "$BIN" port/port.json port/README.md port/port.cfg "$OUT/gh3/"
+printf 'Copy the game'"'"'s DATA folder contents here: PAK/, SONGS/, MUSIC/, ZONES/ (the venues, the band and the crowd; MOVIES and STREAMS are optional).\n' > "$OUT/gh3/DATA/PUT_THE_GAME_DATA_HERE.txt"
 python3 - "$OUT" <<'EOF'
 import os, sys, zipfile
 out = sys.argv[1]; z = zipfile.ZipFile(os.path.join(out, 'gh3-r36s.zip'), 'w', zipfile.ZIP_DEFLATED)

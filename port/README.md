@@ -2,7 +2,8 @@
 
 Port nativo do Guitar Hero III para o R36S e outros portáteis RK3326 com PortMaster (ArkOS, dArkOS, ROCKNIX, AmberELEC).
 Não é emulação nem box64: é um player escrito em C que lê os arquivos originais do jogo (versão PC) e desenha
-pela GPU do aparelho (SDL2 + GLES2), com visual próprio em pixel art. As regras de acerto das notas (janelas,
+pela GPU do aparelho (SDL2 + GLES2), com os menus, a arte e as fontes do próprio jogo e os palcos, a banda e a plateia
+do jogo em 3D atrás da pista. As regras de acerto das notas (janelas,
 hammer-ons, sustains, star power, multiplicador, medidor de rock), a pontuação e as estrelas seguem as do próprio
 jogo, como foram levantadas no port para navegador.
 
@@ -21,36 +22,41 @@ jogo, como foram levantadas no port para navegador.
     Sem ele os efeitos são sintetizados.
   - `ZONES/global.pak.xen` + `global.pab.xen` (a arte 2D do jogo: notas, trastes, HUD, fundos dos menus e fontes) - 83 MB, opcional.
     Sem eles o jogo funciona com um visual liso de reserva.
-  - `ZONES/` (os cenários 3D, `z_*.pak.xen`) - 225 MB, só para o executável **GH3 3D** (veja abaixo). O resto de
+  - `ZONES/` (os cenários 3D, `z_*.pak.xen`) - 225 MB. Sem eles o jogo mostra um palco 2D no lugar. O resto de
     `MOVIES/` não é usado e pode ficar de fora para poupar cartão.
 
 ## Instalação
 
-1. Copie `GH3.sh` e `GH3 3D.sh` para `roms/ports/` (ou `roms2/ports/`) do cartão e a pasta `gh3/` para `roms/ports/gh3/`.
-2. Copie a pasta `DATA` do jogo para `roms/ports/gh3/DATA/` (com pelo menos `PAK`, `SONGS` e `MUSIC` dentro; `ZONES` para o 3D).
-3. Atualize a lista de jogos (ou reinicie) e abra **Guitar Hero III** (ou **Guitar Hero III 3D**) no menu Ports.
+1. Copie `GH3.sh` para `roms/ports/` (ou `roms2/ports/`) do cartão e a pasta `gh3/` para `roms/ports/gh3/`.
+2. Copie a pasta `DATA` do jogo para `roms/ports/gh3/DATA/` (com pelo menos `PAK`, `SONGS`, `MUSIC` e `ZONES` dentro).
+3. Atualize a lista de jogos (ou reinicie) e abra **Guitar Hero III** no menu Ports.
 
-## Os dois executáveis: GH3 e GH3 3D
+Quem tinha a versão anterior pode apagar `GH3 3D.sh` de `roms/ports/` e `gh3-3d.aarch64` e `log-3d.txt` de `gh3/`:
+agora o `GH3.sh` já abre o jogo em 3D. Os saves continuam os mesmos.
 
-Na mesma pasta `gh3/` há dois programas feitos dos mesmos fontes:
+## O palco 3D
 
-- `gh3.aarch64` (**GH3.sh**): o palco em pixel art, estável.
-- `gh3-3d.aarch64` (**GH3 3D.sh**): o mesmo jogo, mas atrás da pista ele desenha o cenário do próprio jogo em 3D, lido
-  de `DATA/ZONES/z_*.pak.xen`: as malhas e texturas do palco do set (o bar, o inferno, o Budokan…), com as luzes do
-  cenário e as câmeras do jogo cortando pela lista de cortes de cada música (`<música>_cameras_notes`). Nos menus, o
-  último palco carregado passeia pelas tomadas gerais do jogo. A banda do jogo toca no palco (**Opções > Vídeo >
-  Banda 3D**) e o show de luzes do jogo (feixes, cor, estrobo, fogo) segue a música; a plateia ainda não entra. É experimental: se engasgar ou a imagem sair errada, **Opções > Vídeo > Palco 3D** desliga o
-  cenário (volta ao palco 2D) sem trocar de executável; `Escurecer o fundo` continua valendo sobre o cenário.
-  **Opções > Vídeo > Resolução do palco 3D** escolhe o tamanho em que o cenário é desenhado antes de ser ampliado atrás
-  da pista: Alta (640x480), **Média** (480x360, o padrão) ou Baixa (320x240, a mais leve); a pista e o placar ficam
-  sempre nítidos. Na primeira vez que um palco abre, as texturas são comprimidas (ETC1) e guardadas em `cache-3d/`
-  na pasta do port; das outras vezes ele abre mais rápido. Apagar `cache-3d/` só faz o próximo carregamento refazê-lo.
-  Enquanto uma música toca, o `log-3d.txt` ganha a cada 10 s uma linha `r3d perf:` com quadros por segundo, tempo
-  médio e máximo do quadro, tempo do cenário, chamadas de desenho, triângulos e memória de texturas.
+Atrás da pista o jogo desenha o cenário do próprio jogo em 3D, lido de `DATA/ZONES/z_*.pak.xen`: as malhas e texturas
+do palco do set (o bar, o inferno, o Budokan…), com as câmeras do jogo cortando pela lista de cortes de cada música
+(`<música>_cameras_notes`) e as de vitória e derrota no fim. Nos menus, o último palco carregado passeia pelas tomadas
+gerais do jogo. No palco:
 
-Os dois leem o mesmo `DATA` e os mesmos arquivos de save (`gh3.cfg`, `gh3-recordes.cfg`, `gh3-carreira.cfg`,
-`gh3-tutoriais.cfg`), então dá para alternar entre eles sem perder nada; cada um escreve o seu log (`log.txt` e
-`log-3d.txt`). Sem `ZONES/`, ou quando o aparelho desenha por software (`SOFT_RENDER=1`), o 3D cai no palco 2D sozinho.
+- **A banda do jogo** (**Opções > Vídeo > Banda 3D**), com o roqueiro, o visual e a guitarra escolhidos em "Seu
+  roqueiro", as poses de vitória e derrota no fim da música e os ataques e reações nas batalhas. O vocalista segue a
+  música (sem vocalista nas instrumentais); os modelos que faltarem na sua cópia do jogo são trocados pelo padrão.
+- **A plateia do jogo**, que muda com o medidor de rock, levanta os braços no star power e acende os isqueiros nas
+  músicas que pedem.
+- **O show de luzes** (feixes, cor, estrobo, fogo), que segue a música e ilumina o palco, a banda e a plateia.
+
+**Opções > Vídeo > Palco 3D** desliga o cenário (volta ao palco 2D), **Efeitos de palco** desliga as luzes, o
+estrobo e a plateia, e `Escurecer o fundo` continua valendo sobre o cenário. **Opções > Vídeo > Resolução do palco 3D**
+escolhe o tamanho em que o cenário é desenhado antes de ser ampliado atrás da pista: Alta (640x480), **Média**
+(480x360, o padrão) ou Baixa (320x240, a mais leve); a pista e o placar ficam sempre nítidos. No R36S, na Média, ele
+roda a 58,5 quadros por segundo (o painel). Na primeira vez que um palco abre, as texturas são comprimidas (ETC1) e
+guardadas em `cache-3d/` na pasta do port; das outras vezes ele abre mais rápido. Apagar `cache-3d/` só faz o
+próximo carregamento refazê-lo. Enquanto uma música toca, o `log.txt` ganha a cada 10 s uma linha `r3d perf:` com
+quadros por segundo, tempo médio e máximo do quadro, tempo do cenário, chamadas de desenho, triângulos e memória de
+texturas. Sem `ZONES/`, ou quando o aparelho desenha por software (`SOFT_RENDER=1`), o jogo usa o palco 2D sozinho.
 
 ## Menu principal
 
@@ -145,7 +151,7 @@ Organizadas como no jogo:
 - O cartaz de opções tem as doze faixas do jogo; as que não servem no R36S (calibrar imagem, gerenciar banda,
   salvar/carregar, vídeos, a loja) ficam em cinza e o cursor passa por cima delas. A faixa do login automático do PC
   ficou com **Restaurar padrões**.
-- **Vídeo**: palco 3D, a resolução do palco 3D e a banda 3D (só no GH3 3D), efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
+- **Vídeo**: palco 3D, a resolução do palco 3D e a banda 3D, efeitos de palco, escurecer o fundo, FPS, vídeos de abertura.
 
 O visual é o do próprio jogo, lido de `ZONES/global.pak.xen` + `global.pab.xen`: as notas, os trastes, as chamas, a pista com
 os seus trilhos, o medidor de rock com as válvulas do star power, a caixa do placar com a válvula do multiplicador e os
@@ -155,15 +161,15 @@ Sem esses dois arquivos o jogo desenha tudo num visual liso de reserva.
 - **Top Rockers**: os seus melhores resultados em cada música, por dificuldade.
 - **Trapaças**: as do jogo, com os mesmos códigos (em "Tocar um código", segure os trastes de cada acorde e palhete):
   Hyperspeed, No Fail, Easy Expert (janelas de acerto dobradas; não vale na carreira nem para recordes), Precision Mode
-  (janelas pela metade), liberar todas as músicas e liberar tudo. Cada uma também liga e desliga direto. Air Guitar,
-  Performance Mode e Bret Michaels só mudam a banda 3D e aparecem como indisponíveis.
+  (janelas pela metade), liberar todas as músicas e liberar tudo. Cada uma também liga e desliga direto. Air Guitar
+  (a banda sem instrumentos) e Performance Mode (sem pista nem placar, a música toca sozinha) mudam a banda 3D; Bret
+  Michaels precisa de `PAK/Singer_Brett.pak.xen`, que nem toda cópia do jogo tem.
 
 `port.cfg` só tem as opções do launcher (vsync, clocks, renderização por software).
 
 ## O que ainda não tem
 
-- A plateia do próprio jogo (o cenário, a banda e o show de luzes entram só no GH3 3D), co-op e
-  multiplayer. No treino lento o jogo troca a banda pelos seus samples de bateria; aqui a banda toca, esticada.
+- Co-op e multiplayer.
 - Os efeitos sonoros são os do próprio jogo (`ZONES/global_sfx.pak.xen`, pela tabela de eventos de som do jogo: menus,
   notas erradas, multiplicador perdido, sequências, star power, ataques das batalhas, loja, resultado), com a plateia do
   palco de cada set (o murmúrio que acompanha o medidor de rock, vaias e aplausos, as palmas no star power, o grito no
@@ -174,10 +180,10 @@ Sem esses dois arquivos o jogo desenha tudo num visual liso de reserva.
 Precisa de um Linux (ou WSL) com `aarch64-linux-gnu-gcc` e um sysroot aarch64 com SDL2 (glibc até 2.30, a do ArkOS):
 
 ```
-make            # build/gh3 e build/gh3-3d para o PC (SDL2 do sistema), com modos sem janela: --dump, --frames, --screens, --r3dtest
-make port       # build/gh3.aarch64, build/gh3-3d.aarch64 e o zip do PortMaster em build/port/
+make            # build/gh3-3d (o jogo) e build/gh3 (o mesmo sem o 3D, para os testes) para o PC, com modos sem janela: --dump, --frames, --screens, --r3dtest
+make port       # build/gh3.aarch64 (com o 3D) e o zip do PortMaster em build/port/
 ```
 
-O `gh3-3d` é o mesmo código com `-DGH3_3D` mais `src/r3d/` (sem a define nada do 3D é compilado). Ele precisa de um
+O jogo é compilado com `-DGH3_3D` mais `src/r3d/` (sem a define nada do 3D é compilado). Ele precisa de um
 SDL2 com `SDL_RenderFlush` (2.0.10+, resolvido em tempo de execução) e do renderer GLES2/OpenGL do SDL; por software
 cai no palco 2D.

@@ -2,7 +2,8 @@
 # Cross-build for the R36S (RK3326, Cortex-A35, aarch64) against an old-glibc sysroot that has SDL2.
 #   SYSROOT=/path/to/sysroot-arm64 bash scripts/build_arm64.sh
 # The sysroot from the Don't Starve project (Ubuntu 18.04: glibc 2.27, SDL 2.0.8) is the default when present.
-# Two binaries from the same sources: gh3.aarch64 (the 2D stage) and gh3-3d.aarch64 (-DGH3_3D: the game's venues in 3D, src/r3d/).
+# One binary, gh3.aarch64, built with -DGH3_3D: the game's venues in 3D behind the highway (src/r3d/; the 2D stage stays as the fallback
+# when ZONES/ is missing or the 3D stage is off). The 2D-only build is the host's build/gh3, for the headless tests.
 set -eu
 cd "$(dirname "$0")/.."
 CC=${CC:-aarch64-linux-gnu-gcc}
@@ -17,9 +18,6 @@ FLAGS="-O2 -mcpu=cortex-a35 -std=gnu11 -D_GNU_SOURCE -Wall -Wno-unused-parameter
 SRC="src/main.c src/gh3fmt.c src/audio.c src/game.c src/fb.c src/font.c src/gfx.c src/art.c src/ui.c src/render.c src/settings.c src/input.c src/career.c src/screens.c src/fx.c src/stretch.c src/practice.c src/store.c src/movie.c src/overlay.c src/battle.c src/render_battle.c src/cheats.c src/tutorial.c src/sfx.c src/charsel.c src/charsel_pt.c src/orig_charsel.c src/gamearts.c src/original.c src/orig_setup.c src/orig_setlist.c src/orig_loading.c src/orig_results.c src/orig_options.c src/orig_font.c"
 SRC3D="src/r3d/r3d.c src/r3d/r3d_zone.c src/r3d/r3d_lights.c src/r3d/r3d_skin.c src/r3d/r3d_band.c src/r3d/r3d_crowd.c"
 glibc_of() { aarch64-linux-gnu-objdump -T "$1" | grep -o 'GLIBC_[0-9.]*' | sort -t. -k2,2n -k3,3n -u | tail -1; }
-$CC $FLAGS $INC -Ithird_party -o build/gh3.aarch64 $SRC $LIB -Wl,--allow-shlib-undefined -lSDL2 -lm -lpthread -ldl
+$CC $FLAGS -DGH3_3D $INC -Ithird_party -Isrc -o build/gh3.aarch64 $SRC $SRC3D $LIB -Wl,--allow-shlib-undefined -lSDL2 -lm -lpthread -ldl
 aarch64-linux-gnu-strip build/gh3.aarch64 2>/dev/null || true
-echo "built build/gh3.aarch64 (newest glibc symbol needed: $(glibc_of build/gh3.aarch64))"
-$CC $FLAGS -DGH3_3D $INC -Ithird_party -Isrc -o build/gh3-3d.aarch64 $SRC $SRC3D $LIB -Wl,--allow-shlib-undefined -lSDL2 -lm -lpthread -ldl
-aarch64-linux-gnu-strip build/gh3-3d.aarch64 2>/dev/null || true
-echo "built build/gh3-3d.aarch64 (newest glibc symbol needed: $(glibc_of build/gh3-3d.aarch64))"
+echo "built build/gh3.aarch64 with the 3D venues (newest glibc symbol needed: $(glibc_of build/gh3.aarch64))"
