@@ -15,6 +15,7 @@
 #include "gh3fmt.h"
 #include "practice.h"
 #include "store.h"
+#include "lang.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -58,8 +59,8 @@ static float wrap(const ga_font *f, float x, float y, float size, float maxW, fl
         if (*line && ga_text_w(f, test, size) > maxW) { if (y + lineH > maxY) return y; ga_text(f, x, y, size, line, c); y += lineH; snprintf(line, sizeof line, "%s", word); } else memcpy(line, test, sizeof line); }
     if (*line && y + lineH <= maxY + 1) { ga_text_fit(f, x, y, size, maxW, line, c, 0); y += lineH; } return y;
 }
-static const char *part_word(const gh3_song *s, int part) { return part == 1 ? (s->hasRhythm ? "Baixo" : "Guitarra base") : "Guitarra solo"; }   /* screens.c's part_name */
-static void section_word(int k, char *out, size_t n) { if (k <= 0 || k > A.S.sd.nmarkers) snprintf(out, n, "Do começo"); else { const char *t = app_section_at(A.S.sd.markers[k - 1].t); snprintf(out, n, "%d. %s", k, *t ? t : "Seção"); } }
+static const char *part_word(const gh3_song *s, int part) { return T(part == 1 ? (s->hasRhythm ? "Baixo" : "Guitarra base") : "Guitarra solo"); }   /* screens.c's part_name */
+static void section_word(int k, char *out, size_t n) { if (k <= 0 || k > A.S.sd.nmarkers) snprintf(out, n, "%s", T("Do começo")); else { const char *t = app_section_at(A.S.sd.markers[k - 1].t); snprintf(out, n, "%d. %s", k, *t ? t : T("Seção")); } }
 
 int orig_setup_draw(double now, const int *rows, int n) {
     gfx_sprite *poster = ga_img("1p_difficulty_poster"); const ga_font *fh = ga_font_get(F_HEAD), *ft = ga_font_get(F_TEXT); if (!poster || !fh || !ft) return 0;
@@ -71,44 +72,44 @@ int orig_setup_draw(double now, const int *rows, int n) {
     gfx_blit(poster, 0, 0, gfx_sprite_w(poster), gfx_sprite_h(poster), SX(180), 0, 920 * K, 720 * K, RGB(255, 255, 255), 1);
     tape("tape_01", 90, SX(1086), SY(106), 212 * K, 4);   /* the game's tape over the poster's top right corner */
     /* the song along the poster's top, the artist and year in the pale column */
-    if (s->isBoss) { const char *p = strstr(s->title, "vs."); snprintf(b, sizeof b, "Batalha %s", p ? p : s->title); } else snprintf(b, sizeof b, "%s", s->title);
+    if (s->isBoss) { const char *p = strstr(s->title, "vs."); snprintf(b, sizeof b, T("Batalha %s"), p ? p : s->title); } else snprintf(b, sizeof b, "%s", s->title);
     float left = SX(216), colW = SX(500) - left; ga_text_fit(fh, left, 9, 30, SX(1080) - left, b, P_INK, 0);
     ga_text_fit(ft, left, 54, 17, colW, s->artist, P_SOFT, 0); if (*s->year) ga_text(ft, left, 73, 15, s->year, P_SOFT);
     /* the difficulties (menu_sd_move_highlight: the bar slides to its row in 0.05 s) */
     static int lastDiff = -1; static double slideAt; static float slideFrom, barNow; float want = SY(235 + 70 * A.selDiff);
     if (lastDiff < 0) barNow = slideFrom = want; else if (lastDiff != A.selDiff) { slideFrom = barNow; slideAt = now; } lastDiff = A.selDiff;
     { float k = now - slideAt >= 50 || now < slideAt ? 1 : (float)(now - slideAt) / 50; barNow = slideFrom + (want - slideFrom) * k; }
-    ga_text(fh, left, SY(235) - 30, 19, "DIFICULDADE", P_RED);
+    ga_text(fh, left, SY(235) - 30, 19, T("DIFICULDADE"), P_RED);
     float bh = 37 * K, bw = 300 * K; gfx_rect(left, barNow, bw, bh, focus == SR_DIFF ? P_HILITE : fb_alpha(P_HILITE, 0.42f));
     if (focus == SR_DIFF) { arrow(left + 5, barNow + bh / 2, -1, P_INK); arrow(left + bw - 5, barNow + bh / 2, 1, P_INK); }
-    for (int i = 0; i < 4; i++) { float y = SY(235 + 70 * i); ga_text_fit(fh, SX(280), y + bh / 2 - 16, 32, 210 * K, DIFF_WORD[i], i == A.selDiff ? P_INK : fb_alpha(P_INK, 0.8f), 0); }
+    for (int i = 0; i < 4; i++) { float y = SY(235 + 70 * i); ga_text_fit(fh, SX(280), y + bh / 2 - 16, 32, 210 * K, T(DIFF_WORD[i]), i == A.selDiff ? P_INK : fb_alpha(P_INK, 0.8f), 0); }
     /* the record, as notes under them */
     const record_t *rc = records_get(s->name, A.selDiff, A.selPart); float ny = SY(235 + 70 * 4) + 6, nmax = H - 34;
-    if (A.mode == MODE_PRACTICE) { ga_text(fh, left, ny, 17, "TREINO", P_RED); ny = wrap(ft, left, ny + 22, 14, colW, 16, nmax, "Não falha, sem Star Power, nada é salvo.", P_SOFT);
-        if (rc && ny + 34 <= nmax) { num(rc->score, v, sizeof v); snprintf(b, sizeof b, "Recorde: %s", v); ga_text_fit(ft, left, ny + 2, 14, colW, b, P_INK, 0); stars(left, ny + 19, 13, rc->stars); } }
-    else { ga_text(fh, left, ny, 17, "SEU RECORDE", P_RED); ny += 22;
-        if (rc) { num(rc->score, v, sizeof v); snprintf(b, sizeof b, "%s pontos", v); ga_text_fit(ft, left, ny, 17, colW - 72, b, P_INK, 0); stars(left + colW - 70, ny + 2, 13, rc->stars); ny += 21;
-            snprintf(b, sizeof b, "%d%% das notas", rc->pct); ga_text_fit(ft, left, ny, 14, colW, b, P_SOFT, 0); ny += 16;
-            snprintf(b, sizeof b, "maior sequência: %d", rc->streak); ga_text_fit(ft, left, ny, 14, colW, b, P_SOFT, 0); ny += 16;
-            snprintf(b, sizeof b, "tocada %d %s", rc->plays, rc->plays == 1 ? "vez" : "vezes"); if (ny + 16 <= nmax) ga_text_fit(ft, left, ny, 14, colW, b, P_SOFT, 0); }
-        else wrap(ft, left, ny, 14, colW, 16, nmax, "Ainda sem recorde nesta parte e dificuldade.", P_SOFT); }
+    if (A.mode == MODE_PRACTICE) { ga_text(fh, left, ny, 17, T("TREINO"), P_RED); ny = wrap(ft, left, ny + 22, 14, colW, 16, nmax, T("Não falha, sem Star Power, nada é salvo."), P_SOFT);
+        if (rc && ny + 34 <= nmax) { num(rc->score, v, sizeof v); snprintf(b, sizeof b, T("Recorde: %s"), v); ga_text_fit(ft, left, ny + 2, 14, colW, b, P_INK, 0); stars(left, ny + 19, 13, rc->stars); } }
+    else { ga_text(fh, left, ny, 17, T("SEU RECORDE"), P_RED); ny += 22;
+        if (rc) { num(rc->score, v, sizeof v); snprintf(b, sizeof b, T("%s pontos"), v); ga_text_fit(ft, left, ny, 17, colW - 72, b, P_INK, 0); stars(left + colW - 70, ny + 2, 13, rc->stars); ny += 21;
+            snprintf(b, sizeof b, T("%d%% das notas"), rc->pct); ga_text_fit(ft, left, ny, 14, colW, b, P_SOFT, 0); ny += 16;
+            snprintf(b, sizeof b, T("maior sequência: %d"), rc->streak); ga_text_fit(ft, left, ny, 14, colW, b, P_SOFT, 0); ny += 16;
+            snprintf(b, sizeof b, T("tocada %d %s"), rc->plays, rc->plays == 1 ? T("vez") : T("vezes")); if (ny + 16 <= nmax) ga_text_fit(ft, left, ny, 14, colW, b, P_SOFT, 0); }
+        else wrap(ft, left, ny, 14, colW, 16, nmax, T("Ainda sem recorde nesta parte e dificuldade."), P_SOFT); }
     /* the other rows on a taped notebook page */
     int m = n - 1, lock = app_song_lock(A.selTier, A.selSong); float rh = m > 4 ? 25 : 30, cw = 336, ch = 16 + 30 + m * rh + 26, cx = W - 18 - cw, cy = H - 36 - ch;
     gfx_sprite *paper = ga_img("options_calibrate_paper");
     if (paper) { gfx_blit(paper, 8, 4, 198, 244, cx - 8 + 5, cy - 6 + 5, cw + 16, ch + 14, RGB(0, 0, 0), 0.45f); gfx_blit(paper, 8, 4, 198, 244, cx - 8, cy - 6, cw + 16, ch + 14, RGB(246, 238, 222), 1); }
     else ui_panel(cx, cy, cw, ch, UI_PANEL_FLAT);
     tape("tape_02", -24, cx + 14, cy + 4, 62, 3); tape("tape_01", 20, cx + cw - 10, cy + 4, 62, 3);
-    ga_text(fh, cx + 22, cy + 12, 21, A.mode == MODE_PRACTICE ? "PREPARAR O TREINO" : "PREPARAR", P_RED);
+    ga_text(fh, cx + 22, cy + 12, 21, A.mode == MODE_PRACTICE ? T("PREPARAR O TREINO") : T("PREPARAR"), P_RED);
     int spk = A.practiceSpeed >= 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0;
     for (int i = 0, k = 0; i < n; i++) { int r = rows[i], sel = A.setupRow == i; if (r == SR_DIFF) continue; float ry = cy + 16 + 30 + k++ * rh, ty = ry + (rh - 4) / 2 - 9, x0 = cx + 14, x1 = cx + cw - 14;
         if (sel) gfx_rect(x0, ry, x1 - x0, rh - 4, r == SR_PLAY && lock ? RGB(170, 150, 135) : P_HILITE);
-        if (r == SR_PLAY) { const char *w = lock ? "Bloqueada nesta dificuldade" : A.mode == MODE_PRACTICE ? "TREINAR!" : "TOCAR!";
+        if (r == SR_PLAY) { const char *w = lock ? T("Bloqueada nesta dificuldade") : A.mode == MODE_PRACTICE ? T("TREINAR!") : T("TOCAR!");
             if (lock) ga_text_fit(ft, (x0 + x1) / 2, ty + 1, 16, x1 - x0 - 20, w, RGB(110, 96, 86), 1); else ga_text_center(fh, (x0 + x1) / 2, ty - 3, 23, w, sel ? P_INK : P_RED); continue; }
-        const char *label = r == SR_PART ? "Parte" : r == SR_SECTION ? "Começar em" : r == SR_END ? "Terminar em" : r == SR_SPEED ? "Velocidade" : r == SR_STRUM ? "Palhetada" : "Velocidade da pista";
+        const char *label = T(r == SR_PART ? "Parte" : r == SR_SECTION ? "Começar em" : r == SR_END ? "Terminar em" : r == SR_SPEED ? "Velocidade" : r == SR_STRUM ? "Palhetada" : "Velocidade da pista");
         switch (r) { case SR_PART: snprintf(v, sizeof v, "%s", part_word(s, A.selPart)); break; case SR_SECTION: section_word(A.practiceSec, v, sizeof v); break;
-            case SR_END: if (A.practiceEnd > 0) section_word(A.practiceEnd, v, sizeof v); else snprintf(v, sizeof v, "Até o fim"); break;
-            case SR_SPEED: snprintf(v, sizeof v, "%s (%d%%)", PRACTICE_SPEED_NAME[spk], (int)lround(PRACTICE_SPEED[spk] * 100)); break;
-            case SR_STRUM: snprintf(v, sizeof v, "%s", SET.tap ? "Toque livre" : "Normal"); break; default: if (SET.hyper) snprintf(v, sizeof v, "+%d", SET.hyper); else snprintf(v, sizeof v, "Normal"); }
+            case SR_END: if (A.practiceEnd > 0) section_word(A.practiceEnd, v, sizeof v); else snprintf(v, sizeof v, "%s", T("Até o fim")); break;
+            case SR_SPEED: snprintf(v, sizeof v, "%s (%d%%)", T(PRACTICE_SPEED_NAME[spk]), (int)lround(PRACTICE_SPEED[spk] * 100)); break;
+            case SR_STRUM: snprintf(v, sizeof v, "%s", T(SET.tap ? "Toque livre" : "Normal")); break; default: if (SET.hyper) snprintf(v, sizeof v, "+%d", SET.hyper); else snprintf(v, sizeof v, "%s", T("Normal")); }
         float lw = ga_text_w(ft, label, 16), vx = x1 - 8 - (sel ? 12 : 0), vmax = vx - (x0 + 8 + lw + 22), vw = fminf(ga_text_w(ft, v, 16), vmax);
         ga_text(ft, x0 + 8, ty, 16, label, P_INK); ga_text_fit(ft, vx, ty, 16, vmax, v, sel ? P_INK : P_RED, 2);
         if (sel) { arrow(vx - vw - 12, ry + (rh - 4) / 2, -1, P_INK); arrow(x1 - 6, ry + (rh - 4) / 2, 1, P_INK); } }
@@ -116,10 +117,10 @@ int orig_setup_draw(double now, const int *rows, int n) {
     const gh3_partdiff *own = &A.S.sd.parts[A.selPart][A.selDiff], *other = &A.S.sd.parts[A.selPart ? 0 : 1][A.selDiff], *pd = own->raw ? own : other;
     if (A.mode == MODE_PRACTICE) { double end = A.S.sd.nfret ? A.S.sd.fretbars[A.S.sd.nfret - 1] : 0, from, to; practice_range(&A.S.sd, A.practiceSec, A.practiceEnd, end, &from, &to); int cnt = 0;
         for (int i = 0; i + 2 < pd->nraw; i += 3) cnt += pd->raw[i] >= from - 1 && pd->raw[i] < to;
-        int sec = (int)((to - from) / PRACTICE_SPEED[spk] / 1000 + 0.5); snprintf(b, sizeof b, "Trecho: %d notas, %d:%02d a %d%% da velocidade", cnt, sec / 60, sec % 60, (int)lround(PRACTICE_SPEED[spk] * 100)); }
-    else snprintf(b, sizeof b, "%s em %s: %d notas%s", part_word(s, A.selPart), diff_name_pt(A.selDiff), pd->raw ? pd->nraw / 3 : 0, own->raw ? "" : " (partitura da outra parte)");
+        int sec = (int)((to - from) / PRACTICE_SPEED[spk] / 1000 + 0.5); snprintf(b, sizeof b, T("Trecho: %d notas, %d:%02d a %d%% da velocidade"), cnt, sec / 60, sec % 60, (int)lround(PRACTICE_SPEED[spk] * 100)); }
+    else snprintf(b, sizeof b, T("%s em %s: %d notas%s"), part_word(s, A.selPart), T(diff_name_pt(A.selDiff)), pd->raw ? pd->nraw / 3 : 0, own->raw ? "" : T(" (partitura da outra parte)"));
     ga_text_fit(ft, cx + 22, cy + ch - 22, 14, cw - 44, b, P_SOFT, 0);
-    static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Tocar", "Voltar", "Mudar" }; ui_hints(H - 24, W, bt, tx, 3);
+    static const char *bt[3] = { "A", "B", "← →" }, *tx[3] = { "Tocar", "Voltar", "Mudar" }; const char *txl[3] = { T(tx[0]), T(tx[1]), T(tx[2]) }; ui_hints(H - 24, W, bt, txl, 3);
     encore_draw(now);
 #undef SX
 #undef SY

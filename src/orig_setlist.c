@@ -19,6 +19,7 @@
 #include "store.h"
 #include "ui.h"
 #include "art.h"
+#include "lang.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -97,7 +98,7 @@ static void fmt_num(long n, char *out, size_t cap) { char raw[32]; snprintf(raw,
 static void upper(const char *s, char *out, size_t cap) { /* capitals, the accented Latin-1 letters too */
     size_t o = 0; for (const unsigned char *p = (const unsigned char *)s; *p && o + 2 < cap; p++) { unsigned c = *p;
         if (c >= 'a' && c <= 'z') c -= 32; else if (c == 0xC3 && p[1] >= 0xA0 && p[1] <= 0xBE && p[1] != 0xB7) { out[o++] = (char)c; out[o++] = (char)(p[1] - 0x20); p++; continue; } out[o++] = (char)c; } out[o] = 0; }
-static void song_title(const gh3_song *s, char *out, size_t cap) { if (s->isBoss) { const char *p = strstr(s->title, "vs."); snprintf(out, cap, "Batalha %s", p ? p : s->title); } else snprintf(out, cap, "%s", s->title); }
+static void song_title(const gh3_song *s, char *out, size_t cap) { if (s->isBoss) { const char *p = strstr(s->title, "vs."); snprintf(out, cap, T("Batalha %s"), p ? p : s->title); } else snprintf(out, cap, "%s", s->title); }
 static float fit(const ga_font *f, float x, float y, float size, float maxW, const char *s, uint32_t c, int align, int shadow) { /* returns the width drawn */
     float w = ga_text_w(f, s, size); if (maxW > 0 && w > maxW) w = maxW;
     if (shadow) ga_text_fit(f, x + 1, y + 1, size, maxW, s, (c & 0xFF000000) | 0, align); ga_text_fit(f, x, y, size, maxW, s, c, align); return w;
@@ -158,19 +159,19 @@ int orig_setlist_draw(double now) {
     case L_HL:   /* the highlight: it stays put while the pages move */
         gfx_rect(X(326), (428 - fixedUp) * K, hlW * K, 80 * K, RGBA(255, 255, 255, 128)); break;
     case L_WORDS:   /* the words on the page: the bonus and downloaded lists have their name written large in place of the title */
-    if (tab) { const ga_font *a10 = ga_font_get("fontgrid_text_a10"); if (!a10) a10 = f; fit(a10, X(330), Y(220), ga_font_size(a10) * 2 * K, X(1010 - 330), tab == 1 ? "MÚSICAS BÔNUS" : "MÚSICAS BAIXADAS", RGB(50, 30, 20), 0, 0); }
+    if (tab) { const ga_font *a10 = ga_font_get("fontgrid_text_a10"); if (!a10) a10 = f; fit(a10, X(330), Y(220), ga_font_size(a10) * 2 * K, X(1010 - 330), tab == 1 ? T("MÚSICAS BÔNUS") : T("MÚSICAS BAIXADAS"), RGB(50, 30, 20), 0, 0); }
     for (int i = 0; i < A.nrows; i++) { float y = rowY[i]; if (!SEE(y - 10, y + 90)) continue;
         if (A.rows[i].kind == 0) { int t = A.rows[i].idx; const gh3_tier *tr = &lib->tiers[t]; const tierstate_t *ts = &A.tiers[t]; const char *st = NULL; uint32_t sc = SL_ARTIST;
-            if (tr->tab == 1) snprintf(b, sizeof b, "MÚSICAS BÔNUS"); else if (tr->tab == 2) snprintf(b, sizeof b, "MÚSICAS BAIXADAS"); else if (tr->tab == 3) snprintf(b, sizeof b, "MAIS MÚSICAS"); else upper(tr->title, b, sizeof b);
-            if (tr->career && career) { st = b2; if (!ts->open) st = "bloqueado: termine o set anterior"; else if (ts->done) { st = "set concluído"; sc = SL_DONE; }
-                else if (ts->regDone < ts->required) snprintf(b2, sizeof b2, "%d de %d músicas para liberar %s", ts->regDone, ts->required, tr->bossIdx >= 0 ? "a batalha" : "o encore");
-                else if (tr->bossIdx >= 0 && !ts->bossDone) st = "vença a batalha para liberar o encore"; else st = "toque o encore para fechar o set"; }
-            else if (tr->tab == 1 && !SET.unlockAll) st = career ? "à venda na Loja: aperte Y" : "à venda na Loja da carreira";
+            if (tr->tab == 1) snprintf(b, sizeof b, "%s", T("MÚSICAS BÔNUS")); else if (tr->tab == 2) snprintf(b, sizeof b, "%s", T("MÚSICAS BAIXADAS")); else if (tr->tab == 3) snprintf(b, sizeof b, "%s", T("MAIS MÚSICAS")); else upper(tr->title, b, sizeof b);
+            if (tr->career && career) { st = b2; if (!ts->open) st = T("bloqueado: termine o set anterior"); else if (ts->done) { st = T("set concluído"); sc = SL_DONE; }
+                else if (ts->regDone < ts->required) snprintf(b2, sizeof b2, T("%d de %d músicas para liberar %s"), ts->regDone, ts->required, tr->bossIdx >= 0 ? T("a batalha") : T("o encore"));
+                else if (tr->bossIdx >= 0 && !ts->bossDone) st = T("vença a batalha para liberar o encore"); else st = T("toque o encore para fechar o set"); }
+            else if (tr->tab == 1 && !SET.unlockAll) st = career ? T("à venda na Loja: aperte Y") : T("à venda na Loja da carreira");
             float sw = st ? ga_text_w(f, st, 55 * 0.5f * K) : 0; if (st) ga_text_right(f, X(1010), Y(y + 18), 55 * 0.5f * K, st, sc);
             if (tab == 0 || i != 0) fit(f, X(300), Y(y), 55 * K, X(1010 - 300) - sw - (st ? 12 : 0), b, fb_alpha(i == 0 ? SL_INK1 : SL_INK, tr->career && career && !ts->open ? 0.45f : 1), 0, 0); continue; }
         const gh3_song *s = &lib->songs[A.rows[i].idx]; int on = i == cur, lock = app_song_lock(A.rows[i].tier, A.rows[i].idx);
         const record_t *rc = records_get(s->name, A.selDiff, 0), *rc2 = records_get(s->name, A.selDiff, 1); if (!rc || (rc2 && rc2->score > rc->score)) rc = rc2; float x = 340, right = 0;
-        if (lock) { const char *why = lock >= LOCK_BUY ? store_lock_text(A.rows[i].idx, career) : !career ? "libere na carreira" : lock == LOCK_TIER ? "bloqueado" : lock == LOCK_BOSS ? "batalha bloqueada" : "encore bloqueado";
+        if (lock) { const char *why = lock >= LOCK_BUY ? store_lock_text(A.rows[i].idx, career) : !career ? T("libere na carreira") : lock == LOCK_TIER ? T("bloqueado") : lock == LOCK_BOSS ? T("batalha bloqueada") : T("encore bloqueado");
             right = ga_text_w(f, why, 55 * 0.6f * K); ga_text_right(f, X(x + 660), Y(y + 40), 55 * 0.6f * K, why, lock == LOCK_BUY ? SL_PRICE : SL_LOCK); }
         else if (rc) { if (rc->stars > 2) for (int k = 1; k <= rc->stars && k <= 5; k++) { uint32_t h = (uint32_t)(A.rows[i].idx * 7 + k) * 2654435761u; static const char *ST[3] = { "setlist_page1_loop_star1", "setlist_page1_loop_star2", "setlist_page1_loop_star3" };
                 put(rc->pct >= 100 ? "setlist_star_gold" : ST[(h >> 9) % 3], X(x + 660 - 20 * k), Y(y), 32 * K, 32 * K, 0, 0, 0, 0, 0, 0, SL_STAR, 1); }
@@ -190,17 +191,17 @@ int orig_setlist_draw(double now) {
      * fret button that opens each there; on the R36S L1 and R1 go one tab left or right). A tab with no songs is faded. */
     { static const char *TW[3] = { "setlist", "bônus", "downloads" }; const float TX[3] = { 300, 624, 870 }, TY[3] = { 70, 102, tab == 2 ? 160.0f : 120 }, GX[3] = { 260, 580, 830 }, GY[3] = { 65, 90, tab == 2 ? 150.0f : 110 };
       for (int t = 0; t < 3; t++) { int has = 0; for (int i = 0; i < lib->ntiers && !has; i++) if (screens_tab_of(i) == t) has = lib->tiers[i].nsongs > 0;
-          fit(f, X(TX[t]), Y(TY[t]), 55 * K, 0, TW[t], has ? RGB(0, 0, 0) : RGBA(0, 0, 0, 90), 0, 0);
+          fit(f, X(TX[t]), Y(TY[t]), 55 * K, 0, T(TW[t]), has ? RGB(0, 0, 0) : RGBA(0, 0, 0, 90), 0, 0);
           if (t == tab - 1 || t == tab + 1) fit(f, X(GX[t]) - 6, Y(GY[t]) + 4, 44 * K, 0, t < tab ? "L1" : "R1", RGB(110, 110, 110), 0, 0); } }
     /* the mode and difficulty, and the career at a glance, in pills along the top */
-    { const float TS = 15, PH = 22, py = 5; uint32_t ink = RGB(0, 0, 0), red = RGB(120, 20, 10); const char *mode = career ? "CARREIRA" : A.mode == MODE_QUICK ? "JOGO RÁPIDO" : "TREINO"; char d[32]; upper(diff_name_pt(A.selDiff), d, sizeof d);
+    { const float TS = 15, PH = 22, py = 5; uint32_t ink = RGB(0, 0, 0), red = RGB(120, 20, 10); const char *mode = career ? T("CARREIRA") : A.mode == MODE_QUICK ? T("JOGO RÁPIDO") : T("TREINO"); char d[32]; upper(T(diff_name_pt(A.selDiff)), d, sizeof d);
         float w = ga_text_w(pf, mode, TS) + 10 + ga_text_w(pf, d, TS); pill(14, py, w + 8, PH); ga_text(pf, 18, py + 3, TS, mode, ink); ga_text(pf, 18 + ga_text_w(pf, mode, TS) + 10, py + 3, TS, d, red);
         int done = career_tiers_done(lib, A.tiers), ntier = 0; for (int t = 0; t < lib->ntiers; t++) ntier += lib->tiers[t].career;
         char st[16]; snprintf(st, sizeof st, "%d", records_count_stars()); if (career) snprintf(b, sizeof b, "%d/%d SETS", done, ntier); const char *cash = career ? store_cash_str() : NULL;
         float ww = 20 + ga_text_w(pf, st, TS) + (career ? 14 + ga_text_w(pf, b, TS) + 14 + ga_text_w(pf, cash, TS) : 0), px = W - 14 - ww - 8;
         pill(px, py, ww + 8, PH); px += 4; put("setlist_star_gold", px, py + 2, 18, 18, 0, 0, 0, 0, 0, 0, RGB(255, 255, 255), 1); px += 20; ga_text(pf, px, py + 3, TS, st, ink); px += ga_text_w(pf, st, TS) + 14;
         if (career) { ga_text(pf, px, py + 3, TS, b, done == ntier ? RGB(20, 90, 30) : ink); px += ga_text_w(pf, b, TS) + 14; ga_text(pf, px, py + 3, TS, cash, RGB(20, 90, 30)); } }
-    static const char *bt[5] = { "A", "B", "← →", "L1 R1", "Y" }, *tx[5] = { "Escolher", "Voltar", "Dificuldade", "Abas", "Loja" }; ui_hints(H - 24, W, bt, tx, career ? 5 : 4);
+    static const char *bt[5] = { "A", "B", "← →", "L1 R1", "Y" }, *tx[5] = { "Escolher", "Voltar", "Dificuldade", "Abas", "Loja" }; const char *txl[5]; for (int i = 0; i < 5; i++) txl[i] = T(tx[i]); ui_hints(H - 24, W, bt, txl, career ? 5 : 4);
     /* a set or song just opened: a note taped over the list */
     if (A.unlockAt > 0 && now - A.unlockAt < 4500) { float a = now - A.unlockAt > 3500 ? (float)(1 - (now - A.unlockAt - 3500) / 1000) : 1, sz = 26, tw = fminf(W - 120.0f, ga_text_w(f, A.unlockMsg, sz)), cw = tw + 70, ch = 74, cx = W / 2.0f - cw / 2, cy = H / 2.0f - ch / 2;
         gfx_rect(cx + 5, cy + 6, cw, ch, RGBA(0, 0, 0, (int)(90 * a))); put("setlist_page3_head_9x6", cx, cy, cw, ch, 0, 0, 0, 0, 0, 0, RGB(255, 250, 235), a);

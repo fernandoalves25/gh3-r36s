@@ -24,6 +24,7 @@
 #include "practice.h"
 #include "charsel.h"
 #include "overlay.h"
+#include "lang.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -33,7 +34,7 @@ static float S, OX, OY, GA;   /* the stage's scale and place on the screen, the 
 static float X(float u) { return OX + u * S; }
 static float Y(float v) { return OY + v * S; }
 static const char *MAGS[8] = { "backyard", "bar", "paste", "decibel", "ap", "kerrang", "gplayer", "hell" };
-static const char *DIFF_UP[4] = { "FÁCIL", "MÉDIO", "DIFÍCIL", "EXPERT" };
+static const char *DIFF_UP[4] = { "FÁCIL", "MÉDIO", "DIFÍCIL", "EXPERT" };   /* T() at the use */
 #define WHITE RGB(255, 255, 255)
 #define BLK RGB(0, 0, 0)
 /* the game's g_ss_* colours, and each magazine's, one player: percent, star, star not got, score box left, score, score box right, difficulty, streak box, streak, "note streak", highlight */
@@ -91,7 +92,7 @@ static int mag_of(void) {   /* finMag: the magazine of the career tier the song 
     const gh3_library *L = A.lib; int t = A.selTier; if (!L || t < 0 || t >= L->ntiers || L->tiers[t].tab != 0) return 0;
     int k = 0; for (int i = 0; i < t; i++) if (L->tiers[i].tab == 0) k++; return k > 7 ? 7 : k;
 }
-static const char *second_item(void) { return A.mode == MODE_PRACTICE ? "MUDAR O TREINO" : store_encore_offer() >= 0 ? "ENCORE!" : "LISTA DE MÚSICAS"; }
+static const char *second_item(void) { return T(A.mode == MODE_PRACTICE ? "MUDAR O TREINO" : store_encore_offer() >= 0 ? "ENCORE!" : "LISTA DE MÚSICAS"); }
 /* the notes of each section of the song (the detailed breakdown) */
 typedef struct { const char *name; int hit, total; } sec_t;
 static int sections(sec_t *out, int cap) {
@@ -110,19 +111,21 @@ static void strip(char lines[][160], int n) {
 static int notes_line(char *b, size_t cap) {   /* what the run counts for (as the other themes say it) */
     const gh3_run *r = &A.S.run;
     if (r->autoPlay) return 0;   /* Performance Mode (the band played it): the game's page as it is, no notice (GH3 has none; here it still counts for nothing) */
-    if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, cap, "Treino a %d%% da velocidade: nada é salvo.", (int)lround(PRACTICE_SPEED[k] * 100)); return 1; }
-    if (SET.noFail && !r->failed) { snprintf(b, cap, "Modo sem falhar: não vale para recordes nem para a carreira."); return 1; }
-    if (!cheats_records_ok(A.mode) && !r->failed) { snprintf(b, cap, "Easy Expert: não vale para recordes."); return 1; }
-    if (A.mode == MODE_QUICK && !r->failed && !A.newRecord) { snprintf(b, cap, "Jogo rápido: o recorde conta, a carreira não muda."); return 1; }
+    if (A.mode == MODE_PRACTICE) { int k = A.practiceSpeed > 0 && A.practiceSpeed < PRACTICE_SPEEDS ? A.practiceSpeed : 0; snprintf(b, cap, T("Treino a %d%% da velocidade: nada é salvo."), (int)lround(PRACTICE_SPEED[k] * 100)); return 1; }
+    if (SET.noFail && !r->failed) { snprintf(b, cap, "%s", T("Modo sem falhar: não vale para recordes nem para a carreira.")); return 1; }
+    if (!cheats_records_ok(A.mode) && !r->failed) { snprintf(b, cap, "%s", T("Easy Expert: não vale para recordes.")); return 1; }
+    if (A.mode == MODE_QUICK && !r->failed && !A.newRecord) { snprintf(b, cap, "%s", T("Jogo rápido: o recorde conta, a carreira não muda.")); return 1; }
     return 0;
 }
-static void hints(void) { static const char *bt[2] = { "A", "← →" }, *tx[2] = { "Confirmar", "Escolher" }; ui_hints(A.H - 22, A.W, bt, tx, 2); }
+static void hints(void) { static const char *bt[2] = { "A", "← →" }, *tx[2] = { "Confirmar", "Escolher" }; const char *txl[2] = { T(tx[0]), T(tx[1]) }; ui_hints(A.H - 22, A.W, bt, txl, 2); }
 
-/* ---- won: "VOCÊ ARRASOU!" letter by letter, shaking, then flying off to the four sides */
-static void you_rock(double T) {
-    const ga_font *f = ga_font_get("fontgrid_text_a10_large"); if (!f) f = ga_font_get("fontgrid_text_a10"); if (!f || T > 2.1) return;
-    static const char *L[13] = { "V", "O", "C", "Ê", " ", "A", "R", "R", "A", "S", "O", "U", "!" }; const int n = 13; const float space = 46;
-    double age = T * 1000; int beat = (int)(age / 92), shake = age < 1300 && fmod(age, 92) < 75; float boom = age >= 1300 ? (float)fmin(1, (age - 1300) / 700) : 0, e = 1 - (1 - boom) * (1 - boom);
+/* ---- won: "VOCÊ ARRASOU!" (in the language) letter by letter, shaking, then flying off to the four sides */
+static void you_rock(double tS) {
+    const ga_font *f = ga_font_get("fontgrid_text_a10_large"); if (!f) f = ga_font_get("fontgrid_text_a10"); if (!f || tS > 2.1) return;
+    char L[40][5]; int n = 0; const float space = 46;   /* split_text_into_array_elements: one letter (UTF-8 character) each */
+    for (const unsigned char *p = (const unsigned char *)T("VOCÊ ARRASOU!"); *p && n < 40; n++) { int k = *p < 0x80 ? 1 : *p >= 0xF0 ? 4 : *p >= 0xE0 ? 3 : *p >= 0xC0 ? 2 : 1, j = 0;
+        for (; j < k && p[j]; j++) L[n][j] = (char)p[j]; L[n][j] = 0; p += j; }
+    double age = tS * 1000; int beat = (int)(age / 92), shake = age < 1300 && fmod(age, 92) < 75; float boom = age >= 1300 ? (float)fmin(1, (age - 1300) / 700) : 0, e = 1 - (1 - boom) * (1 - boom);
     float g = GA; GA = 1; gfx_rect(0, 0, (float)A.W, (float)A.H, RGBA(0, 0, 0, (int)(130 * (1 - e))));   /* the page in the dark while they shake */
     if (!overlay_draw(A.resultsAt + age, A.W, A.H)) overlay_close();   /* win_song's Fret_Flames (TexturePri 70), under the letters (z 95); gone when played */
     for (int i = 0, li = 0; i < n; i++) { if (L[i][0] == ' ') continue; float x = 640 - (n - 1) * space / 2 + i * space; unsigned r = hsh(i * 977 + 13), h = hsh(beat * 31 + i * 7); int dir = li++ % 4;
@@ -138,16 +141,16 @@ typedef struct { char lab[96], mid[32], val[48]; uint32_t col; int gap; } drow_t
 static int more_rows(drow_t *rw, int cap) {
     const gh3_run *r = &A.S.run; const gh3_chart *ch = &A.S.chart; int n = 0; const uint32_t ink = RGB(75, 75, 75);
 #define ROW(c, l, ...) do { if (n < cap) { memset(&rw[n], 0, sizeof rw[n]); snprintf(rw[n].lab, sizeof rw[n].lab, "%s", l); snprintf(rw[n].val, sizeof rw[n].val, __VA_ARGS__); rw[n++].col = c; } } while (0)
-    ROW(ink, "NOTAS ACERTADAS", "%d/%d", r->hits, r->nnotes);
-    if (BTL.on) ROW(ink, "ATAQUES LANÇADOS", "%d", BTL.me.fired);
-    else { int done = 0; for (int i = 0; i < ch->nphrases; i++) done += ch->phrases[i].done != 0; ROW(ink, "FRASES DE STAR POWER", "%d/%d", done, ch->nphrases);
-        int m = ch->base > 0 ? (int)(r->score / ch->base) : 1; ROW(ink, "MULTIPLICADOR MÉDIO", "%d X", m < 1 ? 1 : m); }
-    ROW(ink, "MAIOR SEQUÊNCIA", "%d", r->best);
-    ROW(r->overstrums ? RGB(165, 0, 0) : ink, "PALHETADAS ERRADAS", "%d", r->overstrums);
+    ROW(ink, T("NOTAS ACERTADAS"), "%d/%d", r->hits, r->nnotes);
+    if (BTL.on) ROW(ink, T("ATAQUES LANÇADOS"), "%d", BTL.me.fired);
+    else { int done = 0; for (int i = 0; i < ch->nphrases; i++) done += ch->phrases[i].done != 0; ROW(ink, T("FRASES DE STAR POWER"), "%d/%d", done, ch->nphrases);
+        int m = ch->base > 0 ? (int)(r->score / ch->base) : 1; ROW(ink, T("MULTIPLICADOR MÉDIO"), "%d X", m < 1 ? 1 : m); }
+    ROW(ink, T("MAIOR SEQUÊNCIA"), "%d", r->best);
+    ROW(r->overstrums ? RGB(165, 0, 0) : ink, T("PALHETADAS ERRADAS"), "%d", r->overstrums);
     sec_t sc[96]; int ns = sections(sc, 96), hi = 0, lo = 0;
     for (int i = 1; i < ns; i++) { if (sc[i].hit * sc[hi].total > sc[hi].hit * sc[i].total) hi = i; if (sc[i].hit * sc[lo].total < sc[lo].hit * sc[i].total) lo = i; }
     int mark = ns > 1 && sc[hi].hit * sc[lo].total != sc[lo].hit * sc[hi].total;
-    for (int i = 0; i < ns && n < cap; i++) { char nm[96]; upper(sc[i].name && *sc[i].name ? sc[i].name : "SEÇÃO", nm, sizeof nm);
+    for (int i = 0; i < ns && n < cap; i++) { char nm[96]; upper(sc[i].name && *sc[i].name ? sc[i].name : T("SEÇÃO"), nm, sizeof nm);
         int pct = sc[i].hit * 100 / sc[i].total; uint32_t c = mark && pct == sc[hi].hit * 100 / sc[hi].total ? RGB(20, 165, 0) : mark && pct == sc[lo].hit * 100 / sc[lo].total ? RGB(165, 0, 0) : ink;
         ROW(c, nm, "%d %%", pct); snprintf(rw[n - 1].mid, sizeof rw[n - 1].mid, "%d/%d", sc[i].hit, sc[i].total); if (i == 0) rw[n - 1].gap = 1; }
 #undef ROW
@@ -166,11 +169,11 @@ static int more_stats(double now) {
     for (float y = 304; y < yEnd + 40; y += 128) { spr("song_summary_detail_sheet_l", 129, y, 32, 128, WHITE); spr("song_summary_detail_sheet_r", 1087, y + 35, 64, 128, WHITE); }
     spr("song_summary_detail_sheet_bottom", 129, yEnd + 40, 1016, 128, WHITE);
     const uint32_t HEAD = RGB(118, 29, 30); int prac = A.mode == MODE_PRACTICE;
-    if (prac) txt(font, "SEÇÕES DO TREINO", 250, 125, 1.7f, 2.25f, 0, 0, 0, HEAD);
-    else { txt(font, "ANÁLISE", 250, 125, 2.75f, 2.75f, 0, 0, 0, HEAD); txt(font, "DETALHADA", 250, 215, 2.75f, 2.75f, 0, 0, 0, HEAD); }
-    { char t[200]; if (A.S.song->isBoss) { const char *p = strstr(A.S.song->title, "vs."); snprintf(t, sizeof t, "Batalha %s", p ? p : A.S.song->title); } else snprintf(t, sizeof t, "%s", A.S.song->title);   /* whose numbers they are */
+    if (prac) txt(font, T("SEÇÕES DO TREINO"), 250, 125, 1.7f, 2.25f, 0, 0, 0, HEAD);
+    else { txt(font, T("ANÁLISE"), 250, 125, 2.75f, 2.75f, 0, 0, 0, HEAD); txt(font, T("DETALHADA"), 250, 215, 2.75f, 2.75f, 0, 0, 0, HEAD); }
+    { char t[200]; if (A.S.song->isBoss) { const char *p = strstr(A.S.song->title, "vs."); snprintf(t, sizeof t, T("Batalha %s"), p ? p : A.S.song->title); } else snprintf(t, sizeof t, "%s", A.S.song->title);   /* whose numbers they are */
       char u[200]; upper(t, u, sizeof u); float w = tw(small, u) * 0.7f, k = w > 380 ? 0.7f * 380 / w : 0.7f; txt(small, u, 1030, prac ? 222 : 140, k, 0.7f, 0, 1, 0, RGB(75, 75, 75));
-      upper(DIFF_UP[A.S.diff < 0 ? 0 : A.S.diff > 3 ? 3 : A.S.diff], u, sizeof u); txt(small, u, 1030, prac ? 258 : 180, 0.6f, 0.6f, 0, 1, 0, RGB(118, 29, 30)); }
+      upper(T(DIFF_UP[A.S.diff < 0 ? 0 : A.S.diff > 3 ? 3 : A.S.diff]), u, sizeof u); txt(small, u, 1030, prac ? 258 : 180, 0.6f, 0.6f, 0, 1, 0, RGB(118, 29, 30)); }
     float y = 340; int hl = 1;
     for (int i = 0; i < n; i++) { if (rw[i].gap) y += 22; if (Y(y + RH) < 0 || Y(y) > A.H) { y += RH; hl = !hl; continue; }
         if (hl) gfx_rect(X(225), Y(y - 4), 830 * S, (RH - 4) * S, RGBA(0, 0, 0, 26)); hl = !hl;
@@ -180,11 +183,11 @@ static int more_stats(double now) {
         txt(font, rw[i].val, 1030, y, vw > 200 ? 200 / vw : 1, 1, 0, 1, 0, rw[i].col);
         y += RH; }
     S = 0.6f; OY = sy0;
-    static const char *bt[2] = { "↑↓", "A" }, *tx[2] = { "Mover a folha", "Continuar" }; ui_hints(A.H - 22, A.W, bt, tx, 2);
+    static const char *bt[2] = { "↑↓", "A" }, *tx[2] = { "Mover a folha", "Continuar" }; const char *txl[2] = { T(tx[0]), T(tx[1]) }; ui_hints(A.H - 22, A.W, bt, txl, 2);
     return 1;
 }
 /* ---- won: the magazine */
-static int magazine(double T) {
+static int magazine(double tS) {
     const ga_font *small = ga_font_get("fontgrid_text_a11"), *text = ga_font_get("fontgrid_text_a4"), *a3 = ga_font_get("fontgrid_text_a3"); int m = mag_of();
     gfx_sprite *bg = ga_img(m == 7 ? "song_summary_bg_hell" : "song_summary_bg"); if (!bg) bg = ga_img("song_summary_bg"); if (!bg || !small || !text) return 0;
     const gh3_run *r = &A.S.run; const unsigned char *P = SS1[m]; char b[200], nm[64]; int prac = A.mode == MODE_PRACTICE;
@@ -193,27 +196,27 @@ static int magazine(double T) {
     snprintf(nm, sizeof nm, "song_summary_logo_%s", MAGS[m]); spr(nm, 158, 25, 0, 0, WHITE);
     snprintf(nm, sizeof nm, "song_summary_sidebar_%s", MAGS[m]); spr(nm, 858, 130, 0, 0, WHITE);
     /* the cover: the song and the band, the notes hit in the burst */
-    if (A.S.song->isBoss) { const char *p = strstr(A.S.song->title, "vs."); snprintf(b, sizeof b, "Batalha %s", p ? p : A.S.song->title); } else snprintf(b, sizeof b, "%s", A.S.song->title);
+    if (A.S.song->isBoss) { const char *p = strstr(A.S.song->title, "vs."); snprintf(b, sizeof b, T("Batalha %s"), p ? p : A.S.song->title); } else snprintf(b, sizeof b, "%s", A.S.song->title);
     { float k = strlen(b) >= 19 ? 0.75f : 1; block(small, b, 262, 345, 0.75f * k, 0.75f * k, 300, -7.5f, 1, SSC[OFF]); }
     upper(A.S.song->artist, b, sizeof b); block(text, b, 262, 350, 0.5f, 0.55f, 400, -7.5f, 0, m <= 1 ? SSC[OFF] : SSC[ORG]);
     snprintf(nm, sizeof nm, "song_summary_percent_fill_%s", MAGS[m]); spr(nm, 267, 460, 336, 168, WHITE);
     int pc = A.resultPct; snprintf(b, sizeof b, "%d", pc); float pp[4] = { 302, 501, 1.6f, 1.6f }; if (pc == 100) { pp[0] = 290; pp[1] = 503; pp[2] = 1.3f; } else if (pc < 10) { pp[0] = 332; pp[1] = 496; }
     txt(text, b, pp[0], pp[1], pp[2], pp[3], -10, 0, 0, SSC[P[0]]); txt(text, "%", 364, 500, 1, 1, -10, 0, 0, SSC[P[0]]);
-    if (a3) { float w = tw(a3, "ACERTOS"); txt(a3, "ACERTOS", 403, 522, fminf(0.44f, 66 / w), 0.7f, -10, 0, 0, m == 7 ? SSC[HLIG] : BLK); }
+    if (a3) { const char *hit = T("ACERTOS"); float w = tw(a3, hit); txt(a3, hit, 403, 522, fminf(0.44f, 66 / w), 0.7f, -10, 0, 0, m == 7 ? SSC[HLIG] : BLK); }
     /* the score box: the stars and the score (practice: the notes), the difficulty */
     spr("song_summary_score_fill_l", 674, 90, 268, 67, SSC[P[3]]);
     if (!prac) { dots((long)r->score, b, sizeof b); float w = tw(text, b) * 0.9f, k = w > 200 ? 200 / w : 1; txt(text, b, 926, 116, 0.9f * k, 0.65f, 0, 1, 0.5f, SSC[P[4]]); }
-    else { snprintf(b, sizeof b, "%d DE %d", r->hits, r->nnotes); float w = tw(text, b) * 0.9f, k = w > 200 ? 0.9f * 200 / w : 0.9f; txt(text, b, 911, 117, k, 0.65f, -2, 1, 0.5f, SSC[P[4]]); }
+    else { snprintf(b, sizeof b, T("%d DE %d"), r->hits, r->nnotes); float w = tw(text, b) * 0.9f, k = w > 200 ? 0.9f * 200 / w : 0.9f; txt(text, b, 911, 117, k, 0.65f, -2, 1, 0.5f, SSC[P[4]]); }
     spr("song_summary_score_fill_r", 934, 83, 134, 67, SSC[P[5]]);
-    { const char *s = prac ? "NOTAS" : DIFF_UP[A.S.diff < 0 ? 0 : A.S.diff > 3 ? 3 : A.S.diff]; float w = tw(small, s) * 0.7f, k = w > 100 ? 100 / w : 1; txt(small, s, 946, prac ? 98 : 133, 0.7f * k, 0.6f * k, 0, 0, prac ? 0 : 1, SSC[P[6]]); }
+    { const char *s = T(prac ? "NOTAS" : DIFF_UP[A.S.diff < 0 ? 0 : A.S.diff > 3 ? 3 : A.S.diff]); float w = tw(small, s) * 0.7f, k = w > 100 ? 100 / w : 1; txt(small, s, 946, prac ? 98 : 133, 0.7f * k, 0.6f * k, 0, 0, prac ? 0 : 1, SSC[P[6]]); }
     /* the note streak */
     spr("song_summary_notestreak_fill", 719, 359, 0, 0, SSC[P[7]]);
     { int st = r->best; float sp[4] = { 752, 358, 1.5f, 1.5f }; if (st > 999) { sp[0] = 740; sp[2] = 1.12f; } else if (st > 99) sp[0] = 739; else if (st < 10) sp[0] = 766;
       snprintf(b, sizeof b, "%d", st); txt(text, b, sp[0], sp[1], sp[2], sp[3], 0, 0, 0, SSC[P[8]]);
-      float w = tw(small, "sequência"), h = ga_font_size(small), k = fminf(80 / w, 35 / h); txt(small, "sequência", 732, 425, k, k, 0, 0, 0, SSC[P[9]]); }
+      const char *ns = T("sequência"); float w = tw(small, ns), h = ga_font_size(small), k = fminf(80 / w, 35 / h); txt(small, ns, 732, 425, k, k, 0, 0, 0, SSC[P[9]]); }
     /* the choices (np_create_options_menu): the highlight and the magazine's own icon on the chosen one */
     static const float NP[7][3] = { { 680, 168, 1 }, { 680, 201, 0.5f }, { 680, 234, 0.5f }, { 680, 266, 0 }, { 680, 162, 0 }, { 680, 195, 0 }, { 680, 228, 0 } };
-    const char *items[3] = { "TOCAR DE NOVO", second_item(), "MAIS ESTATÍSTICAS" }; int first = prac ? 4 : 0; float off = prac ? -6 : 0;
+    const char *items[3] = { T("TOCAR DE NOVO"), second_item(), T("MAIS ESTATÍSTICAS") }; int first = prac ? 4 : 0; float off = prac ? -6 : 0;
     for (int i = 0; i < 3; i++) { float x = NP[first + i][0], y = NP[first + i][1] + off, rot = NP[first + i][2]; int on = i == A.resRow;
         if (on) { spr("song_summary_menu_hilite", x - 30, y + 5, 320, 40, SSC[P[10]]); snprintf(nm, sizeof nm, "song_summary_menu_icon_%s", MAGS[m]); spr(nm, x + 195, y - 17, 80, 80, WHITE); }
         if (on) txt_sh(small, items[i], x, y, i ? 0.8f : 0.85f, 0.7f, rot, 0, 0, SSC[OFF], 2); else txt(small, items[i], x, y, i ? 0.8f : 0.85f, 0.7f, rot, 0, 0, BLK); }
@@ -224,62 +227,62 @@ static void stack(const ga_font *f, const char *const *parts, const float *sc, c
     float total = 0; for (int i = 0; i < n; i++) total += tw(f, parts[i]) * sc[i]; float k = 0.5f; if (total * k > fitW) k = fitW / total; float x = cx - total * k / 2;
     for (int i = 0; i < n; i++) { float w = tw(f, parts[i]) * sc[i] * k; if (strcmp(parts[i], " ")) txt_sh(f, parts[i], x, cy, sc[i] * k, sc[i] * k, 0, 0, 0.5f, col[i], 1.5f); x += w; }
 }
-static int failed_window(double T) {
+static int failed_window(double tS) {
     const ga_font *title = ga_font_get("fontgrid_title_a1"); if (!title || !ga_img("dialog_menu_bg")) return 0;
-    const gh3_run *r = &A.S.run; int W = A.W, H = A.H; char b[200], song[160]; float k = T < 0.3 ? (float)(T / 0.3) : 1, e = 1 - (1 - k) * (1 - k);
-    if (A.mode == MODE_PRACTICE || !render_venue(A.resultsAt + T * 1000)) render_backdrop(A.resultsAt + T * 1000, SET.stageFx); gfx_rect(0, 0, (float)W, (float)H, RGBA(0, 0, 0, (int)(140 * e)));   /* (gh3-3d: the band's lose stance behind it, as in the game) */
+    const gh3_run *r = &A.S.run; int W = A.W, H = A.H; char b[200], song[160]; float k = tS < 0.3 ? (float)(tS / 0.3) : 1, e = 1 - (1 - k) * (1 - k);
+    if (A.mode == MODE_PRACTICE || !render_venue(A.resultsAt + tS * 1000)) render_backdrop(A.resultsAt + tS * 1000, SET.stageFx); gfx_rect(0, 0, (float)W, (float)H, RGBA(0, 0, 0, (int)(140 * e)));   /* (gh3-3d: the band's lose stance behind it, as in the game) */
     OY -= 40 * S * (1 - e); GA = e;
     ui_panel(X(388), Y(190), 508 * S, 340 * S, UI_PANEL_DARK);   /* the pause menu's frame */
     spr_s(mirror("dialog_title_bg", 1, 0), 416, 100, 224, 224, WHITE); spr("dialog_title_bg", 640, 100, 224, 224, WHITE);
-    const char *head = BTL.on ? "BATALHA PERDIDA" : "VOCÊ FALHOU"; { float w = tw(title, head) * 1.2f, s = w > 285 ? 285 / w * 1.2f : 1.2f; txt_sh(title, head, 640, 217, s, s, 0, 0.5f, 0.5f, RGB(223, 223, 223), 3); }
-    const char *dn = DIFF_UP[A.S.diff < 0 ? 0 : A.S.diff > 3 ? 3 : A.S.diff]; uint32_t OR = RGB(210, 130, 0), LT = RGB(223, 223, 223);
-    if (BTL.on && BTL.boss) { upper(BTL.boss->name, b, sizeof b); strcat(b, " "); const char *pt[6] = { b, "VENCEU", " ", "NO", " ", dn }; const float sc[6] = { 2, 2, 1, 1, 1, 1 }; const uint32_t cl[6] = { LT, LT, OR, OR, OR, OR }; stack(title, pt, sc, cl, 6, 640, 383, 425); }
+    const char *head = T(BTL.on ? "BATALHA PERDIDA" : "VOCÊ FALHOU"); { float w = tw(title, head) * 1.2f, s = w > 285 ? 285 / w * 1.2f : 1.2f; txt_sh(title, head, 640, 217, s, s, 0, 0.5f, 0.5f, RGB(223, 223, 223), 3); }
+    const char *dn = T(DIFF_UP[A.S.diff < 0 ? 0 : A.S.diff > 3 ? 3 : A.S.diff]); uint32_t OR = RGB(210, 130, 0), LT = RGB(223, 223, 223);
+    if (BTL.on && BTL.boss) { upper(BTL.boss->name, b, sizeof b); strcat(b, " "); const char *pt[6] = { b, T("VENCEU"), " ", T("NO"), " ", dn }; const float sc[6] = { 2, 2, 1, 1, 1, 1 }; const uint32_t cl[6] = { LT, LT, OR, OR, OR, OR }; stack(title, pt, sc, cl, 6, 640, 383, 425); }
     else { upper(A.S.song->title, song, sizeof song); float w = tw(title, song) * 1.65f, s = w > 430 ? 430 / w * 1.65f : 1.65f; txt_sh(title, song, 640, 367, s, s, 0, 0.5f, 0.5f, LT, 3);
         int pct = r->endMs > 0 ? (int)(fmax(0, r->now) / r->endMs * 100) : 0; if (pct > 100) pct = 100; char ps[16]; snprintf(ps, sizeof ps, "%d", pct);
-        const char *pt[7] = { "COMPLETOU", " ", ps, "% ", "NO", " ", dn }; const float sc[7] = { 1, 1, 2, 1, 1, 1, 2 }; const uint32_t cl[7] = { OR, OR, OR, OR, OR, OR, OR }; stack(title, pt, sc, cl, 7, 640, 422, 405); }
+        const char *pt[7] = { T("COMPLETOU"), " ", ps, "% ", T("NO"), " ", dn }; const float sc[7] = { 1, 1, 2, 1, 1, 1, 2 }; const uint32_t cl[7] = { OR, OR, OR, OR, OR, OR, OR }; stack(title, pt, sc, cl, 7, 640, 422, 405); }
     /* the choices in the dialog box */
     spr("dialog_menu_bg", 480, 450, 320, 62, WHITE); spr_s(mirror("dialog_menu_bg", 0, 1), 480, 512, 320, 62, WHITE); spr("white", 492, 500, 300, 24, RGB(223, 223, 223));
-    const char *items[2] = { "TOCAR DE NOVO", second_item() }; const float iy[2] = { 484, 538 };
+    const char *items[2] = { T("TOCAR DE NOVO"), second_item() }; const float iy[2] = { 484, 538 };
     for (int i = 0; i < 2; i++) { float w = tw(title, items[i]) * 0.9f, sx = w > 220 ? 220 / w * 0.9f : 0.9f; int on = i == A.resRow; if (w > 220) w = 220;
         txt(title, items[i], 640, iy[i], sx, 0.95f, 0, 0.5f, 0.5f, on ? RGB(180, 50, 50) : BLK);
         if (on) { spr_s(mirror("dialog_menu_hilight", 1, 0), 635 - w / 2 - 64, iy[i] - 16, 64, 32, WHITE); spr("dialog_menu_hilight", 645 + w / 2, iy[i] - 16, 64, 32, WHITE); } }
     spr("dialog_frame_joiner", 480, 510, 50, 48, WHITE); spr_s(mirror("dialog_frame_joiner", 1, 0), 750, 514, 50, 48, WHITE);
     /* what the run did, under it */
     char lines[3][160]; int n = 0; char sc[32]; dots((long)r->score, sc, sizeof sc);
-    snprintf(lines[n++], 160, "PONTOS %s     NOTAS %d DE %d (%d%%)     MAIOR SEQUÊNCIA %d", sc, r->hits, r->nnotes, A.resultPct, r->best);
-    if (BTL.on && BTL.boss) snprintf(lines[n++], 160, "Ataques: %d seus, %d de %s", BTL.me.fired, BTL.cpu.fired, BTL.boss->name);
+    snprintf(lines[n++], 160, T("PONTOS %s     NOTAS %d DE %d (%d%%)     MAIOR SEQUÊNCIA %d"), sc, r->hits, r->nnotes, A.resultPct, r->best);
+    if (BTL.on && BTL.boss) snprintf(lines[n++], 160, T("Ataques: %d seus, %d de %s"), BTL.me.fired, BTL.cpu.fired, BTL.boss->name);
     if (notes_line(b, sizeof b)) snprintf(lines[n++], 160, "%s", b);
     GA = 1; strip(lines, n); return 1;
 }
 
 int orig_results_draw(double now) {
-    if (!ga_ok() || !A.S.song) return 0; int W = A.W, H = A.H; double T = (now - A.resultsAt) / 1000; const gh3_run *r = &A.S.run; char b[200];
+    if (!ga_ok() || !A.S.song) return 0; int W = A.W, H = A.H; double tS = (now - A.resultsAt) / 1000; const gh3_run *r = &A.S.run; char b[200];
     S = fmaxf(W / 1280.0f, H / 720.0f); OX = (W - 1280 * S) / 2; OY = (H - 720 * S) / 2; GA = 1;
-    if (r->failed) { if (!failed_window(T)) return 0; hints(); return 1; }
+    if (r->failed) { if (!failed_window(tS)) return 0; hints(); return 1; }
     { static double flamesFor = -1e18;   /* win_song: one player's won song plays Fret_Flames as "You Rock!" comes (a battle had its own movie; none in practice) */
       if (A.resultsAt != flamesFor && !BTL.on && !A.S.song->isBoss && A.mode != MODE_PRACTICE) { flamesFor = A.resultsAt; overlay_play("Fret_Flames", A.resultsAt); } }
     if (A.resMore) return more_stats(now);
     /* the magazine lands: a little large and see-through at first, over the stage */
-    float k = T < 0.45 ? (float)(T / 0.45) : 1, e = 1 - (1 - k) * (1 - k), z = 1 + 0.12f * (1 - e);
+    float k = tS < 0.45 ? (float)(tS / 0.45) : 1, e = 1 - (1 - k) * (1 - k), z = 1 + 0.12f * (1 - e);
     if (k < 1) { if (!ga_img("song_summary_bg")) return 0; if (A.mode == MODE_PRACTICE || !render_venue(now)) render_backdrop(now, SET.stageFx); }
-    float S0 = S; S = S0 * z; OX = W / 2.0f - 640 * S; OY = H / 2.0f - 360 * S; GA = fminf(1, (float)T / 0.3f);
-    if (!magazine(T)) return 0;
+    float S0 = S; S = S0 * z; OX = W / 2.0f - 640 * S; OY = H / 2.0f - 360 * S; GA = fminf(1, (float)tS / 0.3f);
+    if (!magazine(tS)) return 0;
     const ga_font *small = ga_font_get("fontgrid_text_a11"), *title = ga_font_get("fontgrid_title_a1");
     /* the stars in the score box (or a battle won, in their place) */
-    if (BTL.on) { if (BTL.boss && small) { upper(BTL.boss->name, b, sizeof b); char t[160]; snprintf(t, sizeof t, "VENCEU %.140s!", b); float w = tw(small, t) * 0.5f, s = w > 150 ? 0.5f * 150 / w : 0.5f; txt(small, t, 686, 122, s, 0.5f, 0, 0, 0.5f, SSC[SS1[mag_of()][1]]); } }
+    if (BTL.on) { if (BTL.boss && small) { upper(BTL.boss->name, b, sizeof b); char t[160]; snprintf(t, sizeof t, T("VENCEU %.140s!"), b); float w = tw(small, t) * 0.5f, s = w > 150 ? 0.5f * 150 / w : 0.5f; txt(small, t, 686, 122, s, 0.5f, 0, 0, 0.5f, SSC[SS1[mag_of()][1]]); } }
     int starX = (int)X(744), starY = (int)Y(116), starS = (int)(23 * S + 0.5f);
     S = S0; OX = (W - 1280 * S) / 2; OY = (H - 720 * S) / 2; GA = 1;
     /* a new record: a stamp on the cover */
-    if (A.newRecord && T > 1.9 && small) { float q = (float)fmin(1, (T - 1.9) / 0.3), pop = 1 + 0.6f * (1 - q) * (1 - q); GA = q;
+    if (A.newRecord && tS > 1.9 && small) { float q = (float)fmin(1, (tS - 1.9) / 0.3), pop = 1 + 0.6f * (1 - q) * (1 - q); GA = q;
         float cx = 440, cy = 414, w = 330 * pop, h = 44 * pop; spr("song_summary_menu_hilite", cx - w / 2, cy - h / 2, w, h, RGB(170, 30, 25));
-        txt_sh(small, "NOVO RECORDE!", cx, cy - 2, 0.62f * pop, 0.62f * pop, -2, 0.5f, 0.5f, SSC[OFF], 2); GA = 1; }
+        txt_sh(small, T("NOVO RECORDE!"), cx, cy - 2, 0.62f * pop, 0.62f * pop, -2, 0.5f, 0.5f, SSC[OFF], 2); GA = 1; }
     /* the career's pay, on the page's corner */
-    if (A.mode == MODE_CAREER && !r->autoPlay && !SET.noFail && T >= 1.2 && title) { float q = (float)fmin(1, (T - 1.2) / 0.3); GA = q; int g = store_last_gain(); char c[32];
+    if (A.mode == MODE_CAREER && !r->autoPlay && !SET.noFail && tS >= 1.2 && title) { float q = (float)fmin(1, (tS - 1.2) / 0.3); GA = q; int g = store_last_gain(); char c[32];
         if (g > 0) { dots(g, c, sizeof c); snprintf(b, sizeof b, "+$%s", c); txt_sh(title, b, 660, 578 - 12 * (1 - q), 0.75f, 0.75f, -3, 0, 0, RGB(49, 196, 102), 3); }
-        else txt(small, "sem dinheiro novo", 660, 588, 0.45f, 0.45f, -3, 0, 0, RGB(60, 60, 60));
+        else txt(small, T("sem dinheiro novo"), 660, 588, 0.45f, 0.45f, -3, 0, 0, RGB(60, 60, 60));
         snprintf(b, sizeof b, "total %s", store_cash_str()); txt(small, b, 864, 584, 0.45f, 0.45f, -3, 1, 0, RGB(60, 60, 60)); GA = 1; }
-    you_rock(T);
-    if (!BTL.on && A.mode != MODE_PRACTICE) fx_stars(starX, starY, A.resultStars, starS, T, 1);   /* landing one by one with the dings, over the letters' dark */
+    you_rock(tS);
+    if (!BTL.on && A.mode != MODE_PRACTICE) fx_stars(starX, starY, A.resultStars, starS, tS, 1);   /* landing one by one with the dings, over the letters' dark */
     { char lines[1][160]; if (notes_line(lines[0], sizeof lines[0])) strip(lines, 1); }
     hints(); return 1;
 }
