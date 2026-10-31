@@ -1,6 +1,7 @@
 /* Guitar Hero III for the R36S: a native player for the game's own PC data files.
  * Reads DATA/ (qb.pak, the song paks, the FSB audio banks), judges notes the way the game does, keeps the career,
  * records and settings, draws through SDL_Renderer (GLES2 on the device) and plays the MP3 streams through SDL audio. */
+#include "lang.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,6 +95,8 @@ static void cfg_args(int argc, char **argv) {
         else if (!strcmp(a, "--judgetest")) judgeTest = 1;
         else if (!strcmp(a, "--stretchtest")) cfg.stretchtest = 1;
         else if (!strcmp(a, "--moneytest")) moneyTest = 1;
+        else if (!strcmp(a, "--lang")) { SET.lang = lang_from_code(v); i++; }   /* --lang pt|en|es: the language for this run (not saved unless the options are) */
+        else if (!strcmp(a, "--langtest")) { lang_set(LANG_PT); exit(lang_check() ? 1 : 0); }
         else if (!strcmp(a, "--movietest")) { snprintf(cfg.movietest, sizeof cfg.movietest, "%s", v); i++; }
         else if (!strcmp(a, "--movieplay")) cfg.movieplay = 1;
         else if (!strcmp(a, "--screens")) { cfg.screens = 1; snprintf(cfg.outdir, sizeof cfg.outdir, "%s", v); i++; }
@@ -614,7 +617,7 @@ static void frames_mode(void) {
 /* ------------------------------------------------------------------ main */
 int main(int argc, char **argv) {
     settings_defaults(); settings_load(); records_load();
-    cfg_defaults(); cfg_args(argc, argv);
+    cfg_defaults(); cfg_args(argc, argv); lang_set(SET.lang);
     index_dir(cfg.data, "");
     if (!nfiles) fprintf(stderr, "no game files under %s (set GH3_DATA or --data)\n", cfg.data);
     { size_t pl, bl; uint8_t *pak = read_data("pak", "qb.pak.xen", &pl), *pab = read_data("pak", "qb.pab.xen", &bl);

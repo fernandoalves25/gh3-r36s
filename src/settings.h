@@ -35,6 +35,7 @@ typedef struct {
     char rocker[24];    /* the player's character (charsel.c): a musician profile's NAME ("Axel", "Satan"…); "" = Axel */
     unsigned outfit, guitar;   /* its outfit (musician_body desc_id) and guitar (musician_instrument desc_id); 0 = the rocker's own */
     int whamRest, whamFull, whamSens;   /* the whammy (Calibrar alavanca): how far the stick reads at rest and pushed all the way (% of its throw), and the sensitivity (% : 100 as measured) */
+    int lang;           /* the language of the menus and texts: LANG_PT / LANG_EN / LANG_ES (lang.h) */
     bind_t binds[ACT_N][BIND_SLOTS];
 } settings_t;
 extern settings_t SET;

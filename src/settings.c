@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "input.h"
+#include "lang.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +36,7 @@ int settings_save(void) {
     fprintf(f, "easy_expert=%d\nprecision=%d\ntrapacas_codigos=%d\n", SET.easyExpert, SET.precision, SET.cheatCodes);
     fprintf(f, "air_guitar=%d\nperformance_mode=%d\nbret_michaels=%d\n", SET.airGuitar, SET.perfMode, SET.bretMichaels);
     fprintf(f, "roqueiro=%s\nvisual=%08x\nguitarra=%08x\n", SET.rocker, SET.outfit, SET.guitar);
+    fprintf(f, "idioma=%s\n", lang_code(SET.lang));
     fprintf(f, "alavanca_repouso=%d\nalavanca_cheia=%d\nalavanca_sensibilidade=%d\n", SET.whamRest, SET.whamFull, SET.whamSens);
     for (int a = 0; a < ACT_N; a++) for (int s = 0; s < BIND_SLOTS; s++) { char b[40]; bind_to_str(&SET.binds[a][s], b, sizeof b); fprintf(f, "controle_%s_%d=%s\n", ACTKEY[a], s + 1, b); }
     fclose(f); return 0;
@@ -54,6 +56,7 @@ int settings_load(void) {
         else if (!strcmp(k, "liberar_tudo")) SET.unlockAll = !!n; /* tema= of older files is ignored: the Original look is the only one */
         else if (!strcmp(k, "roqueiro")) snprintf(SET.rocker, sizeof SET.rocker, "%s", v); else if (!strcmp(k, "visual")) SET.outfit = (unsigned)strtoul(v, NULL, 16); else if (!strcmp(k, "guitarra")) SET.guitar = (unsigned)strtoul(v, NULL, 16);
         else if (!strcmp(k, "alavanca_repouso")) SET.whamRest = n < 0 ? 0 : n > 80 ? 80 : n; else if (!strcmp(k, "alavanca_cheia")) SET.whamFull = n < 20 ? 20 : n > 100 ? 100 : n; else if (!strcmp(k, "alavanca_sensibilidade")) SET.whamSens = n < 50 ? 50 : n > 200 ? 200 : n;
+        else if (!strcmp(k, "idioma")) SET.lang = lang_from_code(v);
         else if (!strcmp(k, "easy_expert")) SET.easyExpert = !!n; else if (!strcmp(k, "precision")) SET.precision = !!n; else if (!strcmp(k, "trapacas_codigos")) SET.cheatCodes = n;
         else if (!strcmp(k, "air_guitar")) SET.airGuitar = !!n; else if (!strcmp(k, "performance_mode")) SET.perfMode = !!n; else if (!strcmp(k, "bret_michaels")) SET.bretMichaels = !!n;
         else if (!strncmp(k, "controle_", 9)) { for (int a = 0; a < ACT_N; a++) { size_t L = strlen(ACTKEY[a]); if (!strncmp(k + 9, ACTKEY[a], L) && k[9 + L] == '_') { int s = atoi(k + 10 + L) - 1; if (s >= 0 && s < BIND_SLOTS) str_to_bind(v, &SET.binds[a][s]); } } }
