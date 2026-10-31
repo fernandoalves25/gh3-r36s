@@ -127,7 +127,7 @@ static int ctrl_draw(const int *items, int n, const char *const *optLabel, const
 /* ================================================================== GRAPHICS (winport_create_gfx_settings_menu): the blue poster, a list on it */
 static int gfx_draw(int cat, const char *const *catLabel, const int *items, int n, const char *const *optLabel, const char *const *optHelp, void (*value)(int, char *, size_t)) {
     const ga_font *text = ga_font_get(F_TEXT), *note = ga_font_get(F_NOTE); if (!ga_img("graphics_options_poster_part1") || !text || !note) return 0;
-    int W = A.W, H = A.H; const float X0 = 120, X1 = 520, TOP = 152, ROW = 27, SZ = 19; char v[48], b[64];
+    int W = A.W, H = A.H; const float X0 = 120, X1 = 520, TOP = n > 7 ? 140 : 152, ROW = n > 7 ? 24 : 27, SZ = 19; char v[48], b[64];   /* eight rows (the 3D build's Vídeo, with Idioma): closer, for the help under them */
     static const char *PART[3] = { "graphics_options_poster_part1", "graphics_options_poster_part2", "graphics_options_poster_part3" };
     for (int p = 0; p < 3; p++) img(PART[p], 47, -50, 546, 580, WHITE, 1);
     tape("tape_v_01", W - 58, 196, 44, 88); tape("tape_h_02", 18, 316, 85, 43);
@@ -137,7 +137,8 @@ static int gfx_draw(int cat, const char *const *catLabel, const int *items, int 
         const char *l = T(optLabel[i]); float vw = v[0] ? ga_text_w(text, v, SZ) + 14 : 0, lw = X1 - X0 - vw;   /* a longer label (English, Spanish) shrinks to leave the value its room */
         ga_text_fit(text, X0 - 1, y + 1, SZ, lw, l, RGB(0, 0, 0), 0); ga_text_fit(text, X0, y, SZ, lw, l, WHITE, 0);
         if (v[0]) { snprintf(b, sizeof b, "%s", v); ga_text_right(text, X1 - 1, y + 1, SZ, b, RGB(0, 0, 0)); ga_text_right(text, X1, y, SZ, b, on ? RGB(230, 171, 60) : WHITE); } }
-    { const char *hp = T(optHelp[items[A.optRow]]); float y = TOP + n * ROW + 12; gfx_text_box(102, (int)y + 1, 290, 1, hp, C_SHADOW); y += gfx_text_box(101, (int)y, 290, 1, hp, C_INK) + 6; gfx_text_sh(101, (int)y, 1, T("salvas ao sair"), C_MUTED, C_SHADOW); }
+    { const char *hp = T(optHelp[items[A.optRow]]); float y = TOP + n * ROW + 12, hh = (float)gfx_text_box(101, 0, 290, 1, hp, RGBA(0, 0, 0, 0)); if (y + hh + 16 > H - 40) y = H - 40 - hh - 16;   /* a long help (English, Spanish) rises to stay over the button pills */
+      gfx_text_box(102, (int)y + 1, 290, 1, hp, C_SHADOW); y += gfx_text_box(101, (int)y, 290, 1, hp, C_INK) + 6; gfx_text_sh(101, (int)y, 1, T("salvas ao sair"), C_MUTED, C_SHADOW); }
     static const char *bt[3] = { "← →", "A", "B" }; const char *tx[3] = { T("Mudar"), T("Abrir"), T("Voltar") }; ui_hints(H - 24, W, bt, tx, 3);
     return 1;
 }

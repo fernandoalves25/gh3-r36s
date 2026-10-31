@@ -550,7 +550,8 @@ static void screens_mode(void) { /* the menus, drawn headlessly for a look */
     A.mode = MODE_PRACTICE; A.practiceSec = 3; A.practiceEnd = 5; A.practiceSpeed = 2; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_practice"); A.mode = MODE_CAREER; A.practiceSec = A.practiceEnd = A.practiceSpeed = 0;
     { int r0 = A.setupRow; A.setupRow = 4; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_play"); A.setupRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("setup_part"); A.setupRow = r0; }
     A.screen = SC_OPTIONS; A.optCat = 0; A.optRow = 1; gfx_begin(); screens_draw(0); gfx_end(); save_named("options");
-    A.optCat = 1; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Vídeos de abertura) */
+    A.optCat = 1; A.optRow = 99; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video");   /* Vídeo, on its last row (Idioma) */
+    A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_video_row2");   /* and its third (gh3-3d: Banda 3D, the longest help) */
     A.optCat = 4; A.optRow = 0; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle");   /* Controle, on Canhoto */
     { A.optRow = 2; gfx_begin(); screens_draw(0); gfx_end(); save_named("options_controle_alavanca");   /* on Calibrar alavanca, then its three steps (the readings made up; nothing saved) */
       screens_event(IN_OK, 0); A.whamNow = 0.08f; gfx_begin(); screens_draw(0); gfx_end(); save_named("whammy_rest"); screens_event(IN_OK, 0);
